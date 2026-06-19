@@ -1,0 +1,30 @@
+#!/bin/sh
+set -e
+
+# Drives a CLike example program (hello) from a sibling component that a
+# standalone exsh clone does not ship. Self-skip (exit 77 = skip) when the
+# example program is absent beside this checkout; the harness treats 77 as a
+# skip.
+if [ ! -f Examples/clike/base/hello ]; then
+    echo "pipeline-bg-tool-redirect:start"
+    echo "pipeline-bg-tool-redirect:file-missing"
+    echo "pipeline-bg-tool-redirect:end"
+    exit 77
+fi
+
+tmp="./exsh-bg-tool-redirect.$$"
+rm -f "$tmp"
+echo "pipeline-bg-tool-redirect:start"
+
+Examples/clike/base/hello > "$tmp" 2>&1 &
+wait
+
+if grep "Hello World!" "$tmp" >/dev/null 2>&1; then
+    echo "pipeline-bg-tool-redirect:file-ok"
+else
+    echo "pipeline-bg-tool-redirect:file-missing"
+fi
+
+rm -f "$tmp"
+echo "pipeline-bg-tool-redirect:end"
+exit 0

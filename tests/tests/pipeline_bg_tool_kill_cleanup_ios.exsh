@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+# This case drives a CLike example program (simple_web_server) that lives in a
+# sibling component and needs the clike front end plus networking. A standalone
+# exsh clone ships neither, so self-skip (exit 77 = skip) when the example
+# program is not present beside this checkout. The harness treats 77 as a skip.
+if [ ! -f Examples/clike/base/simple_web_server ]; then
+    echo "pipeline-bg-tool-simple-web:start"
+    echo "pipeline-bg-tool-simple-web:file-missing"
+    echo "pipeline-bg-tool-simple-web:end"
+    exit 77
+fi
+
+tmp="./exsh-bg-tool-simple-web.$$"
+rm -f "$tmp"
+
+echo "pipeline-bg-tool-simple-web:start"
+Examples/clike/base/simple_web_server 1 > "$tmp" 2>&1 &
+pid=$!
+wait "$pid" 2>/dev/null || true
+
+if grep "initFiles: RootDir=" "$tmp" >/dev/null 2>&1; then
+    echo "pipeline-bg-tool-simple-web:file-ok"
+else
+    echo "pipeline-bg-tool-simple-web:file-missing"
+fi
+echo "pipeline-bg-tool-simple-web:end"
+
+rm -f "$tmp"
+exit 0

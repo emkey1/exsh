@@ -1,0 +1,4 @@
+echo "source-dot:start"
+. tests/tests/source_dot_helper.exsh
+echo "after:$DOT_VALUE"
+echo "source-dot:end"

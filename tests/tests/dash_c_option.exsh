@@ -1,0 +1,49 @@
+# Honour the binary the harness is exercising ($EXSH_BIN), falling back to the
+# standalone build output then the umbrella layout, then PATH. Keeps the test
+# relocatable across layouts.
+if [ -z "${EXSH_BIN:-}" ]; then
+  for cand in ./build/exsh ./build/bin/exsh; do
+    if [ -x "$cand" ]; then EXSH_BIN="$cand"; break; fi
+  done
+fi
+if [ -z "${EXSH_BIN:-}" ]; then
+  EXSH_BIN="$(command -v exsh 2>/dev/null || true)"
+fi
+
+if [ -z "${EXSH_BIN:-}" ] || [ ! -x "$EXSH_BIN" ]; then
+  echo "command-output:missing-executable"
+  echo "missing-status:-1"
+  echo "missing-error:exsh binary not built"
+  exit 1
+fi
+
+command_output=$("$EXSH_BIN" -c 'printf "%s:%s:%s\n" "$0" "$1" "$2"' custom0 first second)
+"$EXSH_BIN" -c 1>/dev/null 2>__dash_c_err.txt
+missing_status=$?
+missing_error=$(tr -d '\n' < __dash_c_err.txt)
+rm -f __dash_c_err.txt
+
+if [ "$command_output" != "custom0:first:second" ]; then
+  echo "command-output:$command_output"
+  echo "missing-status:$missing_status"
+  echo "missing-error:$missing_error"
+  exit 1
+fi
+
+if [ "$missing_status" -ne 2 ]; then
+  echo "command-output:$command_output"
+  echo "missing-status:$missing_status"
+  echo "missing-error:$missing_error"
+  exit 1
+fi
+
+if [ "$missing_error" != "exsh: -c: option requires an argument" ]; then
+  echo "command-output:$command_output"
+  echo "missing-status:$missing_status"
+  echo "missing-error:$missing_error"
+  exit 1
+fi
+
+echo "command-output:$command_output"
+echo "missing-status:$missing_status"
+echo "missing-error:$missing_error"

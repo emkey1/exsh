@@ -68,3 +68,27 @@ set(EXSH_SOURCES
 add_executable(exsh ${EXSH_SOURCES})
 target_compile_definitions(exsh PRIVATE FRONTEND_SHELL)
 target_link_libraries(exsh PRIVATE pscal_core_static Threads::Threads m)
+
+# ---- Install ----------------------------------------------------------------
+# `cmake --install build` puts `exsh` on PATH and ships the examples and the
+# shell docs beside it. The rules below install only exsh's own artifacts; the
+# fetched pscal-core also contributes its own install rules (static lib,
+# headers, docs), so a full install additionally lays those down.
+include(GNUInstallDirs)
+install(TARGETS exsh RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/examples/
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/exsh/examples)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/docs/
+        DESTINATION ${CMAKE_INSTALL_DOCDIR})
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+        DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+# ---- Test -------------------------------------------------------------------
+# `ctest` runs the manifest-driven regression corpus in tests/ against the
+# binary just built. The harness treats exit code 77 as a skip, so cases that
+# need a sibling component or a capability a standalone clone does not ship
+# self-skip and a minimal build stays green.
+enable_testing()
+add_test(NAME exsh_tests COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.sh)
+set_tests_properties(exsh_tests PROPERTIES
+    ENVIRONMENT "EXSH_BIN=$<TARGET_FILE:exsh>")
