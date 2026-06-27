@@ -228,6 +228,7 @@ static int shellRunExshShebang(const char *path, char *const *argv) {
 extern int pascal_main(int argc, char **argv);
 extern int clike_main(int argc, char **argv);
 extern int rea_main(int argc, char **argv);
+extern int aether_main(int argc, char **argv);
 extern int pscalvm_main(int argc, char **argv);
 extern int pscaljson2bc_main(int argc, char **argv);
 #ifdef BUILD_DASCAL
@@ -257,6 +258,7 @@ static int shellSpawnToolRunner(const char *tool_name, int argc, char **argv) {
         {"pascal", pascal_main},
         {"clike", clike_main},
         {"rea", rea_main},
+        {"aether", aether_main},
         {"pscalvm", pscalvm_main},
         {"pscaljson2bc", pscaljson2bc_main},
 #ifdef BUILD_DASCAL

@@ -64,6 +64,7 @@ static const ShellBuiltinEntry kShellBuiltins[] = {
     {"wait", "wait", 20},
     {"WaitForThread", "waitforthread", 1056},
 #ifdef PSCAL_MOBILE_PLATFORM
+    {"aether", "aether", -1},
     {"cal", "cal", -1},
     {"chmod", "chmod", -1},
     {"clike", "clike", -1},
