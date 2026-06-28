@@ -4264,10 +4264,21 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         if (tty && pscalRuntimeStdinHasRealTTY() &&
             shellTcgetattr(STDIN_FILENO, &runtime_original_termios) == 0) {
             struct termios runtime_termios = runtime_original_termios;
-            /* Keep command execution input byte-oriented so Ctrl-C/Z are
-             * observed immediately by the session input reader rather than
-             * line-buffered until newline in canonical mode. */
-            runtime_termios.c_lflag &= ~(ICANON | ECHO | ISIG);
+            /* Keep command-execution input byte-oriented (no line buffering) so
+             * frontends see input immediately. Disable ISIG only when a
+             * PTY-backed session reader is active (device path), which consumes
+             * the Ctrl-C/Z byte and converts it to the abort flag. On a plain
+             * host TTY there is no such reader, so KEEP ISIG enabled: the
+             * terminal then generates SIGINT, which the process-wide block keeps
+             * from killing the shell and the tool-runner's sigwait catcher turns
+             * into the SIGUSR1 worker poke + abort flag. */
+            VProcSessionStdio *exec_session = vprocSessionStdioCurrent();
+            bool pty_session = exec_session && !vprocSessionStdioIsDefault(exec_session);
+            if (pty_session) {
+                runtime_termios.c_lflag &= ~(ICANON | ECHO | ISIG);
+            } else {
+                runtime_termios.c_lflag &= ~(ICANON | ECHO);
+            }
             runtime_termios.c_cc[VMIN] = 1;
             runtime_termios.c_cc[VTIME] = 0;
             if (shellTcsetattr(STDIN_FILENO, TCSANOW, &runtime_termios) == 0) {
@@ -4294,6 +4305,25 @@ static int runInteractiveSession(const ShellRunOptions *options) {
 int exsh_main(int argc, char **argv) {
     FrontendKind previousKind = frontendPushKind(FRONTEND_KIND_SHELL);
 #if defined(PSCAL_TARGET_IOS)
+    /* Centralize SIGINT ownership: block it process-wide before any thread is
+     * created, so every thread (shell VM, session readers, tool workers,
+     * frontends) inherits SIGINT blocked. A foreground Ctrl-C can then never be
+     * delivered asynchronously to a SIG_DFL disposition (which would kill the
+     * whole shell); the tool-runner's dedicated sigwait catcher dequeues it and
+     * pokes the worker with SIGUSR1 (longjmp interrupt) + sets the VM abort
+     * flag. The interactive line editor handles its own Ctrl-C byte. */
+    {
+        sigset_t block_set;
+        sigemptyset(&block_set);
+        sigaddset(&block_set, SIGINT);
+        /* Also block SIGUSR1 process-wide: it is the tool-runner's worker
+         * "poke" used to interrupt blocked applet read()s. Blocking it by
+         * default means VM-frontend workers (which never unblock it) treat a
+         * stray poke as a harmless no-op instead of being terminated by
+         * SIGUSR1's default disposition; applet workers explicitly unblock it. */
+        sigaddset(&block_set, SIGUSR1);
+        pthread_sigmask(SIG_BLOCK, &block_set, NULL);
+    }
 #define EXSH_RETURN(value)                             \
     do {                                               \
         int __exsh_rc = (value);                       \
