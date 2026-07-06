@@ -42,6 +42,7 @@ void shellHistoryLoadFromFile(void);
 #include "ext_builtins/register.h"
 #include "core/globals.h"
 #include "vm/vm.h"
+#include "vm/vm_fx_policy.h"
 #include "symbol/symbol.h"
 #include "common/frontend_kind.h"
 #include "common/runtime_tty.h"
@@ -4459,6 +4460,12 @@ int exsh_main(int argc, char **argv) {
                 command_param_start = i + 2;
             }
             break;
+        } else if (pscalFxIsCliFlag(argv[i])) {
+            const char *fx_value = (i + 1 < argc) ? argv[i + 1] : NULL;
+            if (!pscalFxHandleCliFlag(argv[i], fx_value)) {
+                EXSH_RETURN(EXIT_FAILURE);
+            }
+            i++;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n%s\n", argv[i], SHELL_USAGE);
             EXSH_RETURN(EXIT_FAILURE);
