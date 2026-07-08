@@ -43,6 +43,7 @@ void shellHistoryLoadFromFile(void);
 #include "core/globals.h"
 #include "vm/vm.h"
 #include "vm/vm_fx_policy.h"
+#include "ext_builtins/plugin_loader.h"
 #include "symbol/symbol.h"
 #include "common/frontend_kind.h"
 #include "common/runtime_tty.h"
@@ -4463,6 +4464,12 @@ int exsh_main(int argc, char **argv) {
         } else if (pscalFxIsCliFlag(argv[i])) {
             const char *fx_value = (i + 1 < argc) ? argv[i + 1] : NULL;
             if (!pscalFxHandleCliFlag(argv[i], fx_value)) {
+                EXSH_RETURN(EXIT_FAILURE);
+            }
+            i++;
+        } else if (pscalExtIsCliFlag(argv[i])) {
+            const char *ext_value = (i + 1 < argc) ? argv[i + 1] : NULL;
+            if (!pscalExtHandleCliFlag(argv[i], ext_value)) {
                 EXSH_RETURN(EXIT_FAILURE);
             }
             i++;
