@@ -296,7 +296,10 @@ static ShellToken scanParameter(ShellLexer *lexer) {
             }
         }
     } else {
-        if (c == '?' || c == '@' || c == '*' || c == '!' || c == '-' || c == '$') {
+        /* '#' must be listed here: without it the '$' is consumed alone, the
+         * word ends, and the trailing '#' is then taken for a comment, which
+         * silently swallows the rest of the line (e.g. `if [ $# -eq 0 ]`). */
+        if (c == '?' || c == '@' || c == '*' || c == '!' || c == '-' || c == '$' || c == '#') {
             advanceChar(lexer);
         } else {
             size_t name_bytes = 0;
@@ -580,7 +583,9 @@ static ShellToken scanWord(ShellLexer *lexer) {
                 eqSuppressDepth--;
                 continue;
             } else {
-                if (next == '?' || next == '@' || next == '*' || next == '!' || next == '-' || next == '$') {
+                /* See the note in scanParameter: '#' belongs to the special
+                 * parameter set, or `$#` degrades into a comment. */
+                if (next == '?' || next == '@' || next == '*' || next == '!' || next == '-' || next == '$' || next == '#') {
                     if (bufLen + 1 >= bufCap) {
                         bufCap = bufCap ? bufCap * 2 : 32;
                         char *tmp3 = (char *)realloc(buffer, bufCap);
