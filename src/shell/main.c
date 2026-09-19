@@ -85,6 +85,11 @@ static _Thread_local struct sigaction gInteractiveOldSigintAction;
 static _Thread_local volatile sig_atomic_t gInteractiveHasOldSigint = 0;
 static _Thread_local struct sigaction gInteractiveOldSigtstpAction;
 static _Thread_local volatile sig_atomic_t gInteractiveHasOldSigtstp = 0;
+/* Raised by the line editor's own SIGINT handler.  On iOS Ctrl-C arrives as a
+ * byte the editor reads; everywhere else the terminal turns it into a signal,
+ * and the read comes back EINTR with no way to tell SIGINT from any other
+ * interruption - this flag is that way. */
+static _Thread_local volatile sig_atomic_t gInteractiveSigintSeen = 0;
 static _Thread_local bool gInteractiveLineDrawn = false;
 
 static void shellSetPromptReadActive(bool active) {
@@ -664,6 +669,9 @@ static void interactiveRestoreSigtstpHandler(void) {
 }
 
 static void interactiveSigintHandler(int signo) {
+    if (signo == SIGINT) {
+        gInteractiveSigintSeen = 1;
+    }
     interactiveRestoreSigintHandler();
     interactiveRestoreSigtstpHandler();
     interactiveRestoreTerminal();
@@ -1338,6 +1346,19 @@ static char *shellFormatPrompt(const char *input) {
         buffer = strdup("");
     }
     return buffer;
+}
+
+/* PS2, shown while a compound command typed over several lines is still open. */
+static char *shellResolveContinuationPrompt(void) {
+    const char *env_prompt = getenv("PS2");
+    if (!env_prompt || !*env_prompt) {
+        env_prompt = "> ";
+    }
+    char *formatted = shellFormatPrompt(env_prompt);
+    if (formatted) {
+        return formatted;
+    }
+    return strdup(env_prompt);
 }
 
 static char *shellResolveInteractivePrompt(void) {
@@ -3281,9 +3302,13 @@ static bool interactiveHandleAltShortcut(unsigned char key,
     return false;
 }
 
+/* `out_interrupted`, when non-NULL, makes Ctrl-C abandon the read instead of
+ * clearing the line in place: a continuation read has a half-built command
+ * behind it that the interrupt is meant to throw away too. */
 static char *readInteractiveLine(const char *prompt,
                                  bool *out_eof,
-                                 bool *out_editor_failed) {
+                                 bool *out_editor_failed,
+                                 bool *out_interrupted) {
     bool installed_sigint_handler = false;
     const bool has_real_tty = pscalRuntimeStdinHasRealTTY();
     if (out_eof) {
@@ -3291,6 +3316,9 @@ static char *readInteractiveLine(const char *prompt,
     }
     if (out_editor_failed) {
         *out_editor_failed = false;
+    }
+    if (out_interrupted) {
+        *out_interrupted = false;
     }
     if (!prompt) {
         prompt = "";
@@ -3399,13 +3427,20 @@ static char *readInteractiveLine(const char *prompt,
 
     bool done = false;
     bool eof_requested = false;
+    bool interrupted = false;
 
+    gInteractiveSigintSeen = 0;
     shellSetPromptReadActive(true);
     while (!done) {
         unsigned char ch = 0;
         ssize_t read_count = shellReadFd(STDIN_FILENO, &ch, 1);
         if (read_count < 0) {
             if (errno == EINTR) {
+                if (out_interrupted && gInteractiveSigintSeen) {
+                    gInteractiveSigintSeen = 0;
+                    interrupted = true;
+                    break;
+                }
                 continue;
             }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -3465,6 +3500,10 @@ static char *readInteractiveLine(const char *prompt,
             /* Never raise host SIGINT on iOS; it can hit app threads. */
             shellRuntimeSetLastStatus(128 + SIGINT);
 #endif
+            if (out_interrupted) {
+                interrupted = true;
+                break;
+            }
             length = 0;
             cursor = 0;
             buffer[0] = '\0';
@@ -4105,6 +4144,14 @@ static char *readInteractiveLine(const char *prompt,
     free(scratch);
     free(kill_buffer);
 
+    if (interrupted) {
+        free(buffer);
+        if (out_interrupted) {
+            *out_interrupted = true;
+        }
+        return NULL;
+    }
+
     if (eof_requested && length == 0) {
         free(buffer);
         if (out_eof) {
@@ -4127,6 +4174,77 @@ static char *readInteractiveLine(const char *prompt,
     }
     result[length] = '\0';
     return result;
+}
+
+/* Read one more physical line for a command that is not finished yet.  Mirrors
+ * the session loop's own read, but prompts with PS2 and skips history-event
+ * expansion: a continuation line belongs to the command already being built.
+ * Returns NULL when input ran out. */
+static char *readContinuationLine(bool tty, bool *out_eof, bool *out_interrupted) {
+    if (out_eof) {
+        *out_eof = false;
+    }
+    if (out_interrupted) {
+        *out_interrupted = false;
+    }
+    char *prompt_storage = shellResolveContinuationPrompt();
+    const char *prompt = prompt_storage ? prompt_storage : "> ";
+    char *line = NULL;
+    if (tty) {
+        bool interactive_eof = false;
+        bool editor_failed = false;
+        bool interactive_interrupted = false;
+        line = readInteractiveLine(prompt, &interactive_eof, &editor_failed,
+                                   &interactive_interrupted);
+        if (!line && (interactive_eof || interactive_interrupted)) {
+            free(prompt_storage);
+            if (out_eof && interactive_eof) {
+                *out_eof = true;
+            }
+            if (out_interrupted && interactive_interrupted) {
+                *out_interrupted = true;
+            }
+            return NULL;
+        }
+        /* The line editor gave up - fall through to the plain read. */
+    }
+    if (!line) {
+        if (pscalRuntimeStdinIsInteractive()) {
+            shellWriteStdoutStr(prompt);
+        }
+        ssize_t read = 0;
+        int read_err = 0;
+        line = readLineFd(STDIN_FILENO, &read, &read_err);
+        if (!line) {
+            shellRuntimeEnsureStandardFds();
+            if (out_eof) {
+                *out_eof = true;
+            }
+        }
+    }
+    free(prompt_storage);
+    return line;
+}
+
+/* Append `more` to `line` as a fresh physical line, freeing both on failure.
+ * Returns the joined buffer, or NULL if it could not grow. */
+static char *appendContinuationLine(char *line, const char *more) {
+    size_t line_len = line ? strlen(line) : 0;
+    size_t more_len = more ? strlen(more) : 0;
+    bool needs_newline = (line_len == 0 || line[line_len - 1] != '\n');
+    char *joined = (char *)realloc(line, line_len + (needs_newline ? 1 : 0) + more_len + 1);
+    if (!joined) {
+        free(line);
+        return NULL;
+    }
+    if (needs_newline) {
+        joined[line_len++] = '\n';
+    }
+    if (more_len) {
+        memcpy(joined + line_len, more, more_len);
+    }
+    joined[line_len + more_len] = '\0';
+    return joined;
 }
 
 static int runInteractiveSession(const ShellRunOptions *options) {
@@ -4158,7 +4276,7 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         bool interactive_eof = false;
         bool editor_failed = false;
         if (tty) {
-            line = readInteractiveLine(prompt, &interactive_eof, &editor_failed);
+            line = readInteractiveLine(prompt, &interactive_eof, &editor_failed, NULL);
             if (!line && editor_failed) {
 #if defined(PSCAL_TARGET_IOS)
                 if (pscalRuntimeStdinIsInteractive() && !pscalRuntimeStdinHasRealTTY()) {
@@ -4238,6 +4356,42 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         line = expanded_line;
         if (getenv("PSCALI_PROMPT_DEBUG")) {
             fprintf(stderr, "[prompt-loop] post-history line='%s'\n", line ? line : "(null)");
+        }
+
+        /* A compound command typed over several lines - `for x in ...; do` with
+         * its body below - arrives here one physical line at a time.  Keep
+         * reading with the secondary prompt until the construct closes.  If
+         * input runs out first, fall through and let the real parse error
+         * print, which is what a script hitting the same text would see. */
+        bool continuation_eof = false;
+        bool continuation_interrupted = false;
+        while (line && !continuation_eof && !continuation_interrupted &&
+               shellSourceIsIncomplete(line)) {
+            if (getenv("PSCALI_PROMPT_DEBUG")) {
+                fprintf(stderr, "[prompt-loop] incomplete, reading continuation\n");
+            }
+            char *more = readContinuationLine(tty, &continuation_eof,
+                                              &continuation_interrupted);
+            if (!more) {
+                break;
+            }
+            line = appendContinuationLine(line, more);
+            free(more);
+        }
+        if (!line) {
+            fprintf(stderr, "exsh: out of memory reading continuation line\n");
+            continue;
+        }
+        if (continuation_interrupted) {
+            /* Ctrl-C at the secondary prompt throws the half-built command
+             * away, as it does at the primary one. */
+            free(line);
+            shellRuntimeSetLastStatus(128 + SIGINT);
+            last_status = 128 + SIGINT;
+            continue;
+        }
+        if (continuation_eof && pscalRuntimeStdinIsInteractive()) {
+            shellWriteStdoutChar('\n');
         }
 
         char *rewritten_line = interactiveRewriteCombinedRedirects(line);

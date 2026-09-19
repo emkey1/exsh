@@ -1078,6 +1078,15 @@
             "description": "The synthetic per-session kernel process should exist and be the root, with the shell as its child.",
             "script": "Tests/exsh/tests/kernel_tree_root.exsh",
             "expect": "runtime_ok"
+        },
+        {
+            "id": "compound_leading_linebreak",
+            "name": "Compound conditions may open with a linebreak",
+            "category": "parser",
+            "description": "if/elif/while/until accept the keyword alone on its line, with the condition on the next.",
+            "script": "Tests/exsh/tests/compound_leading_linebreak.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "if-newline\nelif-newline\nwhile-newline\nuntil-newline"
         }
     ]
 }

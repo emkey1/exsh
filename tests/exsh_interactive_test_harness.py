@@ -60,6 +60,7 @@ class PtyShell:
         env.setdefault("TERM", "xterm-256color")
         env["EXSH_SKIP_RC"] = "1"
         env["PS1"] = "PROMPT> "
+        env["PS2"] = "CONT> "
         self.proc = subprocess.Popen(
             [str(self.executable)],
             stdin=slave_fd,
@@ -744,7 +745,101 @@ def scenario_findprimes_returns_prompt(shell: PtyShell) -> tuple[bool, str]:
     return True, "FindPrimes returned prompt and produced expected output"
 
 
+def scenario_multiline_for_continues(shell: PtyShell) -> tuple[bool, str]:
+    """A compound command typed over several lines keeps reading.
+
+    `for c in ...; do` used to be parsed on its own, which ended the input in
+    the middle of the clause and reported "Expected 'done' to close for clause".
+    """
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("multiline-for")
+    _unlink_if_exists(marker)
+
+    shell.send_line("for word in alpha beta; do")
+    if not shell.wait_for_substring("CONT> ", timeout=2.0):
+        return False, "no secondary prompt after an unfinished for clause"
+    shell.send_line('printf "__FOR__%s\\n" "$word"')
+    shell._pump(0.20)
+    shell.send_line("done")
+    if not shell.wait_for_substring("__FOR__beta", timeout=2.5):
+        return False, "multi-line for clause did not run its body"
+    shell._pump(0.30)
+    shell.send_line(f"touch {_shell_path(marker)}")
+    if not shell.wait_for_path(marker, timeout=2.5):
+        return False, "shell stayed unresponsive after a multi-line for clause"
+    _unlink_if_exists(marker)
+    text = shell.tail(6000)
+    if "__FOR__alpha" not in text:
+        return False, "multi-line for clause did not run its body"
+    if "parse error" in text:
+        return False, "multi-line for clause reported a parse error"
+    return True, "multi-line for clause read its continuation lines and ran"
+
+
+def scenario_open_quote_continues(shell: PtyShell) -> tuple[bool, str]:
+    """A quote left open at the end of a line continues on the next one."""
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("open-quote")
+    _unlink_if_exists(marker)
+
+    shell.send_line('printf "__QUOTE__%s\\n" "one')
+    if not shell.wait_for_substring("CONT> ", timeout=2.0):
+        return False, "no secondary prompt after an unterminated quote"
+    shell.send_line('two"')
+    if not shell.wait_for_substring("__QUOTE__one", timeout=2.5):
+        return False, "quoted continuation did not reach the command"
+    shell._pump(0.30)
+    shell.send_line(f"touch {_shell_path(marker)}")
+    if not shell.wait_for_path(marker, timeout=2.5):
+        return False, "shell stayed unresponsive after an unterminated quote"
+    _unlink_if_exists(marker)
+    text = shell.tail(6000)
+    if "two" not in text:
+        return False, "quoted continuation did not reach the command"
+    if "parse error" in text:
+        return False, "quoted continuation reported a parse error"
+    return True, "open quote read its continuation line"
+
+
+def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
+    """A genuine syntax error still reports at once; only unfinished input waits."""
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("syntax-error")
+    _unlink_if_exists(marker)
+
+    shell.send_line("done")
+    if not shell.wait_for_substring("parse error", timeout=2.0):
+        return False, "a stray 'done' did not report a parse error"
+    shell._pump(0.30)
+    shell.send_line(f"touch {_shell_path(marker)}")
+    if not shell.wait_for_path(marker, timeout=2.5):
+        return False, "shell stayed unresponsive after a parse error"
+    _unlink_if_exists(marker)
+    return True, "a genuine syntax error reported without waiting for more input"
+
+
 SCENARIOS: List[Scenario] = [
+    Scenario(
+        test_id="interactive_multiline_for",
+        name="Multi-line for clause reads continuation lines",
+        run=scenario_multiline_for_continues,
+    ),
+    Scenario(
+        test_id="interactive_open_quote",
+        name="Unterminated quote reads a continuation line",
+        run=scenario_open_quote_continues,
+    ),
+    Scenario(
+        test_id="interactive_syntax_error_no_hang",
+        name="Genuine syntax error reports without waiting",
+        run=scenario_syntax_error_does_not_hang,
+    ),
     Scenario(
         test_id="interactive_ctrl_c_prompt",
         name="Ctrl-C at prompt keeps shell responsive",

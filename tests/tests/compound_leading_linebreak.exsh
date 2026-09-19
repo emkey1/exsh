@@ -1,0 +1,32 @@
+#!/usr/bin/env exsh
+# `if`, `elif`, `while` and `until` introduce a compound_list, which may open
+# with a linebreak: the keyword alone on its line, the condition on the next.
+if
+true
+then
+echo if-newline
+fi
+
+if false
+then
+echo unreachable
+elif
+true
+then
+echo elif-newline
+fi
+
+while
+false
+do
+echo unreachable
+done
+echo while-newline
+
+i=0
+until
+[ "$i" -ge 1 ]
+do
+i=1
+done
+echo until-newline

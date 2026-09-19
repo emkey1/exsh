@@ -104,6 +104,10 @@ typedef struct {
     int column;
     bool at_line_start;
     unsigned int rule_mask;
+    /* Set when scanning ran off the end of the source with a quote, an
+     * expansion or a line continuation still open.  The text is not wrong, it
+     * just stopped early: an interactive caller can ask for another line. */
+    bool unterminated;
 } ShellLexer;
 
 void shellInitLexer(ShellLexer *lexer, const char *source);

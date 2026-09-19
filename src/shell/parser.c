@@ -94,12 +94,13 @@ static bool parseBacktickCommandSubstitution(const char *text, size_t start, siz
 static char *normalizeDollarCommand(const char *command, size_t len);
 static char *normalizeBacktickCommand(const char *command, size_t len);
 
-ShellProgram *shellParseString(const char *source, ShellParser *parser) {
+static ShellProgram *shellParseStringInternal(const char *source, ShellParser *parser, bool quiet) {
     if (!parser) {
         return NULL;
     }
 
     memset(parser, 0, sizeof(*parser));
+    parser->quiet = quiet;
     shellInitLexer(&parser->lexer, source);
     parser->had_error = false;
     parser->panic_mode = false;
@@ -126,6 +127,26 @@ ShellProgram *shellParseString(const char *source, ShellParser *parser) {
     }
 
     return program;
+}
+
+ShellProgram *shellParseString(const char *source, ShellParser *parser) {
+    return shellParseStringInternal(source, parser, false);
+}
+
+bool shellSourceIsIncomplete(const char *source) {
+    if (!source || !*source) {
+        return false;
+    }
+    ShellParser parser;
+    ShellProgram *program = shellParseStringInternal(source, &parser, true);
+    /* A word can run off the end with a quote still open without the parser
+     * ever raising an error, so the lexer's own verdict counts too. */
+    bool incomplete = parser.incomplete || parser.lexer.unterminated;
+    if (program) {
+        shellFreeProgram(program);
+    }
+    shellParserFree(&parser);
+    return incomplete;
 }
 
 void shellParserFree(ShellParser *parser) {
@@ -324,10 +345,20 @@ static void parserErrorAt(ShellParser *parser, const ShellToken *token, const ch
     if (!parser || parser->had_error) {
         return;
     }
-    int line = token ? token->line : parser->lexer.line;
-    int column = token ? token->column : parser->lexer.column;
-    fprintf(stderr, "shell parse error at %d:%d: %s\n", line, column,
-            message ? message : "error");
+    /* An error whose offending token is the end of the source - or that the
+     * lexer already flagged - means the text simply stopped early.  Record that
+     * so an interactive caller can ask for the rest instead of giving up. */
+    if (parser->lexer.unterminated ||
+        (token && token->type == SHELL_TOKEN_EOF) ||
+        (!token && parser->lexer.pos >= parser->lexer.length)) {
+        parser->incomplete = true;
+    }
+    if (!parser->quiet) {
+        int line = token ? token->line : parser->lexer.line;
+        int column = token ? token->column : parser->lexer.column;
+        fprintf(stderr, "shell parse error at %d:%d: %s\n", line, column,
+                message ? message : "error");
+    }
     parser->had_error = true;
     parser->panic_mode = true;
 }
@@ -1242,6 +1273,10 @@ static ShellCommand *parseIfClause(ShellParser *parser) {
     int column = parser->current.column;
     parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
     shellParserAdvance(parser);
+    /* The condition is a compound_list, which may open with a linebreak: `if`
+     * (or `elif`) alone on its line, condition on the next. */
+    parseLinebreak(parser);
+    parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
     ShellCommand *condition = parseAndOr(parser);
     parseLinebreak(parser);
     if (parser->current.type == SHELL_TOKEN_SEMICOLON) {
@@ -1286,6 +1321,9 @@ static ShellCommand *parseWhileClause(ShellParser *parser, bool is_until) {
     int column = parser->current.column;
     parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
     shellParserAdvance(parser);
+    /* Same as `if`: `while`/`until` may sit alone on its line. */
+    parseLinebreak(parser);
+    parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
     ShellCommand *condition = parseAndOr(parser);
     parseLinebreak(parser);
     if (parser->current.type == SHELL_TOKEN_SEMICOLON) {

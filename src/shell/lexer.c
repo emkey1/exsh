@@ -242,6 +242,17 @@ static ShellToken makeErrorToken(ShellLexer *lexer, const char *message) {
     return tok;
 }
 
+/* A lexer error that is really "the source stopped here".  Marking the lexer
+ * lets an interactive caller read another line instead of reporting a syntax
+ * error; a truncation in the middle of the text is a genuine error and is left
+ * alone. */
+static ShellToken makeUnterminatedToken(ShellLexer *lexer, const char *message) {
+    if (lexer && lexer->pos >= lexer->length) {
+        lexer->unterminated = true;
+    }
+    return makeErrorToken(lexer, message);
+}
+
 static ShellToken scanParameter(ShellLexer *lexer) {
     size_t start = lexer->pos;
     int first = advanceChar(lexer); // consume '$'
@@ -254,7 +265,7 @@ static ShellToken scanParameter(ShellLexer *lexer) {
         while (true) {
             c = peekChar(lexer);
             if (c == EOF || c == '\n') {
-                return makeErrorToken(lexer, "Unterminated parameter expansion");
+                return makeUnterminatedToken(lexer, "Unterminated parameter expansion");
             }
             if (c == '}') {
                 advanceChar(lexer);
@@ -271,7 +282,7 @@ static ShellToken scanParameter(ShellLexer *lexer) {
             while (depth > 0) {
                 c = peekChar(lexer);
                 if (c == EOF) {
-                    return makeErrorToken(lexer, "Unterminated arithmetic expansion");
+                    return makeUnterminatedToken(lexer, "Unterminated arithmetic expansion");
                 }
                 if (c == '(') depth++;
                 if (c == ')') depth--;
@@ -280,7 +291,7 @@ static ShellToken scanParameter(ShellLexer *lexer) {
             if (peekChar(lexer) == ')') {
                 advanceChar(lexer);
             } else {
-                return makeErrorToken(lexer, "Unterminated arithmetic expansion");
+                return makeUnterminatedToken(lexer, "Unterminated arithmetic expansion");
             }
         } else {
             command_sub = true;
@@ -288,7 +299,7 @@ static ShellToken scanParameter(ShellLexer *lexer) {
             while (depth > 0) {
                 c = peekChar(lexer);
                 if (c == EOF) {
-                    return makeErrorToken(lexer, "Unterminated command substitution");
+                    return makeUnterminatedToken(lexer, "Unterminated command substitution");
                 }
                 if (c == '(') depth++;
                 if (c == ')') depth--;
@@ -443,6 +454,11 @@ static ShellToken scanWord(ShellLexer *lexer) {
         if (c == '\\') {
             int next = peekChar(lexer);
             if (singleQuoted || next == EOF) {
+                if (next == EOF && !singleQuoted) {
+                    /* A backslash as the last byte of the source is a line
+                     * continuation whose continuation line never arrived. */
+                    lexer->unterminated = true;
+                }
                 c = '\\';
             } else if (!doubleQuoted) {
                 if (next == '\n') {
@@ -650,6 +666,11 @@ static ShellToken scanWord(ShellLexer *lexer) {
         }
     }
 
+    if ((singleQuoted || doubleQuoted || inBacktick) && lexer->pos >= lexer->length) {
+        /* The word ran to the end of the source with a quote still open. */
+        lexer->unterminated = true;
+    }
+
     if (buffer && bufLen < bufCap) {
         buffer[bufLen] = '\0';
     } else if (buffer) {
@@ -720,6 +741,7 @@ void shellInitLexer(ShellLexer *lexer, const char *source) {
     lexer->column = 1;
     lexer->at_line_start = true;
     lexer->rule_mask = SHELL_LEXER_RULE_1;
+    lexer->unterminated = false;
 }
 
 void shellFreeToken(ShellToken *token) {
