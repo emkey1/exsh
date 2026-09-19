@@ -39,9 +39,35 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# exsh version: the date of the last language-affecting change
+# (YYYY-MM-DD-N), checked into VERSION so everything built from this commit
+# reports the same value. Bumped on language changes, never per build, so the
+# date means "semantics last changed". Same arrangement aether already uses;
+# this repo reported a hardcoded 0.0.0 until then, which made `exsh -v`
+# useless for telling two builds apart.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" EXSH_VERSION LIMIT_COUNT 1)
+# file(STRINGS) reads VERSION at configure time and bakes it into
+# PROGRAM_VERSION below, so a plain incremental build after a bump would keep
+# reporting the stale value. Register it as a configure dependency.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+if(NOT EXSH_VERSION)
+    set(EXSH_VERSION "unknown")
+endif()
+message(STATUS "exsh version: ${EXSH_VERSION}")
+
+# Which published image this binary was built for, e.g. pscal-rootfs-2026.09.19.2.
+# Passed in by the rootfs build; a developer build leaves it "untagged". Passed
+# rather than discovered with `git describe` on purpose: the rootfs build clones
+# --depth 1, and a shallow clone carries no tags to describe. The matching git
+# tag is pushed to this repo after the image is published, so the string names a
+# commit you can actually check out.
+set(PSCAL_ROOTFS_TAG "untagged" CACHE STRING
+    "Name of the published rootfs build this binary belongs to")
+
 add_compile_definitions(
-    PROGRAM_VERSION="0.0.0"
-    PSCAL_GIT_TAG="untagged"
+    PROGRAM_VERSION="${EXSH_VERSION}"
+    PSCAL_GIT_TAG="${PSCAL_ROOTFS_TAG}"
     ENABLE_EXT_BUILTIN_MATH ENABLE_EXT_BUILTIN_STRINGS ENABLE_EXT_BUILTIN_SYSTEM
     ENABLE_EXT_BUILTIN_USER ENABLE_EXT_BUILTIN_YYJSON ENABLE_EXT_BUILTIN_3D
     ENABLE_EXT_BUILTIN_GRAPHICS
