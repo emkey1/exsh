@@ -1,0 +1,27 @@
+#!/usr/bin/env exsh
+# A backslash-newline between tokens is a line continuation, not a token. It
+# used to start a word on the backslash and produce an EMPTY one, which a case
+# pattern list took for a pattern -- so a multi-line alternation reported
+# "Expected ')' after case pattern" on the real pattern.
+case zzz in
+  a*|\
+  b*|\
+  z*) echo case-alternation ;;
+  *)  echo unreachable ;;
+esac
+
+for word in one \
+            two; do
+  echo "list-$word"
+done
+
+if true &&\
+   true; then
+  echo and-and
+fi
+
+echo piped |\
+  cat
+
+printf '%s\n' \
+  trailing-args

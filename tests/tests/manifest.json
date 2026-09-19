@@ -1087,6 +1087,15 @@
             "script": "Tests/exsh/tests/compound_leading_linebreak.exsh",
             "expect": "runtime_ok",
             "expected_stdout": "if-newline\nelif-newline\nwhile-newline\nuntil-newline"
+        },
+        {
+            "id": "line_continuation_between_tokens",
+            "name": "Line continuations are invisible to the grammar",
+            "category": "parser",
+            "description": "A backslash-newline between tokens splices the lines instead of producing an empty word, which a case pattern list mistook for a pattern.",
+            "script": "Tests/exsh/tests/line_continuation_between_tokens.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "case-alternation\nlist-one\nlist-two\nand-and\npiped\ntrailing-args"
         }
     ]
 }
