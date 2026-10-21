@@ -27,7 +27,8 @@ ends:
 - `--dump-bytecode` disassembles the compiled bytecode before execution.
 - `--dump-bytecode-only` disassembles and exits without running the VM.
 - `--dump-ext-builtins` lists available shell builtins.
-- `--no-cache` forces recompilation even if a cached bytecode artefact exists.
+- `--no-cache` compiles fresh; it neither reads nor writes the bytecode cache.
+- `--prune-cache` removes cache entries whose source file no longer exists, then exits.
 - `--semantic-warnings` enables semantic analysis diagnostics prior to execution.
 - `--vm-trace-head=<N>` traces the first `N` VM instructions (the same toggle as
   the Pascal and CLike front ends).
@@ -86,7 +87,10 @@ only rewrites the tail of the file when limits are exceeded.【F:src/shell/main.
 Compiled scripts are cached in `~/.pscal/bc_cache`. Cache entries are now keyed
 by both the source path and the compiler identifier reported by exsh, so the front
 end can coexist with Pascal, CLike and Rea bytecode without collisions. Use
-`--no-cache` to force a recompile for the current script.
+`--no-cache` to force a recompile for the current script, and `--prune-cache`
+to remove the entries (of every front end) whose source file no longer exists.
+It judges nothing else, and keeps any entry it cannot check; `--verbose` lists
+each entry it removes or keeps.
 
 ## Environment variables
 

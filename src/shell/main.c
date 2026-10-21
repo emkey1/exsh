@@ -696,6 +696,7 @@ static const char *SHELL_USAGE =
     "     --dump-bytecode-only        Disassemble bytecode and exit.\n"
     "     --dump-ext-builtins         List builtin commands.\n"
     "     --no-cache                  Compile fresh; neither read nor write cached bytecode.\n"
+    "     --prune-cache               Remove cached bytecode whose source file is gone, then exit.\n"
     "     --semantic-warnings         Emit semantic analysis warnings.\n"
     "     --vm-trace-head=N           Trace first N VM instructions.\n"
     "     --verbose                 Print compilation/cache status messages.\n"
@@ -4526,6 +4527,7 @@ int exsh_main(int argc, char **argv) {
     shellRuntimeSetInteractive(false);
 
     int dump_ext_builtins_flag = 0;
+    int prune_cache_flag = 0;
     const char *path = NULL;
     int arg_start_index = 0;
     const char *command_string = NULL;
@@ -4585,6 +4587,8 @@ int exsh_main(int argc, char **argv) {
             options.dump_bytecode_only = 1;
         } else if (strcmp(argv[i], "--dump-ext-builtins") == 0) {
             dump_ext_builtins_flag = 1;
+        } else if (strcmp(argv[i], "--prune-cache") == 0) {
+            prune_cache_flag = 1;
         } else if (strcmp(argv[i], "--no-cache") == 0) {
             options.no_cache = 1;
         } else if (strcmp(argv[i], "--semantic-warnings") == 0) {
@@ -4646,6 +4650,10 @@ int exsh_main(int argc, char **argv) {
     if (dump_ext_builtins_flag) {
         shellDumpBuiltins(stdout);
         EXSH_RETURN(vmExitWithCleanup(EXIT_SUCCESS));
+    }
+
+    if (prune_cache_flag) {
+        EXSH_RETURN(vmExitWithCleanup(pruneBytecodeCache(stdout, !options.quiet)));
     }
 
     shellSyncIdentityEnvFromPasswd();
