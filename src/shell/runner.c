@@ -203,15 +203,12 @@ static int shellRunExshShebang(const char *path, char *const *argv) {
     shellRuntimeSetArg0(saved_arg0);
     free(saved_arg0);
 
-    if (replaced_params) {
-        bool freed_alloc = false;
-        if (gParamValuesOwned && gParamValues) {
-            shellRunnerFreeParamArray(gParamValues, gParamCount);
-            freed_alloc = (gParamValues == new_params);
-        }
-        if (new_params && !freed_alloc) {
-            shellRunnerFreeParamArray(new_params, new_params_count);
-        }
+    /* gParamValues is one global for every thread. A script in a pipeline runs
+     * beside the shell, which may have swapped in an array that is not ours, and
+     * `set --` frees ours and makes its own. Free only what is still ours: a
+     * leaked array is small, an invalid free takes down the whole app on iOS. */
+    if (replaced_params && gParamValues == new_params) {
+        shellRunnerFreeParamArray(new_params, new_params_count);
     }
     gParamValues = saved_params;
     gParamCount = saved_count;
