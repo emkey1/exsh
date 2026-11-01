@@ -1096,6 +1096,15 @@
             "script": "Tests/exsh/tests/line_continuation_between_tokens.exsh",
             "expect": "runtime_ok",
             "expected_stdout": "case-alternation\nlist-one\nlist-two\nand-and\npiped\ntrailing-args"
+        },
+        {
+            "id": "bash_parity_param_words",
+            "name": "A parameter at the start of a word matches bash",
+            "category": "parity",
+            "description": "Positional parameters, and text following a parameter, stay in one word.",
+            "script": "Tests/exsh/tests/bash_parity_param_words.exsh",
+            "expect": "match_bash",
+            "expected_stdout": "[x]\n[x]\n[y]\n[xy]\n[x/foo]\n[x.txt]\n[abc/foo]\n[abc.txt]\n[abcx]\n[abcabc]\n[abcxy]\n[hi/x]\n[2x]\n[2x]\n[abc/a][abc/b]\nmatched\nabc\nabc\nabc\nok\n"
         }
     ]
 }

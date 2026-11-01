@@ -312,6 +312,12 @@ static ShellToken scanParameter(ShellLexer *lexer) {
          * silently swallows the rest of the line (e.g. `if [ $# -eq 0 ]`). */
         if (c == '?' || c == '@' || c == '*' || c == '!' || c == '-' || c == '$' || c == '#') {
             advanceChar(lexer);
+        } else if (isdigit(c)) {
+            /* A positional parameter. The identifier rule below refuses a leading
+             * digit, which left the '$' as a word of its own (`$1` printed `$ 1`). */
+            while (isalnum(peekChar(lexer)) || peekChar(lexer) == '_') {
+                advanceChar(lexer);
+            }
         } else {
             size_t name_bytes = 0;
             const char *name_start = lexer->src + lexer->pos;
@@ -950,8 +956,23 @@ ShellToken shellNextToken(ShellLexer *lexer) {
             }
             return makeSimpleToken(lexer, SHELL_TOKEN_GT, ">", 1);
         }
-        case '$':
-            return scanParameter(lexer);
+        case '$': {
+            /* A parameter with more of the word after it ($HOME/bin, ${x}y, $a$b)
+             * is one word. scanParameter's token ends at the parameter and the
+             * rest became the next argument, so scanWord takes the whole word, as
+             * it does when the '$' is not first. */
+            ShellLexer rewind = *lexer;
+            ShellToken param = scanParameter(lexer);
+            if (param.type == SHELL_TOKEN_PARAMETER) {
+                int after = peekChar(lexer);
+                if (after != EOF && !isspace(after) && !isOperatorDelimiter(after)) {
+                    shellFreeToken(&param);
+                    *lexer = rewind;
+                    break;
+                }
+            }
+            return param;
+        }
         default:
             break;
     }

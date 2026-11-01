@@ -1,0 +1,25 @@
+#!/usr/bin/env exsh
+# A parameter at the start of a word: $1 lost to a UTF-8 identifier check that
+# refuses a leading digit, and whatever followed a parameter became the next
+# argument, so `$HOME/bin` reached a command as two words.
+set -- x y
+Q=abc
+printf '[%s]' $1; echo
+printf '[%s]' ${1}; echo
+printf '[%s]' "${2}"; echo
+printf '[%s]' $1$2; echo
+printf '[%s]' $1/foo; echo
+printf '[%s]' $1.txt; echo
+printf '[%s]' $Q/foo; echo
+printf '[%s]' $Q.txt; echo
+printf '[%s]' ${Q}x; echo
+printf '[%s]' $Q$Q; echo
+printf '[%s]' $Q"x"y; echo
+printf '[%s]' $(echo hi)/x; echo
+printf '[%s]' $((1+1))x; echo
+printf '[%s]' $#x; echo
+for w in $Q/a $Q/b; do printf '[%s]' $w; done; echo
+case $Q/x in abc/x) echo matched;; esac
+( echo $Q)
+{ echo $Q; }
+echo $Q;echo ok
