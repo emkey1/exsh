@@ -67,6 +67,15 @@
     "expected_stdout": "pipeline-bg-redirect:start\nhello-bg\npipeline-bg-redirect:end"
   },
   {
+    "id": "fstat_regular_file_ios",
+    "name": "fstat reports a regular file (iOS)",
+    "category": "pipeline_ios",
+    "description": "head finds its input is regular and seeks back, so the next reader continues.",
+    "script": "Tests/exsh/tests/fstat_regular_file_ios.exsh",
+    "expect": "runtime_ok",
+    "expected_stdout": "one\ntwo\nthree"
+  },
+  {
     "id": "pipeline_bg_pipe_redirect_ios",
     "name": "Background pipeline redirection (iOS)",
     "category": "pipeline_ios",
@@ -1105,6 +1114,30 @@
             "script": "Tests/exsh/tests/bash_parity_param_words.exsh",
             "expect": "match_bash",
             "expected_stdout": "[x]\n[x]\n[y]\n[xy]\n[x/foo]\n[x.txt]\n[abc/foo]\n[abc.txt]\n[abcx]\n[abcabc]\n[abcxy]\n[hi/x]\n[2x]\n[2x]\n[abc/a][abc/b]\nmatched\nabc\nabc\nabc\nok\n"
+        },
+        {
+            "id": "bash_parity_group_redirect",
+            "name": "Redirections on compound commands match bash",
+            "category": "parity",
+            "description": "Brace groups, if, case, functions and subshells apply redirections to the whole body; a failed redirection skips it.",
+            "script": "Tests/exsh/tests/bash_parity_group_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_nested_shell_redirect",
+            "name": "A shell run as a command takes its redirections",
+            "category": "parity",
+            "description": "exsh script, exsh -c, sh script and sh -c honour redirections every time, and the caller keeps its parameters.",
+            "script": "Tests/exsh/tests/bash_parity_nested_shell_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_assign_pipeline",
+            "name": "An assignment reaches its command in a pipeline",
+            "category": "parity",
+            "description": "X=1 env | grep X finds X in any stage, and X is back afterwards.",
+            "script": "Tests/exsh/tests/bash_parity_assign_pipeline.exsh",
+            "expect": "match_bash"
         }
     ]
 }

@@ -1,0 +1,11 @@
+#!/bin/sh
+# head puts a seekable input back where it stopped, and it decides by fstat. On iOS
+# fstat used the old syscall, whose layout put the inode's low bits in st_mode, so
+# fifteen regular files in sixteen looked like something else and the rest was lost.
+if [ "${RUN_VPROC_TESTS:-0}" != "1" ]; then
+    exit 77
+fi
+f=".tmp-fstat-regular-$$"
+printf 'one\ntwo\nthree\n' > "$f" || exit 1
+{ head -n 1; cat; } < "$f"
+rm -f "$f"

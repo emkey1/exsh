@@ -1,0 +1,24 @@
+#!/usr/bin/env exsh
+# A shell run as a command takes its stdio from the command's redirections, and
+# leaves the calling shell's own state alone. On iOS it runs inside the caller, and
+# only the first one honoured them: its return tore down the caller's vproc.
+# The bash reference run has no exsh of its own.
+command -v exsh > /dev/null 2>&1 || exsh() { sh "$@"; }
+d="${TMPDIR:-/tmp}/exsh_parity_nested.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+set -- outer1 outer2
+printf 'echo script "$#" "$1"\necho script-err >&2\nset -- changed\n' > s.sh
+for round in 1 2; do
+  exsh s.sh a > s1.out 2>&1; echo "exsh script rc=$?"; cat s1.out
+  exsh -c 'echo inner "$0" "$1"' zero one > s2.out 2>&1; echo "exsh -c rc=$?"; cat s2.out
+  sh s.sh b > s3.out 2>&1; echo "sh script rc=$?"; cat s3.out
+  sh -c 'echo inner | cat' > s4.out 2>&1; echo "sh -c rc=$?"; cat s4.out
+  exsh -c 'exit 3' > s5.out; echo "exit rc=$?"
+  exsh -c 'echo piped' | cat
+  exsh s.sh c 2>/dev/null | cat
+  { exsh -c 'echo in-group'; } > s6.out; cat s6.out
+  echo "still [$#] [$1] [$2]"
+done
+cd /
+rm -rf "$d"

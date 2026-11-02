@@ -1,0 +1,59 @@
+#!/usr/bin/env exsh
+# Redirections on a compound command apply to its whole body. Brace groups, if and
+# case compiled the body and dropped them: the output went to the terminal and the
+# file was never created.
+d="${TMPDIR:-/tmp}/exsh_parity_group.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+{ echo one; echo two; } > group.out; echo "group rc=$?"; cat group.out
+{ echo three; } >> group.out; cat group.out
+{ echo out; echo err >&2; } > both.out 2>&1; cat both.out
+{ echo to-err >&2; } 2> err.out; cat err.out
+{ read x; echo "read [$x]"; } < group.out
+{ read y; echo "heredoc [$y]"; } <<DOC
+line
+DOC
+{ read z; echo "herestring [$z]"; } <<< word
+{ ls group.out; } > external.out; cat external.out
+n=expanded; { echo target; } > "$n.out"; cat expanded.out
+{ { echo inner; } > inner.out; echo outer; } > outer.out; cat inner.out outer.out
+
+if true; then echo then-branch; fi > if.out; cat if.out
+if false; then echo no; else echo else-branch; fi > else.out; cat else.out
+case x in x) echo case-branch;; esac > case.out; cat case.out
+for i in 1 2; do echo "$i"; done > for.out; cat for.out
+( echo subshell ) > sub.out; cat sub.out
+
+# A group runs in this shell, and its status is its last command's.
+v=1; { echo "v=$v"; v=2; } > v.out; cat v.out; echo "v now $v"
+false; { echo "status $?"; } > st.out; cat st.out
+{ false; } > st.out; echo "false rc=$?"
+{ true; } > st.out; echo "true rc=$?"
+
+# A function's own redirections apply each time it is called.
+f() { echo in-f; } > f.out
+f; echo "f rc=$?"; cat f.out
+
+# Leaving the body early still closes the redirection.
+g() { { echo before; return 7; echo after; } > g.out; echo not-reached; }
+g; echo "g rc=$?"; cat g.out
+echo back-on-stdout
+for k in 1 2; do { echo "k$k"; break; } > brk.out; done; cat brk.out
+printf '{ echo sourced; return 5; } > src.out\n' > src.sh
+. ./src.sh; echo "source rc=$?"; cat src.out
+s=$( { echo captured; } > cap.out; echo substituted ); echo "s=$s"; cat cap.out
+eval '{ echo evaluated; } > ev.out'; cat ev.out
+
+# A redirection that fails fails the command, skips its body, and the script goes on.
+{
+  { echo no; } > .; echo "group failed rc=$?"
+  ( echo no ) > .; echo "subshell failed rc=$?"
+  if true; then echo no; fi > .; echo "if failed rc=$?"
+  case x in x) echo no;; esac > .; echo "case failed rc=$?"
+  { echo no; } < missing.in; echo "input failed rc=$?"
+} 2>/dev/null
+echo still-running
+
+cd /
+rm -rf "$d"

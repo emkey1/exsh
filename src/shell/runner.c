@@ -898,7 +898,9 @@ int shellRunSource(const char *source,
     previous_vm_for_context = shellSwapCurrentVm(vm);
     vm_context_swapped = true;
 
+    size_t redirect_scope_depth = shellRuntimeRedirectScopeDepth();
     InterpretResult result = interpretBytecode(vm, &chunk, globalSymbols, constGlobalSymbols, procedure_table, 0);
+    shellRuntimeUnwindRedirectScopes(redirect_scope_depth);
     if (getenv("PSCALI_PROMPT_DEBUG")) {
         fprintf(stderr, "[shell-run] interpret-done result=%d\n", (int)result);
     }

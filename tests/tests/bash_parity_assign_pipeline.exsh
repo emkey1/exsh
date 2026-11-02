@@ -1,0 +1,17 @@
+#!/usr/bin/env exsh
+# An assignment on a command's own line reaches that command in any stage of a
+# pipeline, and does not outlast it. On iOS the shell put the variable back before
+# the stage's thread had read it.
+export OTHER=kept
+unset X
+X=1 env | grep '^X='
+X=2 env | grep -c '^X=2$'
+X=3 Y=4 env | grep -E '^(X|Y)=' | sort
+cat /dev/null | X=5 env | grep '^X='
+X=6 env | cat | grep '^X='
+env | grep '^OTHER='
+echo "X after [$X]"
+X=7 env | sed -n '/^X=/p'
+X=before
+X=8 env | grep '^X='
+echo "X restored [$X]"

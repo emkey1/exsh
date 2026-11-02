@@ -1043,11 +1043,9 @@ static void compileLogical(BytecodeChunk *chunk, const ShellLogicalList *logical
     free(patch_sites);
 }
 
-static void compileSubshell(BytecodeChunk *chunk, const ShellCommand *command) {
-    if (!command) {
-        return;
-    }
-    const ShellProgram *body = command->data.subshell.body;
+/* Opens a compound command's redirections. Returns the jump that skips its body
+ * when one of them fails, for compileScopeLeave to patch; -1 when there are none. */
+static int compileScopeEnter(BytecodeChunk *chunk, const ShellCommand *command) {
     int line = command->line;
     int index = command->exec.pipeline_index;
     char meta[128];
@@ -1070,9 +1068,36 @@ static void compileSubshell(BytecodeChunk *chunk, const ShellCommand *command) {
         }
     }
     emitBuiltinProc(chunk, "__shell_subshell", (uint8_t)arg_count, line);
-    compileProgram(chunk, body);
+    if (arg_count == 1) {
+        return -1;
+    }
+    emitCallHost(chunk, HOST_FN_SHELL_SCOPE_IS_READY, line);
+    writeBytecodeChunk(chunk, JUMP_IF_FALSE, line);
+    int skip_jump = chunk->count;
+    emitInt32(chunk, 0xFFFFFFFF, line);
+    return skip_jump;
+}
+
+static void compileScopeLeave(BytecodeChunk *chunk, int skip_jump, int line) {
+    if (skip_jump >= 0) {
+        patchInt32(chunk, skip_jump, (uint32_t)(chunk->count - (skip_jump + 4)));
+    }
     emitPushString(chunk, "mode=leave", line);
     emitBuiltinProc(chunk, "__shell_subshell", 1, line);
+}
+
+static void compileSubshell(BytecodeChunk *chunk, const ShellCommand *command) {
+    if (!command) {
+        return;
+    }
+    int skip_jump = compileScopeEnter(chunk, command);
+    compileProgram(chunk, command->data.subshell.body);
+    compileScopeLeave(chunk, skip_jump, command->line);
+}
+
+static bool commandHasRedirections(const ShellCommand *command) {
+    const ShellRedirectionArray *redirs = shellCommandGetRedirections(command);
+    return redirs && redirs->count > 0;
 }
 
 static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background) {
@@ -1520,6 +1545,16 @@ static void compileCommand(BytecodeChunk *chunk, const ShellCommand *command, bo
     if (!command) {
         return;
     }
+    /* A loop applies its own redirections, and a simple command takes them with
+     * its words. */
+    int scope_skip_jump = -1;
+    bool scoped = (command->type == SHELL_COMMAND_BRACE_GROUP ||
+                   command->type == SHELL_COMMAND_CONDITIONAL ||
+                   command->type == SHELL_COMMAND_CASE) &&
+                  commandHasRedirections(command);
+    if (scoped) {
+        scope_skip_jump = compileScopeEnter(chunk, command);
+    }
     switch (command->type) {
         case SHELL_COMMAND_SIMPLE:
             compileSimple(chunk, command, runs_in_background);
@@ -1551,6 +1586,9 @@ static void compileCommand(BytecodeChunk *chunk, const ShellCommand *command, bo
         case SHELL_COMMAND_FUNCTION:
             compileFunction(chunk, command->data.function, command->line);
             break;
+    }
+    if (scoped) {
+        compileScopeLeave(chunk, scope_skip_jump, command->line);
     }
 }
 

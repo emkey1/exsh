@@ -109,6 +109,7 @@ static void shellSetPromptReadActive(bool active) {
 #if defined(PSCAL_TARGET_IOS)
 static _Thread_local VProc *gShellSelfVproc = NULL;
 static _Thread_local bool gShellSelfVprocActivated = false;
+static _Thread_local int gShellNestedDepth = 0;
 static void shellNotifyPromptReady(void);
 static void shellDebugLog(const char *message) {
     if (!message || message[0] == '\0') {
@@ -326,7 +327,7 @@ static void shellTeardownSelfVproc(int status) {
 }
 
 static void shellEnsureSelfVprocActive(void) {
-    if (!gShellSelfVproc) {
+    if (!gShellSelfVproc || gShellNestedDepth > 0) {
         return;
     }
     int self_pid = vprocPid(gShellSelfVproc);
@@ -4481,10 +4482,40 @@ int exsh_main(int argc, char **argv) {
         sigaddset(&block_set, SIGUSR1);
         pthread_sigmask(SIG_BLOCK, &block_set, NULL);
     }
+    /* In a vproc, in a session that has its shell, this is that shell's command:
+     * `exsh x`, `sh -c ...` or a #! script, on the caller's thread and inside the
+     * vproc that holds its stdio and redirections. A vproc of its own would write
+     * to the terminal, tearing that down would end the caller's session, and $1,
+     * $0 and the interactive flag are the caller's too. */
+    const bool nested = vprocCurrent() != NULL && vprocGetShellSelfPid() > 0;
+    const int saved_param_count = gParamCount;
+    char **const saved_param_values = gParamValues;
+    const bool saved_param_owned = gParamValuesOwned;
+    const bool saved_interactive = shellRuntimeIsInteractive();
+    bool saved_positional_owned = false;
+    char *saved_arg0 = NULL;
+    if (nested) {
+        const char *caller_arg0 = shellRuntimeGetArg0();
+        saved_arg0 = caller_arg0 ? strdup(caller_arg0) : NULL;
+        gParamValuesOwned = false;
+        saved_positional_owned = shellRuntimeExchangePositionalOwned(false);
+        gShellNestedDepth++;
+    }
 #define EXSH_RETURN(value)                             \
     do {                                               \
         int __exsh_rc = (value);                       \
-        shellTeardownSelfVproc(__exsh_rc);             \
+        if (nested) {                                  \
+            gParamCount = saved_param_count;           \
+            gParamValues = saved_param_values;         \
+            gParamValuesOwned = saved_param_owned;     \
+            shellRuntimeExchangePositionalOwned(saved_positional_owned); \
+            shellRuntimeSetInteractive(saved_interactive); \
+            shellRuntimeSetArg0(saved_arg0);           \
+            free(saved_arg0);                          \
+            gShellNestedDepth--;                       \
+        } else {                                       \
+            shellTeardownSelfVproc(__exsh_rc);         \
+        }                                              \
         frontendPopKind(previousKind);                 \
         return __exsh_rc;                              \
     } while (0)
@@ -4520,7 +4551,9 @@ int exsh_main(int argc, char **argv) {
     }
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
-    shellSetupSelfVproc();
+    if (!nested) {
+        shellSetupSelfVproc();
+    }
 #endif
 
     shellRuntimeSetArg0(options.frontend_path);
