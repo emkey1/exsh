@@ -1,0 +1,91 @@
+#!/usr/bin/env exsh
+# A command substitution can capture far more than a pipe holds. The shell used to read the
+# pipe only after the command ended, so a command that filled it never ended.
+#
+# Each big value is unset before the next command runs: exsh passes every variable to what
+# it starts, and a big one fails the exec with E2BIG (a single 128K string on Linux).
+d="${TMPDIR:-/tmp}/exsh_parity_big_sub.$$"
+mkdir -p "$d" || exit 1
+
+size() {
+    echo "$1 ${#a}"
+    unset a
+}
+
+# Commands the shell starts, and writes it makes itself.
+a=$(seq 1 30000); size command
+a=`seq 1 30000`; size backtick
+echo "[$(seq 1 30000 | tail -1)]"
+echo "$(seq 1 30000)" | tail -1
+a=$(i=0; while [ "$i" -lt 20000 ]; do echo "line number $i"; i=$((i+1)); done); size builtins
+x=$(seq 1 30000)
+a=$(echo "$x"; echo "$x"); size "echo twice"
+y=$(echo "$x")
+[ "$x" = "$y" ] && echo same
+case "$x" in
+    "1
+2
+3
+"*"
+29999
+30000") echo "first and last lines" ;;
+    *) echo "first and last lines differ" ;;
+esac
+unset x y
+
+# Every kind of command inside.
+a=$(seq 1 30000 | cat); size pipeline
+a=$(seq 1 30000 | cat | cat); size "longer pipeline"
+a=$(seq 1 30000; seq 1 30000); size list
+a=$({ seq 1 30000; echo end; }); size group
+a=$( (seq 1 30000) ); size subshell
+a=$(for i in 1 2; do seq 1 30000; done); size loop
+a=$(if true; then seq 1 30000; fi); size if
+big() { seq 1 30000; }
+a=$(big); size function
+a=$(echo "$(seq 1 30000)"); size nested
+a=$(b=$(seq 1 30000); echo "${#b}"); echo "inner [$a]"
+seq 1 30000 > "$d/big"
+a=$(cat "$d/big"); size file
+a=$(cat < "$d/big"); size stdin
+a=$(seq 1 30000 > "$d/other"; cat "$d/other"); size "through a file"
+
+# Status, and trailing newlines.
+a=$(seq 1 30000; exit 3); echo "exit $?"; size exit
+a=$(seq 1 30000; false); echo "false $?"; size false
+a=$(seq 1 30000; true); echo "true $?"; size true
+a=$(seq 1 30000; echo; echo; echo); size newlines
+
+# From a context other than the script's own: a subshell, stages, the background.
+( a=$(seq 1 30000); echo "in subshell ${#a}" )
+echo x | { a=$(seq 1 30000); echo "in stage ${#a}"; }
+{ a=$(seq 1 30000); echo "in head stage ${#a}"; } | cat
+( a=$(seq 1 30000); echo "in background ${#a}" > "$d/bg" ) &
+wait $!
+cat "$d/bg"
+
+# The words of it.
+set -- $(seq 1 5000); echo "$# $1 $5000"
+c=0; for v in $(seq 1 5000); do c=$((c+1)); done; echo "words $c"
+
+# The read end is the shell's own business, whatever the command does with descriptors.
+a=$(echo hi 3>/dev/null); echo "[$a]"
+a=$(echo hi 4>/dev/null); echo "[$a]"
+a=$(echo hi 9>/dev/null); echo "[$a]"
+a=$(exec 3> "$d/three"; echo out); echo "[$a]"
+a=$(exec 4> "$d/four"; echo in-four >&4; seq 1 30000); size "exec above stdio"
+cat "$d/four"
+a=$(seq 1 30000 3>/dev/null 4>/dev/null); size "redirections above stdio"
+a=$( { seq 1 30000; echo three >&3; } 3>&1 ); size "group with descriptor 3"
+exec 3>&1
+a=$(echo to-three >&3; echo captured); echo "[$a]"
+exec 3>&-
+
+# Something left running with the write end does not change what is captured.
+a=$(sleep 1 & echo bg); echo "[$a]"
+
+# Many in a row: nothing piles up.
+n=0; while [ "$n" -lt 300 ]; do v=$(echo "$n"); n=$((n+1)); done; echo "$v"
+n=0; s=0; while [ "$n" -lt 20 ]; do a=$(seq 1 30000); s=$((s+${#a})); unset a; n=$((n+1)); done; echo "$s"
+
+cd / && rm -rf "$d"

@@ -1348,6 +1348,14 @@
             "description": "exec 3> f reaches builtins, applets, groups, subshells and nested shells; a redirection on a command or group ends with it; an unopened descriptor fails; exec in a sourced file belongs to the shell.",
             "script": "Tests/exsh/tests/bash_parity_fd_above_stdio.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_big_substitution",
+            "name": "A command substitution can capture more than a pipe holds",
+            "category": "parity",
+            "description": "Commands, builtins, pipelines, groups, subshells, functions and nested substitutions write far more than a pipe holds; status and trailing newlines are kept; what the command does with descriptors does not reach the shell's read end.",
+            "script": "Tests/exsh/tests/bash_parity_big_substitution.exsh",
+            "expect": "match_bash"
         }
     ]
 }
