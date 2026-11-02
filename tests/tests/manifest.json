@@ -1340,6 +1340,14 @@
             "description": "In a sourced file, exsh script, sh -c and a #! script, rm, mv, redirections and applets act on the directory cd moved to; the caller of a nested shell stays where it was, and a sourced cd stays in force.",
             "script": "Tests/exsh/tests/bash_parity_cd_nested.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_fd_above_stdio",
+            "name": "Descriptors above stdio reach what the shell starts",
+            "category": "parity",
+            "description": "exec 3> f reaches builtins, applets, groups, subshells and nested shells; a redirection on a command or group ends with it; an unopened descriptor fails; exec in a sourced file belongs to the shell.",
+            "script": "Tests/exsh/tests/bash_parity_fd_above_stdio.exsh",
+            "expect": "match_bash"
         }
     ]
 }

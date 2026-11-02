@@ -1,0 +1,64 @@
+#!/usr/bin/env exsh
+# Descriptors above stdio, opened by a redirection, reach what the shell starts and go away
+# when they should. On iOS the number means the vproc's slot: a host dup2 onto it took down
+# the whole app when it held the Go runtime's kqueue, and `>&7` wrote into host descriptor 7.
+d="${TMPDIR:-/tmp}/exsh_parity_fd.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# exec keeps it for later commands: builtins, applets, a group, a subshell, a nested shell.
+exec 3> f
+echo builtin >&3
+ls f >&3
+{ echo group >&3; }
+( echo subshell >&3 )
+sh -c 'echo nested >&3'
+echo piped >&3 | cat
+exec 3>&-
+cat f
+
+# Closed again: nothing to write to, and the script goes on.
+echo gone 2>/dev/null >&3; echo "closed rc=$?"
+echo never 2>/dev/null >&7; echo "unopened rc=$?"
+
+# Input, and a descriptor copied from another.
+printf 'one\ntwo\n' > lines
+exec 4< lines
+read a <&4; read b <&4; echo "$a $b"
+exec 4<&-
+exec 5> g
+exec 6>&5
+echo through-six >&6
+exec 5>&- 6>&-
+cat g
+
+# On one command or a group, it ends with them.
+echo x 3> h; ls h
+echo y 3> h >&3; cat h
+{ echo z >&3; } 3> h; cat h
+sh -c 'echo w >&3' 3> h; cat h
+( echo v >&3 ) 3> h; cat h
+echo after 2>/dev/null >&3; echo "after group rc=$?"
+
+# Replacing one closes the first.
+exec 3> a
+exec 3> b
+echo second >&3
+exec 3>&-
+echo "a [$(cat a)] b [$(cat b)]"
+
+# exec in a sourced file belongs to the shell.
+printf 'exec 8> s\necho in-source >&8\n' > src.sh
+. ./src.sh
+echo after-source >&8
+exec 8>&-
+cat s
+
+# A duplicate of stdout still reaches it.
+exec 9>&1
+echo via-nine >&9
+exec 9>&-
+echo end
+
+cd /
+rm -rf "$d"
