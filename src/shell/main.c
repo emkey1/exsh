@@ -4356,17 +4356,20 @@ int exsh_main(int argc, char **argv) {
     const bool saved_interactive = shellRuntimeIsInteractive();
     bool saved_positional_owned = false;
     char *saved_arg0 = NULL;
+    ShellCwdScope cwd_scope = {0};
     if (nested) {
         const char *caller_arg0 = shellRuntimeGetArg0();
         saved_arg0 = caller_arg0 ? strdup(caller_arg0) : NULL;
         gParamValuesOwned = false;
         saved_positional_owned = shellRuntimeExchangePositionalOwned(false);
         gShellNestedDepth++;
+        shellCwdScopeEnter(&cwd_scope);
     }
 #define EXSH_RETURN(value)                             \
     do {                                               \
         int __exsh_rc = (value);                       \
         if (nested) {                                  \
+            shellCwdScopeLeave(&cwd_scope);            \
             gParamCount = saved_param_count;           \
             gParamValues = saved_param_values;         \
             gParamValuesOwned = saved_param_owned;     \

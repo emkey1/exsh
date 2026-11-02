@@ -203,7 +203,10 @@ static int shellRunExshShebang(const char *path, char *const *argv) {
     opts.frontend_path = previous_arg0 ? previous_arg0 : "exsh";
 
     bool exit_requested = false;
+    ShellCwdScope cwd_scope;
+    shellCwdScopeEnter(&cwd_scope);
     int status = shellRunSource(source, path, &opts, &exit_requested);
+    shellCwdScopeLeave(&cwd_scope);
 
     shellRuntimeSetArg0(saved_arg0);
     free(saved_arg0);

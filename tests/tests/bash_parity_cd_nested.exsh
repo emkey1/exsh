@@ -1,0 +1,91 @@
+#!/usr/bin/env exsh
+# cd reaches everything a script runs, and a shell run as a command leaves its caller
+# where it was. On iOS a sourced file and a nested shell run under vprocs of their own,
+# and cd moved only the session shell's: pwd reported the new directory while redirections,
+# applets and rm acted on the old one, so `cd d; rm f` removed the wrong file.
+# The bash reference run has no exsh of its own.
+command -v exsh > /dev/null 2>&1 || exsh() { sh "$@"; }
+d="${TMPDIR:-/tmp}/exsh_parity_cd.$$"
+mkdir -p "$d/outer/sub/deep" || exit 1
+cd "$d/outer" || exit 1
+
+# The same names in both directories, so that a wrong directory shows.
+reset() {
+    printf 'OUTER\n' > victim; printf 'INNER\n' > sub/victim
+    printf 'OUTER\n' > a; printf 'INNER\n' > sub/a
+    rm -f b sub/b out sub/out
+}
+state() {
+    echo "$1: victim [$(cat victim 2>/dev/null)] sub/victim [$(cat sub/victim 2>/dev/null)] b [$(cat b 2>/dev/null)] sub/b [$(cat sub/b 2>/dev/null)] out [$(cat out 2>/dev/null)] sub/out [$(cat sub/out 2>/dev/null)]"
+}
+here() { echo "$1: in ${PWD##*/}"; }
+leaf() { pwd | sed 's|.*/||'; }
+
+printf 'cd sub\nrm victim\n' > rm.sh
+printf 'cd sub && rm victim\n' > rmand.sh
+printf 'cd sub\nmv a b\n' > mv.sh
+printf 'cd sub\necho redirected > out\n' > redir.sh
+printf 'cd sub\ncat a > out\n' > applet.sh
+printf '#!/bin/sh\ncd sub\nrm victim\n' > rmsb.sh
+printf '#!/bin/sh\ncd sub\nmv a b\n' > mvsb.sh
+chmod +x rmsb.sh mvsb.sh
+
+# Controls: cd in the shell itself.
+reset; cd sub; rm victim; cd ..; state "one line rm"
+reset; f() { cd sub; rm victim; cd ..; }; f; state "function rm"
+reset; if true; then cd sub; rm victim; cd ..; fi; state "if rm"
+
+# A sourced file runs in this shell: cd reaches its commands and stays in force.
+reset; . ./rm.sh; here "sourced rm"; cd ..; state "sourced rm"
+reset; . ./rmand.sh; here "sourced && rm"; cd ..; state "sourced && rm"
+reset; . ./mv.sh; here "sourced mv"; cd ..; state "sourced mv"
+reset; . ./redir.sh; here "sourced redirect"; cd ..; state "sourced redirect"
+reset; . ./applet.sh; here "sourced applet"; cd ..; state "sourced applet"
+reset; . ./rm.sh; echo after-source > out; cat a > copy; cd ..; state "after sourced cd"; cat sub/copy; rm -f sub/copy
+
+# Sourced from a sourced file: the cd reaches the outer file and the shell.
+printf '. ./mid.sh\nrm victim\n' > top.sh
+printf 'cd sub\n' > mid.sh
+reset; . ./top.sh; here "two levels"; cd ..; state "two levels"
+
+# eval, too, runs in this shell.
+reset; eval 'cd sub; rm victim'; here "eval"; cd ..; state "eval"
+
+# pushd and popd go through the same directory stack.
+printf 'pushd sub > /dev/null\nrm victim\npopd > /dev/null\n' > pd.sh
+reset; . ./pd.sh; here "sourced pushd"; state "sourced pushd"
+
+# A shell run as a command: cd reaches what it runs, and the caller stays put.
+before_old="$OLDPWD"
+reset; exsh rm.sh; here "exsh rm"; state "exsh rm"
+reset; exsh mv.sh; here "exsh mv"; state "exsh mv"
+reset; exsh redir.sh; here "exsh redirect"; state "exsh redirect"
+reset; sh -c 'cd sub; rm victim'; here "sh -c rm"; state "sh -c rm"
+reset; sh -c 'cd sub; mv a b'; here "sh -c mv"; state "sh -c mv"
+reset; sh -c 'cd sub; echo redirected > out'; here "sh -c redirect"; state "sh -c redirect"
+reset; ./rmsb.sh; here "#! rm"; state "#! rm"
+reset; ./mvsb.sh; here "#! mv"; state "#! mv"
+[ "$OLDPWD" = "$before_old" ] && echo "OLDPWD kept" || echo "OLDPWD moved"
+[ "$(pwd)" = "$PWD" ] && echo "pwd and PWD agree" || echo "pwd and PWD differ"
+sh -c 'cd sub; leaf() { pwd | sed "s|.*/||"; }; echo "inside sh -c: $(leaf) ${PWD##*/}"'
+echo "after sh -c: $(leaf) ${PWD##*/}"
+
+# Levels of it: an inner shell's cd stops at that shell.
+printf 'cd deep\npwd | sed "s|.*/||"\n' > sub/lvl2.sh
+printf 'cd sub\nsh lvl2.sh\npwd | sed "s|.*/||"\n' > lvl1.sh
+sh lvl1.sh
+echo "after two shells: $(leaf)"
+printf 'cd sub\n. ./src2.sh\ncat a\n' > nest.sh
+printf 'echo sourced-in-sub\n' > sub/src2.sh
+reset; exsh nest.sh
+echo "after source in a shell: $(leaf)"
+
+# A subshell and a substitution have their own directory as well.
+reset; ( cd sub; rm victim ); here "subshell"; state "subshell"
+reset; x=$(cd sub; cat a; leaf); echo "substitution saw [$x]"; here "substitution"; state "substitution"
+reset; { cd sub; cat a; } | cat; here "group in a pipe"; state "group in a pipe"
+reset; { cd sub; rm victim; } | cat; here "group rm in a pipe"; state "group rm in a pipe"
+reset; { cd sub; rm victim; } & wait; here "background group"; state "background group"
+
+cd /
+rm -rf "$d"
