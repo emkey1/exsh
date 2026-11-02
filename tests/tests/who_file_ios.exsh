@@ -1,0 +1,24 @@
+#!/bin/sh
+# who reads its file with pread. On iOS open() gives a slot in the vproc's table and
+# pread had no shim, so it read whichever host descriptor had that number, or failed
+# when none did, and who saw no records.
+if [ "${RUN_VPROC_TESTS:-0}" != "1" ]; then
+    exit 77
+fi
+f=".tmp-who-file-$$"
+# The record's size is 384 bytes where the time is 32 bits, or else 400 (utmp_rec.c).
+case "$(uname -m)" in
+    x86_64|i?86) rest=335 ;;
+    *) rest=351 ;;
+esac
+record() {
+    # USER_PROCESS, pid 1, then the line, the id and the name at their offsets.
+    # Through tr, because printf here does not take octal escapes.
+    printf 'BZZZCZZZpts/0' | tr BCZ '\007\001\000'
+    head -c 27 /dev/zero
+    printf 'ts/0%s' "$1"
+    head -c $((rest + 5 - ${#1})) /dev/zero
+}
+{ record alice; record bob; } > "$f" || exit 1
+who -q "$f"
+rm -f "$f"

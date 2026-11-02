@@ -85,6 +85,15 @@
     "expected_stdout": "one\ntwo\nthree"
   },
   {
+    "id": "who_file_ios",
+    "name": "who reads records through the vproc's table (iOS)",
+    "category": "pipeline_ios",
+    "description": "pread on the slot open() gave, not on whichever host descriptor has that number.",
+    "script": "Tests/exsh/tests/who_file_ios.exsh",
+    "expect": "runtime_ok",
+    "expected_stdout": "alice bob\n# users=2"
+  },
+  {
     "id": "pipeline_bg_pipe_redirect_ios",
     "name": "Background pipeline redirection (iOS)",
     "category": "pipeline_ios",
