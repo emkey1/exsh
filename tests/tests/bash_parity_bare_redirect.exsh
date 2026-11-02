@@ -1,0 +1,73 @@
+#!/usr/bin/env exsh
+# A command of only redirections or assignments still performs them. They were dropped:
+# `> f` made no file, and a redirection that could not open reported success.
+d="${TMPDIR:-/tmp}/exsh_parity_bare.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+in=missing.in
+clean() { rm -f ./*; }
+
+> f; ls; echo "rc=$?"; clean
+echo a > f; > f; wc -c < f | tr -d ' '; clean
+echo a > f; >> f; wc -c < f | tr -d ' '; clean
+>> g; ls; clean
+: > f; < f; echo "input rc=$?"; clean
+3> f; ls; clean
+2> f; ls; clean
+&> f; ls; clean
+> a > b; ls; clean
+n=f; > "$n.out"; ls; clean
+> $(echo f); ls; echo "rc=$?"; clean
+false; > f; echo "clears rc=$?"; clean
+> f; echo visible-on-stdout; clean
+x=1 > f; echo visible-on-stdout; clean
+
+# It fails like any command.
+{
+  < "$in"; echo "missing rc=$?"
+  > .; echo "directory rc=$?"
+  >&77; echo "bad fd rc=$?"
+  > . > b; echo "stops at first rc=$?"; ls
+  > . || echo or-branch
+  > f && echo and-branch; clean
+  if > .; then echo then-branch; else echo else-branch; fi
+  ! > .; echo "negated rc=$?"
+  ( set -e; > .; echo not-reached ); echo "errexit rc=$?"
+  ( set -e; > . || echo caught; echo survived ); echo "guarded rc=$?"
+} 2>/dev/null
+
+# Here documents and strings.
+<<EOT
+text
+EOT
+echo "here document rc=$?"
+<<< word; echo "here string rc=$?"
+
+# Assignments alongside: they take effect, and the redirection still happens.
+x=1 > f; ls; echo "$x rc=$?"; clean; unset x
+{
+  x=1 > .; echo "rc=$? [$x]"; unset x
+  x=1 < "$in"; echo "input rc=$? [$x]"; unset x
+} 2>/dev/null
+x=$(false) > f; echo "substitution rc=$? [$x]"; ls; clean; unset x
+x=$(echo hi) > f; echo "[$x]"; wc -c < f | tr -d ' '; clean; unset x
+x=$(echo e >&2) 2> f; wc -c < f | tr -d ' '; clean; unset x
+
+# As a pipeline stage or in the background, apart from the shell.
+> f | cat; ls; echo "head rc=$?"; clean
+echo a | > f; ls; wc -c < f | tr -d ' '; clean
+x=1 > f | cat; ls; echo "[$x]"; clean
+> f & wait; ls; clean
+x=1 > f & wait; echo "[$x]"; ls; clean
+2>/dev/null > . & wait $!; echo "background rc=$?"
+$empty > f; ls; echo "empty word rc=$?"; clean
+
+# Anywhere a command can go.
+f() { > g; }; f; ls; clean; unset -f f
+for a in 1 2; do > f$a; done; ls; clean
+( > f ); ls; clean
+{ > f; }; ls; clean
+if > f; then ls; fi; clean
+
+cd /
+rm -rf "$d"

@@ -1,0 +1,87 @@
+#!/usr/bin/env exsh
+# A backslash stops what follows it from meaning anything, in and out of double quotes.
+# It used to be dropped before expansion, so `echo "\$HOME"` expanded and `a\ b` split.
+d="${TMPDIR:-/tmp}/exsh_parity_escape.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+HOME=h USER=u x=v
+
+echo "\$HOME" \$USER
+echo "\$?" \$?
+echo "\$\$" \$\$
+echo "\$-" \$-
+echo "\${HOME}" \${HOME}
+echo "\$(echo hi)"
+echo "\`echo hi\`" \`echo hi\`
+echo a\$ "b\$" c$ "d$"
+
+# Backslashes themselves.
+echo "\\$x" \\$x
+echo "\\\$x" \\\$x
+echo \\a "\\a" "\a" \a
+echo "a\\"
+echo "\\\\" \\\\
+printf '%s\n' "a\\b" 'a\\b' a\\b
+echo \a\b\c
+echo $\x "$\x"
+
+# What comes after one still expands.
+echo "\$(a) $(echo b)"
+echo "\`a\` $(echo b)"
+echo '$(echo a)'$(echo b)
+echo '`echo a`'$(echo b)
+echo \$x$x"\$x"$x
+
+# Words stay together, and it is not a glob or an operator.
+printf '[%s]\n' a\ b
+printf '[%s]\n' \( a \) \; \| \& \< \> \# a\#
+printf '[%s]\n' \" \' "\"" \~ a\=b
+y='a b'
+printf '[%s]\n' \$y "$y"
+echo a\
+b
+echo "a\
+b"
+echo "100\%" "\n"
+
+# In every kind of word.
+z=\$HOME; echo "$z"
+z="\$HOME"; echo "$z"
+z=a\ b; echo "$z"
+z=a\*; echo "$z"
+export E=\$HOME; echo "$E"
+declare D=\$x; echo "$D"
+fl() { local v=\$x; echo "$v"; }; fl
+fp() { echo "\$1" \$1; }; fp a
+for i in \$a b\$c "\$d" e\ f; do echo "[$i]"; done
+case \$x in \$x) echo literal;; *) echo other;; esac
+case 'a$b' in a\$b) echo matched;; *) echo other;; esac
+[ \$x = '$x' ] && echo same || echo different
+[[ \$x == '$x' ]] && echo same || echo different
+i=0; while [ \$i = '$i' ]; do i=1; break; done; echo "$i"
+: > \$f; ls; rm -f '$f'
+cat <<< \$HOME
+cat <<< "\$HOME"
+\echo first-letter
+\e\c\h\o every-letter
+\cd /; pwd; cd "$d"
+
+# Not an assignment or a keyword.
+x\=1 2>/dev/null; echo "rc=$?"
+\x=1 2>/dev/null; echo "rc=$?"
+\if 2>/dev/null; echo "rc=$?"
+
+# Inside a substitution, the inner command reads it.
+echo $(echo \$x) "$(echo "\$x")"
+echo `echo \$x`
+echo `echo \\\$x`
+echo `echo \`echo nested\``
+echo "`echo \"quoted\"`"
+echo "`echo \"\$x\"`"
+echo `echo '$x'`
+echo `echo a\\\\b`
+echo ${u:-\$x} "${u:-\$x}"
+eval echo \$x; eval "echo \$x"; eval 'echo \$x'
+
+cd /
+rm -rf "$d"

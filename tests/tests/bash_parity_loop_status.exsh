@@ -1,0 +1,77 @@
+#!/usr/bin/env exsh
+# A loop's status is its last body command's, or 0 if the body never ran. It was always 0
+# after a body ran, and what came before if it never did.
+d="${TMPDIR:-/tmp}/exsh_parity_loop.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+for a in 1; do false; done; echo "for false $?"
+for a in 1 2; do false; true; done; echo "for true $?"
+for a in 1 2; do [ $a = 2 ]; done; echo "for pass $?"
+for a in 2 1; do [ $a = 2 ]; done; echo "for fail $?"
+for a in 1; do (exit 3); done; echo "for code $?"
+false; for a in; do true; done; echo "for empty $?"
+false; for a in $empty; do true; done; echo "for no words $?"
+false; for a in 1; do :; done; echo "for clears $?"
+i=0; while [ $i -lt 1 ]; do i=1; false; done; echo "while false $?"
+i=0; while [ $i -lt 2 ]; do i=$((i+1)); done; echo "while assign $?"
+i=0; while [ $i -lt 2 ]; do i=$((i+1)); [ $i = 9 ]; done; echo "while test $?"
+false; while false; do :; done; echo "while none $?"
+n=0; while [ $n = 1 ]; do false; done; echo "while fast none $?"
+i=0; until [ $i = 1 ]; do i=1; false; done; echo "until false $?"
+false; until true; do :; done; echo "until none $?"
+for ((i=0;i<1;i++)); do false; done; echo "cfor false $?"
+for ((i=0;i<2;i++)); do true; done; echo "cfor true $?"
+false; for ((i=0;i<0;i++)); do :; done; echo "cfor none $?"
+i=0; while ((i<2)); do ((i++)); done; echo "arith $?"
+i=1; while ((i>0)); do ((i--)); done; echo "arith last zero $?"
+for a in 1; do x=$(false); done; echo "substitution $?"
+for a in 1; do false; x=1; done; echo "assign $?"
+for a in 1; do case $a in 1) false;; esac; done; echo "case $?"
+for a in 1; do if false; then :; fi; done; echo "if $?"
+printf 'a\nb\n' > f; while read x; do [ "$x" = a ]; done < f; echo "read last $?"
+: > f; false; while read x; do echo "$x"; done < f; echo "read none $?"
+
+# break and continue succeed, so the status is theirs.
+for a in 1; do false; break; done; echo "break $?"
+for a in 1; do false; continue; done; echo "continue $?"
+for a in 1; do for b in 1; do false; break 2; done; done; echo "break 2 $?"
+while true; do false; break; done; echo "while break $?"
+
+# Nested.
+for a in 1; do for b in 1; do false; done; done; echo "nested $?"
+for a in 1; do for b in 1; do false; done; true; done; echo "nested true $?"
+for a in 1; do false; for b in; do :; done; done; echo "nested none $?"
+
+# Between passes, $? is the previous pass's.
+for a in 1 2; do echo "in $?"; false; done; echo "end $?"
+for ((i=0;i<2;i++)); do echo "in $?"; false; done; echo "end $?"
+while [ "${w:-0}" != 2 ]; do echo "in $?"; w=$((${w:-0}+1)); false; done; echo "end $?"
+
+# It decides what comes next.
+if for a in 1; do false; done; then echo then-branch; else echo else-branch; fi
+for a in 1; do false; done && echo and-branch || echo or-branch
+! for a in 1; do false; done; echo "negated $?"
+for a in 1; do false; done | cat; echo "stage $?"
+echo x | for a in 1; do false; done; echo "tail $?"
+f() { for a in 1; do false; done; }; f; echo "function $?"
+
+# What ends the loop keeps its own status.
+g() { for a in 1; do return 3; done; echo no; }; g; echo "return $?"
+g() { while true; do return 4; done; }; g; echo "while return $?"
+( for a in 1; do exit 5; done ); echo "exit $?"
+for a in 1; do :; done 2>/dev/null < missing.in; echo "redirect $?"
+while read x; do :; done 2>/dev/null < missing.in; echo "while redirect $?"
+
+# errexit sees the command that failed, not the loop.
+( set -e; for a in 1; do false; done; echo not-reached ); echo "e for $?"
+( set -e; for a in 1; do false; true; done; echo reached ); echo "e for true $?"
+( set -e; i=0; while [ $i = 0 ]; do i=1; false; done; echo not-reached ); echo "e while $?"
+( set -e; while false; do :; done; echo reached ); echo "e condition $?"
+( set -e; until true; do :; done; echo reached ); echo "e until $?"
+( set -e; for a in 1; do false && true; done; echo "reached $?" ); echo "e list $?"
+( set -e; i=0; while [ $i = 0 ]; do i=1; false && true; done; echo "reached $?" ); echo "e while list $?"
+( set -e; for a in 1; do ! true; done; echo "reached $?" ); echo "e negated $?"
+
+cd /
+rm -rf "$d"

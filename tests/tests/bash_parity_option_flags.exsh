@@ -1,4 +1,13 @@
 #!/usr/bin/env exsh
+# The other one-character parameters in braces.
+false; echo "${?}"
+set -- a b; echo "${#}"
+[ "${$}" = "$$" ] && echo same-pid
+true & wait; [ "${!}" = "$!" ] && echo same-job
+(exit 12); echo "${#?}"
+echo "${#-}"
+[ "${#$}" -gt 0 ] && echo pid-has-digits
+set --
 # $- expands to the shell's option letters. It stayed as the text `$-`, so the usual
 # `case $- in *i*)` could never see an interactive shell. The interactive harness has
 # the interactive case.

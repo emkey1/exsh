@@ -537,6 +537,15 @@ static bool parserConsumePendingHereDocs(ShellParser *parser) {
     return true;
 }
 
+/* `<<"EOF"`, `<<\\EOF` and `<<E'O'F` all leave a here document unexpanded. */
+static bool wordHasQuoting(const ShellWord *word) {
+    if (!word) {
+        return false;
+    }
+    return word->single_quoted || word->double_quoted ||
+           (word->text && (strchr(word->text, SHELL_QUOTE_MARK_SINGLE) || strchr(word->text, SHELL_QUOTE_MARK_DOUBLE)));
+}
+
 static char *parserCopyWordWithoutMarkers(const ShellWord *word) {
     if (!word || !word->text) {
         return NULL;
@@ -1056,7 +1065,7 @@ static ShellCommand *parseArithmeticCommand(ShellParser *parser) {
             if (!delimiter) {
                 delimiter = strdup("");
             }
-            bool quoted = target && (target->single_quoted || target->double_quoted);
+            bool quoted = wordHasQuoting(target);
             pendingHereDocArrayPush(parser->pending_here_docs, redir, delimiter ? delimiter : "",
                                     strip_tabs, quoted);
             free(delimiter);
@@ -1120,7 +1129,7 @@ static ShellCommand *parseSimpleCommand(ShellParser *parser) {
                 if (!delimiter) {
                     delimiter = strdup("");
                 }
-                bool quoted = target && (target->single_quoted || target->double_quoted);
+                bool quoted = wordHasQuoting(target);
                 pendingHereDocArrayPush(parser->pending_here_docs, redir, delimiter ? delimiter : "",
                                         strip_tabs, quoted);
                 free(delimiter);
@@ -1187,7 +1196,7 @@ static ShellCommand *parseCompoundCommand(ShellParser *parser) {
             if (!delimiter) {
                 delimiter = strdup("");
             }
-            bool quoted = target && (target->single_quoted || target->double_quoted);
+            bool quoted = wordHasQuoting(target);
             pendingHereDocArrayPush(parser->pending_here_docs, redir, delimiter ? delimiter : "",
                                     strip_tabs, quoted);
             free(delimiter);
@@ -1933,8 +1942,19 @@ static void populateWordExpansions(ShellWord *word) {
     const char *text = word->text;
     size_t len = strlen(text);
     size_t i = 0;
+    bool in_single = false;
     while (i < len) {
         char c = text[i];
+        /* Expansion skips these, so one recorded here would hold up the real ones after it. */
+        if (c == SHELL_QUOTE_MARK_SINGLE) {
+            in_single = !in_single;
+            i++;
+            continue;
+        }
+        if (in_single) {
+            i++;
+            continue;
+        }
         if (c == '$') {
             size_t span = 0;
             char *command = NULL;

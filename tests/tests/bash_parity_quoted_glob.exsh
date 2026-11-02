@@ -1,0 +1,72 @@
+#!/usr/bin/env exsh
+# A quoted or escaped glob character is literal, however the rest of the word is written.
+# Globbing went by flags for the whole word, so `\*` and `a'*'` expanded.
+d="${TMPDIR:-/tmp}/exsh_parity_glob.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+: > a1; : > a2; : > 'a*1'
+mkdir s; : > 's/a\b'
+
+echo \*
+echo \?1
+echo a\*
+echo a\*1
+echo a'*'1
+echo a"*"1
+echo a'*'*
+echo \[a\]
+echo \*nomatch\*
+echo s/a\\*
+echo 'a'*
+echo a*
+x='a*'; echo $x; echo "$x"
+s='*'; echo a$s; echo a\* "$s"
+
+# for lists. A list with a matching glob used to crash.
+for f in a*; do echo "[$f]"; done
+for f in a* z; do echo "[$f]"; done
+for f in a\*; do echo "[$f]"; done
+for f in a'*'; do echo "[$f]"; done
+for f in a\ b c; do echo "[$f]"; done
+
+# case patterns.
+case abc in \*) echo star;; *) echo other;; esac
+case 'a*' in a\*) echo yes;; *) echo no;; esac
+case ab in a\*) echo yes;; *) echo no;; esac
+case ab in a'*') echo yes;; *) echo no;; esac
+case 'a*' in "a*") echo yes;; *) echo no;; esac
+case 'a*bc' in a\*b*) echo yes;; *) echo no;; esac
+case 'a[b]' in a\[b\]) echo yes;; *) echo no;; esac
+case 'a\b' in a\\b) echo yes;; *) echo no;; esac
+case a in \?) echo literal;; ?) echo any;; esac
+p='a*'; case abc in $p) echo yes;; *) echo no;; esac
+case abc in "$p") echo yes;; *) echo no;; esac
+
+# [[ ]]: only the right of == and != is a pattern.
+[[ ab == a* ]] && echo yes || echo no
+[[ ab == a\* ]] && echo yes || echo no
+[[ 'a*' == a\* ]] && echo yes || echo no
+[[ ab == "a*" ]] && echo yes || echo no
+[[ ab == 'a*' ]] && echo yes || echo no
+[[ ab != "a*" ]] && echo yes || echo no
+[[ ab != a* ]] && echo yes || echo no
+[[ 'a*' == 'a*' ]] && echo yes || echo no
+[[ $x == "$x" ]] && echo yes || echo no
+[[ $x == a\* ]] && echo yes || echo no
+[[ -e 'a*1' ]] && echo yes || echo no
+[[ -e "z*" ]] && echo yes || echo no
+[[ abc == $x ]] && echo yes || echo no
+[[ abc == "$x" ]] && echo yes || echo no
+a=x b='y z'
+[[ $a < $b ]] && echo yes || echo no
+[[ $a > $unset_v ]] && echo yes || echo no
+
+# The byte that carries the marking is ordinary text elsewhere.
+v=$(echo -e 'a\0036b'); echo ${#v}
+w=$v; echo ${#w}
+set -- $v; echo ${#1}
+for f in "$v" $v; do echo ${#f}; done
+case $v in a?b) echo yes;; *) echo no;; esac
+
+cd /
+rm -rf "$d"

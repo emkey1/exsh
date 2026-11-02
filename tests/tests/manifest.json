@@ -1228,6 +1228,110 @@
             "description": "$- and ${-} in words, with set -e and set -o errexit, in functions, subshells and substitutions.",
             "script": "Tests/exsh/tests/bash_parity_option_flags.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_and_or_list",
+            "name": "&& and || group from the left",
+            "category": "parity",
+            "description": "false && a || b runs b. Status, conditions, stages, and which pipeline errexit can see.",
+            "script": "Tests/exsh/tests/bash_parity_and_or_list.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_backslash_escape",
+            "name": "A backslash stops what follows it",
+            "category": "parity",
+            "description": "\\$, \\\\, \\`, \\ and friends, in and out of double quotes, in every kind of word and inside substitutions.",
+            "script": "Tests/exsh/tests/bash_parity_backslash_escape.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_quoted_glob",
+            "name": "Quoted glob characters are literal",
+            "category": "parity",
+            "description": "In words, for lists, case patterns and [[ ]], however the rest of the word is written.",
+            "script": "Tests/exsh/tests/bash_parity_quoted_glob.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_set_flags",
+            "name": "set takes combined letters, and pipefail",
+            "category": "parity",
+            "description": "set -eu, set -euo pipefail, positional parameters after them, and what pipefail does to a status.",
+            "script": "Tests/exsh/tests/bash_parity_set_flags.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_loop_status",
+            "name": "A loop's status is its last body command's",
+            "category": "parity",
+            "description": "for, while, until and C-style for: no pass, break, nesting, $? between passes, errexit.",
+            "script": "Tests/exsh/tests/bash_parity_loop_status.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_condition_status",
+            "name": "$? in a branch, and ! on a compound command",
+            "category": "parity",
+            "description": "if, elif, until and case bodies see the status that chose them; ! inverts a group, if, case or loop.",
+            "script": "Tests/exsh/tests/bash_parity_condition_status.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_bare_redirect",
+            "name": "A command of only redirections performs them",
+            "category": "parity",
+            "description": "> f, < f, x=1 > f, their failures, and in a stage or the background.",
+            "script": "Tests/exsh/tests/bash_parity_bare_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_empty_stage",
+            "name": "A stage with no command word",
+            "category": "parity",
+            "description": "x=1 | cat does not hang or set x; its status reaches the pipeline.",
+            "script": "Tests/exsh/tests/bash_parity_empty_stage.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_builtin_failure",
+            "name": "A failed builtin fails that command only",
+            "category": "parity",
+            "description": "cd and the rest report and set a status, and the script goes on.",
+            "script": "Tests/exsh/tests/bash_parity_builtin_failure.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_failure",
+            "name": "exec that cannot run ends the script",
+            "category": "parity",
+            "description": "Status 127 in a script, a function and a subshell, and what execfail changes.",
+            "script": "Tests/exsh/tests/bash_parity_exec_failure.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_redirect",
+            "name": "exec keeps a redirection on a closed descriptor",
+            "category": "parity",
+            "description": "exec 3> f and friends, where opening lands on the descriptor itself; and status 126. Host only.",
+            "script": "Tests/exsh/tests/bash_parity_exec_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_dup_word_redirect",
+            "name": ">&word and ambiguous redirects",
+            "category": "parity",
+            "description": ">&file means &>file; other descriptors and words that do not stay one word are ambiguous.",
+            "script": "Tests/exsh/tests/bash_parity_dup_word_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_heredoc_escapes",
+            "name": "Backslashes and quoted delimiters in here documents",
+            "category": "parity",
+            "description": "Only $, `, \\ and newline are special after a backslash; any quoting in the delimiter stops expansion.",
+            "script": "Tests/exsh/tests/bash_parity_heredoc_escapes.exsh",
+            "expect": "match_bash"
         }
     ]
 }

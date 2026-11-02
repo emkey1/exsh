@@ -1,0 +1,20 @@
+#!/usr/bin/env exsh
+# A pipeline stage with no command word runs apart from the shell, as any stage does. It
+# never closed its end of the pipe, so `x=1 | cat` hung, and at the tail it set x.
+x=1 | cat; echo "head rc=$? [$x]"
+echo a | x=1; echo "tail rc=$? [$x]"
+echo a | x=1 | cat; echo "middle rc=$? [$x]"
+x=1 | wc -l | tr -d ' '
+y=1 z=2 | cat; echo "two [$y$z]"
+x=$(echo hi) | cat; echo "substitution [$x]"
+x=$(exit 3) | cat; echo "substitution head rc=$?"
+echo a | x=$(exit 3); echo "substitution tail rc=$?"
+echo a | x=$(true); echo "true tail rc=$?"
+false | x=1; echo "after a failure rc=$?"
+! x=1 | cat; echo "negated rc=$?"
+{ x=1 | cat; echo in-group; } | cat
+$empty | cat; echo "empty head rc=$?"
+echo a | $empty; echo "empty tail rc=$?"
+x=2 | cat | cat; echo "longer rc=$?"
+x=1 & wait; echo "background [$x]"
+$empty & wait; echo "empty background rc=$?"

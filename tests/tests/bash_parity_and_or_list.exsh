@@ -1,0 +1,55 @@
+#!/usr/bin/env exsh
+# && and || have equal precedence and group from the left. Every short circuit used to
+# jump to the end of the list, so `false && echo y || echo n` printed nothing.
+false && echo y || echo n
+true && echo y || echo n
+true || echo a && echo b
+false || echo a && echo b
+false && echo a && echo b || echo c
+true || echo a || echo b && echo c
+false && echo a || false && echo b || echo c
+true && false || echo a && false || echo b; echo "rc=$?"
+
+# The status is the last pipeline's that ran.
+false && echo y; echo "rc=$?"
+true || echo y; echo "rc=$?"
+false && true || false; echo "rc=$?"
+false || (exit 3); echo "rc=$?"
+true && (exit 4); echo "rc=$?"
+
+# Anywhere a list can go.
+if false && true || true; then echo then-branch; else echo else-branch; fi
+if true && false; then echo then-branch; else echo else-branch; fi
+while false && true || false; do echo not-reached; done; echo while-done
+! false && echo a || echo b
+echo x | grep y && echo a || echo b; echo "rc=$?"
+false | cat && echo a || echo b
+f() { false && return 3 || return 4; }; f; echo "function rc=$?"
+g() { false && echo a || echo b; }; g
+( false && echo a || echo b ); echo "subshell rc=$?"
+{ false && echo a || echo b; } | cat
+false && echo a || echo b &
+wait
+false &&
+  echo a ||
+  echo b
+for i in 1 2; do [ $i = 1 ] && echo one || echo other; done
+case x in x) false && echo a || echo b;; esac
+
+# errexit: only the pipeline after the last connector can end the script.
+( set -e; false && true; echo first-may-fail ); echo "rc=$?"
+( set -e; false || true; echo recovered ); echo "rc=$?"
+( set -e; false && echo a || echo b; echo goes-on ); echo "rc=$?"
+( set -e; true && false; echo not-reached ); echo "rc=$?"
+( set -e; false || false; echo not-reached ); echo "rc=$?"
+( set -e; true && true && false; echo not-reached ); echo "rc=$?"
+( set -e; if true && false; then :; fi; echo in-condition ); echo "rc=$?"
+( set -e; ! true; echo inverted ); echo "rc=$?"
+( set -e; ! false; echo inverted ); echo "rc=$?"
+( set -e; ! true | true; echo inverted-pipeline ); echo "rc=$?"
+( set -e; f() { false; echo inner; }; ! f; echo inverted-function ); echo "rc=$?"
+( set -e; f() { false && true; }; f; echo function-list ); echo "rc=$?"
+( set -e; { false && true; }; echo group-list ); echo "rc=$?"
+( set -e; ( false && true ); echo not-reached ); echo "rc=$?"
+( set -e; false | true; echo pipeline-head ); echo "rc=$?"
+( set -e; true | false; echo not-reached ); echo "rc=$?"

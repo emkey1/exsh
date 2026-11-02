@@ -1,0 +1,6 @@
+#!/usr/bin/env exsh
+# exec of something that cannot run ends the script, 127 here, unless execfail is set.
+( exec nonexistent-cmd; echo not-reached ) 2>/dev/null; echo "missing rc=$?"
+( f() { exec nonexistent-cmd; echo not-reached; }; f; echo not-reached ) 2>/dev/null; echo "in a function rc=$?"
+( shopt -s execfail; exec nonexistent-cmd; echo not-reached ) 2>/dev/null; echo "execfail in a subshell rc=$?"
+shopt -s execfail; exec nonexistent-cmd 2>/dev/null; echo "still here $?"; shopt -u execfail

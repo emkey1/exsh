@@ -1,0 +1,35 @@
+#!/usr/bin/env exsh
+# Option letters combine. Only the exact word -e turned errexit on, so `set -eu` and
+# `set -euo pipefail` left it off, and pipefail did nothing.
+( set -eu; false; echo not-reached ); echo "eu rc=$?"
+( set -ue; false; echo not-reached ); echo "ue rc=$?"
+( set -euo pipefail; false; echo not-reached ); echo "euo rc=$?"
+( set -eo pipefail; false; echo not-reached ); echo "eo rc=$?"
+( set -e -u; false; echo not-reached ); echo "e u rc=$?"
+( set -o errexit -u; false; echo not-reached ); echo "o u rc=$?"
+( set -uo errexit; false; echo not-reached ); echo "uo rc=$?"
+( set -eu; set +eu; false; echo reached ); echo "off rc=$?"
+( set -e; set +o errexit; false; echo reached ); echo "o off rc=$?"
+( set -eu; case $- in *e*) echo has-e;; *) echo no-e;; esac )
+( set -eu; set +e; case $- in *e*) echo has-e;; *) echo no-e;; esac )
+
+# Positional parameters after them.
+( set -eu -- a b; echo "$1 $2 $#" )
+( set -e a b; echo "$1 $2 $#" )
+( set -euo pipefail -- c; echo "$1 $#" )
+
+# pipefail: the last stage to fail decides.
+( set -o pipefail; false | true; echo "head rc=$?" )
+( set -o pipefail; true | false; echo "tail rc=$?" )
+( set -o pipefail; true | true; echo "none rc=$?" )
+( set -o pipefail; (exit 3) | (exit 4) | true; echo "rightmost rc=$?" )
+( set -o pipefail; (exit 3) | true | (exit 4); echo "last rc=$?" )
+( set -o pipefail; echo a | false | cat; echo "middle rc=$?" )
+( set -o pipefail; ! false | true; echo "negated rc=$?" )
+( set -o pipefail; if false | true; then echo then-branch; else echo else-branch; fi )
+( set -o pipefail; f() { false | true; }; f; echo "function rc=$?" )
+( set -o pipefail; ( false | true; echo "subshell rc=$?" ) )
+( set -o pipefail; x=$(false | true; echo "sub $?"); echo "$x" )
+( set -o pipefail; set +o pipefail; false | true; echo "off rc=$?" )
+( false | true; echo "default rc=$?" )
+( set -euo pipefail; true | true; echo fine; false | true; echo not-reached ); echo "all rc=$?"

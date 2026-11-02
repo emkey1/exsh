@@ -955,7 +955,20 @@ static void compilePipeline(BytecodeChunk *chunk, const ShellPipeline *pipeline,
     }
     char *meta = buildPipelineMetadata(pipeline);
     int line = (pipeline->command_count > 0 && pipeline->commands[0]) ? pipeline->commands[0]->line : 0;
-    if (!meta) {
+    /* A simple command's status is inverted when its pipeline finishes. The commands
+     * inside a compound one are pipelines of their own, so it is inverted here, after
+     * them. A subshell is started as one command, so it counts as simple. */
+    ShellCommand *only_stage = pipeline->command_count == 1 ? pipeline->commands[0] : NULL;
+    bool negate_compound = pipeline->negated && commandIsCompound(only_stage) &&
+                           only_stage->type != SHELL_COMMAND_SUBSHELL;
+    /* errexit ignores a pipeline whose status is inverted, and what runs inside it. */
+    if (pipeline->negated) {
+        emitBuiltinProc(chunk, "__shell_enter_condition", 0, line);
+    }
+    if (negate_compound) {
+        emitPushString(chunk, "stages=1;negated=0;merge=0", line);
+        free(meta);
+    } else if (!meta) {
         emitPushString(chunk, "stages=0;negated=0;merge=", line);
     } else {
         emitPushString(chunk, meta, line);
@@ -976,6 +989,12 @@ static void compilePipeline(BytecodeChunk *chunk, const ShellPipeline *pipeline,
         } else {
             compileCommand(chunk, stage_command, stage_background);
         }
+    }
+    if (negate_compound) {
+        emitPushString(chunk, "negate", line);
+        emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 1, line);
+    } else if (pipeline->negated) {
+        emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 0, line);
     }
 }
 
@@ -1001,7 +1020,10 @@ static void compileLogical(BytecodeChunk *chunk, const ShellLogicalList *logical
     }
 
     int *patch_sites = (int *)malloc(connector_count * sizeof(int));
-    if (!patch_sites) {
+    int *pipeline_starts = (int *)malloc(pipeline_count * sizeof(int));
+    if (!patch_sites || !pipeline_starts) {
+        free(patch_sites);
+        free(pipeline_starts);
         for (size_t i = 0; i < pipeline_count; ++i) {
             compilePipeline(chunk, logical->pipelines[i], false);
             if (i + 1 < pipeline_count) {
@@ -1021,6 +1043,7 @@ static void compileLogical(BytecodeChunk *chunk, const ShellLogicalList *logical
 
     size_t patch_count = 0;
     for (size_t i = 0; i < pipeline_count - 1; ++i) {
+        pipeline_starts[i] = chunk->count;
         compilePipeline(chunk, logical->pipelines[i], false);
         emitCallHost(chunk, HOST_FN_SHELL_LAST_STATUS, line);
         emitPushInt(chunk, 0, line);
@@ -1033,22 +1056,37 @@ static void compileLogical(BytecodeChunk *chunk, const ShellLogicalList *logical
         emitInt32(chunk, 0xFFFFFFFF, line);
     }
 
+    /* Only the pipeline after the last connector can trip errexit, so it runs outside
+     * the guard. */
+    pipeline_starts[pipeline_count - 1] = chunk->count;
+    emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 0, line);
     compilePipeline(chunk, logical->pipelines[pipeline_count - 1], false);
+    writeBytecodeChunk(chunk, JUMP, line);
+    int done_jump = chunk->count;
+    emitInt32(chunk, 0xFFFFFFFF, line);
 
     int leave_label = chunk->count;
-    if (guard_condition) {
-        emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 0, line);
-    }
+    emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 0, line);
+    patchInt32(chunk, done_jump, (uint32_t)(chunk->count - (done_jump + 4)));
 
-    int end_label = chunk->count;
+    /* The list groups from the left: when a fails in `a && b || c`, b is skipped and c
+     * still runs. A short circuit lands on the pipeline after the next connector of the
+     * other kind, or past the list if there is none. */
     for (size_t i = 0; i < patch_count; ++i) {
         int index = patch_sites[i];
-        int32_t target = guard_condition ? leave_label : end_label;
+        int32_t target = leave_label;
+        for (size_t next = i + 1; next + 1 < pipeline_count; ++next) {
+            if (logical->connectors[next + 1] != logical->connectors[i + 1]) {
+                target = pipeline_starts[next + 1];
+                break;
+            }
+        }
         uint32_t offset = (uint32_t)(target - (index + 4));
         patchInt32(chunk, index, offset);
     }
 
     free(patch_sites);
+    free(pipeline_starts);
 }
 
 /* Opens a compound command's redirections. Returns the jump that skips its body
@@ -1430,7 +1468,7 @@ static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool 
             if (loop->is_until) {
                 writeBytecodeChunk(chunk, NOT, line);
             }
-            emitBuiltinProc(chunk, "__shell_leave_condition", 0, line);
+            emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 0, line);
             writeBytecodeChunk(chunk, JUMP_IF_FALSE, line);
             exitJump = chunk->count;
             emitInt32(chunk, 0xFFFFFFFF, line);
@@ -1492,25 +1530,26 @@ static void compileConditional(BytecodeChunk *chunk, const ShellConditional *con
     emitCallHost(chunk, HOST_FN_SHELL_LAST_STATUS, line);
     emitPushInt(chunk, 0, line);
     writeBytecodeChunk(chunk, EQUAL, line);
-    emitBuiltinProc(chunk, "__shell_leave_condition", 0, line);
+    /* `$?` in an else or elif branch is the condition's status. */
+    emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 0, line);
     writeBytecodeChunk(chunk, JUMP_IF_FALSE, line);
     int elseJump = chunk->count;
     emitInt32(chunk, 0xFFFFFFFF, line);
     compileProgram(chunk, conditional->then_branch);
-    bool hasElse = conditional->else_branch != NULL;
-    if (hasElse) {
-        writeBytecodeChunk(chunk, JUMP, line);
-        int endJump = chunk->count;
-        emitInt32(chunk, 0xFFFFFFFF, line);
-        uint32_t elseOffset = (uint32_t)(chunk->count - (elseJump + 4));
-        patchInt32(chunk, elseJump, elseOffset);
+    writeBytecodeChunk(chunk, JUMP, line);
+    int endJump = chunk->count;
+    emitInt32(chunk, 0xFFFFFFFF, line);
+    uint32_t elseOffset = (uint32_t)(chunk->count - (elseJump + 4));
+    patchInt32(chunk, elseJump, elseOffset);
+    if (conditional->else_branch) {
         compileProgram(chunk, conditional->else_branch);
-        uint32_t endOffset = (uint32_t)(chunk->count - (endJump + 4));
-        patchInt32(chunk, endJump, endOffset);
     } else {
-        uint32_t elseOffset = (uint32_t)(chunk->count - (elseJump + 4));
-        patchInt32(chunk, elseJump, elseOffset);
+        /* No branch ran: the if command's status is 0, which leaving a condition sets. */
+        emitBuiltinProc(chunk, "__shell_enter_condition", 0, line);
+        emitBuiltinProc(chunk, "__shell_leave_condition", 0, line);
     }
+    uint32_t endOffset = (uint32_t)(chunk->count - (endJump + 4));
+    patchInt32(chunk, endJump, endOffset);
 }
 
 static void compileCase(BytecodeChunk *chunk, const ShellCase *case_stmt, int line) {
@@ -1559,6 +1598,11 @@ static void compileCase(BytecodeChunk *chunk, const ShellCase *case_stmt, int li
         int skip_body_jump = chunk->count;
         emitInt32(chunk, 0xFFFFFFFF, clause_line);
 
+        /* The match was reported through the status. The body sees the one from before. */
+        if (clause && clause->body && clause->body->commands.count > 0) {
+            emitPushString(chunk, "restore", clause_line);
+            emitBuiltinProc(chunk, "__shell_case_clause", 1, clause_line);
+        }
         compileProgram(chunk, clause ? clause->body : NULL);
 
         writeBytecodeChunk(chunk, JUMP, clause_line);

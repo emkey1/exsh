@@ -1,0 +1,49 @@
+#!/usr/bin/env exsh
+# $? in a branch is the status that chose it, and ! inverts a compound command. These
+# read the status of the shell's own bookkeeping, or inverted the wrong command.
+if false; then :; else echo "else $?"; fi
+if (exit 3); then :; else echo "else code $?"; fi
+if (exit 3); then :; elif echo "elif $?"; then echo elif-branch; fi
+if (exit 3); then :; elif (exit 4); then :; else echo "second else $?"; fi
+if true; then echo "then $?"; fi
+false; if false; then :; fi; echo "no branch $?"
+if true; then false; fi; echo "then status $?"
+if false; then :; else (exit 5); fi; echo "else status $?"
+
+until false; do echo "until body $?"; break; done
+until (exit 6); do echo "until code $?"; break; done
+until [ 1 = 2 ]; do echo "until test $?"; break; done
+false; while true; do echo "while body $?"; break; done
+false; while [ 1 = 1 ]; do echo "while test $?"; break; done
+
+false; case a in a) echo "case body $?";; esac
+(exit 3); case $? in 3) echo "subject then body $?";; esac
+case $(exit 4) in *) echo "substitution $?";; esac
+false; case a in b) echo no;; a) echo "second clause $?";; esac
+false; case a in a) ;; esac; echo "empty body $?"
+false; case a in b) echo no;; esac; echo "no match $?"
+case a in a) false;; esac; echo "body status $?"
+( set -e; x=$(false) || true; case a in a) echo in-body;; esac; echo after )
+( set -e; (exit 3) || case $? in 3) echo "code $?";; esac; echo after )
+
+! { false; }; echo "group false $?"
+! { true; }; echo "group true $?"
+! { false; true; }; echo "group last $?"
+! { true; false; }; echo "group last false $?"
+! if false; then :; else false; fi; echo "if $?"
+! case a in a) false;; esac; echo "case $?"
+! case a in a) true;; esac; echo "case true $?"
+! while false; do :; done; echo "while $?"
+! until true; do :; done; echo "until $?"
+! for a in 1; do false; done; echo "for $?"
+! for a in 1; do true; done; echo "for true $?"
+! for ((i=0;i<1;i++)); do false; done; echo "cfor $?"
+! ( false ); echo "subshell $?"
+! ( true ); echo "subshell true $?"
+! ((0)); echo "arithmetic $?"
+! ((1)); echo "arithmetic true $?"
+if ! { false; }; then echo then-branch; else echo else-branch; fi
+! { false; } && echo and-branch || echo or-branch
+! { echo a | false; }; echo "pipeline inside $?"
+( set -e; ! { true; }; echo "group under errexit $?" )
+( set -e; ! { false; echo not-reached-inside; }; echo "errexit is off inside $?" )

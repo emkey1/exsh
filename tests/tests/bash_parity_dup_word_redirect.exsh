@@ -1,0 +1,52 @@
+#!/usr/bin/env exsh
+# >&word, when word is not a descriptor, sends stdout and stderr to the file. It ended
+# the script. On another descriptor, and when a word does not stay one, it is ambiguous.
+d="${TMPDIR:-/tmp}/exsh_parity_dupword.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+clean() { rm -f ./*; }
+
+echo a >& /dev/null; echo "rc=$?"
+echo a >& f; cat f; echo "rc=$?"; clean
+echo a >&f; cat f; clean
+ls /nonexistent/path >& f; wc -l < f | tr -d ' '; echo "rc=$?"; clean
+n=f; echo a >& "$n"; cat f; clean
+echo a 1>&f; cat f; ls; clean
+>& f; ls; clean
+{ echo out; echo err >&2; } >& f; sort f; clean
+n=1; echo a >&$n
+n=2; echo a 2>/dev/null >&$n; echo "number in a variable"
+echo a >&"1"
+true >&-; echo "closed $?"
+{
+  echo a >& .; echo "directory rc=$?"
+  echo a 2>&f; echo "other fd rc=$?"; ls
+  echo a 3>&f; echo "third fd rc=$?"; ls
+  cat <& f; echo "input rc=$?"
+} 2>/dev/null
+ls /nonexistent/zz 2>&1 | wc -l | tr -d ' '
+
+# A word that expands to anything but one word.
+x='a b'
+{
+  echo y > $x; echo "output rc=$?"; ls
+  echo y >> $x; echo "append rc=$?"; ls
+  cat < $x; echo "input rc=$?"
+  ls > $x; echo "external rc=$?"; ls
+  : > $x; echo "colon rc=$?"
+  > $x; echo "bare rc=$?"
+  echo y > $x | cat; echo "stage rc=$?"; ls
+  echo y >& $x; echo "dup rc=$?"; ls
+  { echo y; } > $x; echo "group rc=$?"
+  for a in 1; do echo y; done > $x; echo "loop rc=$?"
+  echo y > $empty; echo "empty rc=$?"; ls
+  echo y > "$empty"; echo "quoted empty rc=$?"; ls
+  if echo y > $x; then echo then-branch; else echo else-branch; fi
+  ( set -e; echo y > $x; echo not-reached ); echo "errexit rc=$?"
+} 2>/dev/null
+echo y > "$x"; ls; clean
+echo y > a\ b; ls; clean
+cat <<< $x
+
+cd /
+rm -rf "$d"

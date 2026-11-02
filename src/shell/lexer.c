@@ -377,6 +377,20 @@ static bool lexerAllowsStructuralWordLiterals(const ShellLexer *lexer) {
     return true;
 }
 
+static bool appendWordByte(char **buffer, size_t *len, size_t *cap, char byte) {
+    if (*len + 1 >= *cap) {
+        size_t new_cap = *cap ? *cap * 2 : 32;
+        char *tmp = (char *)realloc(*buffer, new_cap);
+        if (!tmp) {
+            return false;
+        }
+        *buffer = tmp;
+        *cap = new_cap;
+    }
+    (*buffer)[(*len)++] = byte;
+    return true;
+}
+
 static ShellToken scanWord(ShellLexer *lexer) {
     bool singleQuoted = false;
     bool doubleQuoted = false;
@@ -474,26 +488,26 @@ static ShellToken scanWord(ShellLexer *lexer) {
                     lexer->unterminated = true;
                 }
                 c = '\\';
-            } else if (!doubleQuoted) {
-                if (next == '\n') {
-                    advanceChar(lexer);
-                    continue;
+            } else if (next == '\n') {
+                advanceChar(lexer);
+                continue;
+            } else if (inBacktick) {
+                /* normalizeBacktickCommand takes this level off when the command
+                 * is built, so it stays as written. Only \" belongs to the double
+                 * quotes around the backticks. */
+                advanceChar(lexer);
+                if (!(doubleQuoted && next == '"') && !appendWordByte(&buffer, &bufLen, &bufCap, '\\')) {
+                    free(buffer);
+                    return makeErrorToken(lexer, "Out of memory while scanning word");
                 }
+                c = next;
+                escapedChar = true;
+            } else if (!doubleQuoted || next == '\\' || next == '"' || next == '$' || next == '`') {
                 advanceChar(lexer);
                 c = next;
                 escapedChar = true;
             } else {
-                if (next == '\n') {
-                    advanceChar(lexer);
-                    continue;
-                }
-                if (next == '\\' || next == '"' || next == '$' || next == '`') {
-                    advanceChar(lexer);
-                    c = next;
-                    escapedChar = true;
-                } else {
-                    c = '\\';
-                }
+                c = '\\';
             }
         } else if (c == '\'' && !doubleQuoted) {
             bool enteringSingle = !singleQuoted;
@@ -657,18 +671,17 @@ static ShellToken scanWord(ShellLexer *lexer) {
             }
         }
 
-        if (bufLen + 1 >= bufCap) {
-            bufCap = bufCap ? bufCap * 2 : 32;
-            char *tmp = (char *)realloc(buffer, bufCap);
-            if (!tmp) {
-                free(buffer);
-                return makeErrorToken(lexer, "Out of memory while scanning word");
-            }
-            buffer = tmp;
+        /* An escaped character is as literal as a single-quoted one, and expansion,
+         * field splitting and globbing need to know: `\$x`, `a\ b`, `\*`. */
+        bool literalChar = escapedChar && !inBacktick;
+        if ((literalChar && !appendWordByte(&buffer, &bufLen, &bufCap, SHELL_QUOTE_MARK_SINGLE)) ||
+            !appendWordByte(&buffer, &bufLen, &bufCap, (char)c) ||
+            (literalChar && !appendWordByte(&buffer, &bufLen, &bufCap, SHELL_QUOTE_MARK_SINGLE))) {
+            free(buffer);
+            return makeErrorToken(lexer, "Out of memory while scanning word");
         }
-        buffer[bufLen++] = (char)c;
         if (firstUnquotedEq == (size_t)-1 && c == '=' && !singleQuoted && !doubleQuoted && !inBacktick &&
-            eqSuppressDepth == 0) {
+            !escapedChar && eqSuppressDepth == 0) {
             firstUnquotedEq = bufLen - 1;
         }
         if (singleQuoted) {

@@ -999,7 +999,10 @@ static bool shellRunStartupConfig(const ShellRunOptions *base_options, int *out_
     gParamValues = NULL;
     shellRuntimeSetArg0(rc_path);
     bool exit_requested = false;
+    /* It is sourced as far as `return` goes, as ~/.bashrc is. */
+    shellRuntimePushScript();
     int status = shellRunSource(source, rc_path, &rc_options, &exit_requested);
+    shellRuntimePopScript();
     free(source);
     shellRuntimeSetArg0(restore_path);
     free(rc_path);

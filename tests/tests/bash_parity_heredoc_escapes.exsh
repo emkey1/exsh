@@ -1,0 +1,45 @@
+#!/usr/bin/env exsh
+# In a here document a backslash only stops $, ` and \, and joins lines. Any quoting in
+# the delimiter, not only quotes around all of it, leaves the body alone.
+x=1
+cat <<EOT
+\$x $x \\ \` a\b
+EOT
+cat <<EOT
+\"a\" 'b' "c"
+EOT
+cat <<EOT
+a\
+b
+EOT
+cat <<EOT
+a\\
+b
+EOT
+cat <<EOT
+$(echo "a\b") `echo x`
+EOT
+cat <<EOT
+cost: 5$ \$5
+EOT
+cat <<-EOT
+	\$x tab
+	EOT
+cat <<\EOT
+$x \$x
+EOT
+cat <<E\OT
+$x
+EOT
+cat <<"EOT"
+$x
+EOT
+cat <<'EOT'
+\$x $x
+EOT
+cat <<"E"OT
+$x
+EOT
+cat <<E'O'T
+$x
+EOT

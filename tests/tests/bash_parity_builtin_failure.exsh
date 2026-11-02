@@ -1,0 +1,69 @@
+#!/usr/bin/env exsh
+# A builtin that fails sets its status and the script goes on. It reported through the
+# VM's error path, so `cd /nonexistent` ended the script, even inside `if` or before `||`.
+d="${TMPDIR:-/tmp}/exsh_parity_builtin.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+: > file
+{
+  cd /nonexistent; echo "cd rc=$?"
+  cd file; echo "cd file rc=$?"
+  pushd /nonexistent; echo "pushd rc=$?"
+  popd; echo "popd rc=$?"
+  dirs -z; echo "dirs next"
+  type missing_cmd; echo "type rc=$?"
+  alias missing_al; echo "alias rc=$?"
+  read -z v < /dev/null; echo "read next"
+  set -- a; shift 5; echo "shift rc=$?"; set --
+  export 1a=2; echo "export rc=$?"
+  readonly ro=1; unset ro; echo "unset rc=$?"
+  ro=2 true; echo "readonly prefix next"
+  wait 99999; echo "wait rc=$?"
+  fg; echo "fg next"
+  bg; echo "bg next"
+  source /nonexistent/file; echo "source rc=$?"
+  . /nonexistent/file; echo "dot next"
+  return; echo "return next"
+  trap x NOSUCH; echo "trap rc=$?"
+  [ a b c; echo "test next"
+  getopts; echo "getopts next"
+  umask xyz; echo "umask next"
+  builtin nosuchcmd; echo "builtin rc=$?"
+  enable nosuch; echo "enable next"
+  hash nosuchcmd; echo "hash rc=$?"
+  declare -Z v; echo "declare next"
+  local v=1; echo "local rc=$?"
+  let; echo "let next"
+
+  # It is an ordinary failed command.
+  if cd /nonexistent; then echo then-branch; else echo else-branch; fi
+  cd /nonexistent || echo or-branch
+  cd /nonexistent && echo not-reached; echo "and rc=$?"
+  ! cd /nonexistent; echo "negated rc=$?"
+  f() { cd /nonexistent; echo "in function rc=$?"; }; f; echo "function rc=$?"
+  ( cd /nonexistent; echo "in subshell rc=$?" ); echo "subshell rc=$?"
+  cd /nonexistent | cat; echo "stage rc=$?"
+  for a in 1 2; do cd /nonexistent; echo "loop rc=$?"; done
+  x=$(cd /nonexistent; echo "substitution rc=$?"); echo "$x"
+  ( set -e; cd /nonexistent; echo not-reached ); echo "errexit rc=$?"
+  ( set -e; cd /nonexistent || echo caught; echo survived ); echo "guarded rc=$?"
+  ( set -e; if cd /nonexistent; then :; else echo handled; fi; echo after ); echo "condition rc=$?"
+  ( set -e; shift 5; echo not-reached ); echo "errexit shift rc=$?"
+
+  # return is fine where it belongs.
+  echo 'return 3; echo no' > s; . ./s; echo "sourced rc=$?"
+  f() { . ./s; echo "in $?"; }; f; echo "sourced in function rc=$?"
+  f() { return 3; }; f; echo "function return $?"
+  f() { (return 5); echo "subshell return $?"; }; f
+  f() { x=$(return 3); echo "substitution return $?"; }; f
+} 2>/dev/null
+
+cd /nonexistent 2> err; [ -s err ] && echo reports-to-stderr
+cd /nonexistent 2>/dev/null; cd "$d"; pwd | grep -c "exsh_parity_builtin" | tr -d ' '
+echo before; cd /nonexistent 2>/dev/null; echo after
+
+# An assignment that fails with no command does end a script.
+( readonly ro2=1; ro2=2; echo not-reached ) 2>/dev/null; echo "readonly rc=$?"
+
+cd /
+rm -rf "$d"
