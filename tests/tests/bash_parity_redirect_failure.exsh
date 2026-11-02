@@ -1,0 +1,84 @@
+#!/usr/bin/env exsh
+# A redirection that fails reports the error and fails that command, status 1, and the
+# script goes on. It used to end the script, and said `exec:` when no exec was involved.
+d="${TMPDIR:-/tmp}/exsh_parity_redir_fail.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+# These fail everywhere. An output path with a missing directory does not on iOS, where
+# open creates the directories: bash_parity_redirect_missing_dir has that case.
+out=.
+in=missing.in
+
+# stderr is checked at the end, without each shell's prefix.
+{
+  echo x > "$out"; echo "builtin rc=$?"
+  true > "$out"; echo "true rc=$?"
+  : > "$out"; echo "colon rc=$?"
+  ls > "$out"; echo "external rc=$?"
+  cat < "$in"; echo "input rc=$?"
+  echo x 3< "$in"; echo "other fd rc=$?"
+  echo x > .; echo "directory rc=$?"
+  echo x >&77; echo "builtin bad fd rc=$?"
+  cat <&77; echo "external bad fd rc=$?"
+  exec > "$out"; echo "exec rc=$?"
+  exec 3< "$in"; echo "exec input rc=$?"
+  X=1 echo y > "$out"; echo "assignment prefix rc=$? [$X]"
+
+  # It is an ordinary failed command.
+  echo x > "$out" || echo or-branch
+  echo x > "$out" && echo not-reached; echo "and rc=$?"
+  if echo x > "$out"; then echo then-branch; else echo else-branch; fi
+  if cat < "$in"; then echo then-branch; else echo else-branch; fi
+  ! echo x > "$out"; echo "negated rc=$?"
+  ! cat < "$in"; echo "external negated rc=$?"
+
+  # Redirections apply left to right and stop at the first failure.
+  echo x > ok.out > "$out"; echo "after ok rc=$?"; ls ok.out
+  echo x > "$out" > never.out; echo "before rc=$?"; [ -e never.out ] || echo never-created
+  ls > "$out" > never2.out; echo "external before rc=$?"; [ -e never2.out ] || echo never-created
+  echo x 2> own.err > "$out"; echo "own stderr rc=$?"; [ -s own.err ] && echo has-message
+  ls 2> own2.err > "$out"; echo "external own stderr rc=$?"; [ -s own2.err ] && echo has-message
+
+  # A stage fails alone: the rest of the pipeline still runs and sets the status.
+  echo x > "$out" | cat; echo "head rc=$?"
+  ls > "$out" | cat; echo "external head rc=$?"
+  echo a | cat > "$out"; echo "tail rc=$?"
+  echo a | cat > "$out" | wc -l | tr -d ' '; echo "middle rc=$?"
+  cat < "$in" | wc -l | tr -d ' '; echo "input head rc=$?"
+
+  # In the background, `wait` gets the status.
+  echo x > "$out" & wait $!; echo "background rc=$?"
+  ls > "$out" & wait $!; echo "external background rc=$?"
+
+  # A loop whose redirection fails does not run, condition included.
+  for i in 1 2; do echo "body $i"; done > "$out"; echo "for rc=$?"
+  for ((i = 0; i < 2; i++)); do echo body; done > "$out"; echo "c-for rc=$?"
+  while read l; do echo body; done < "$in"; echo "while read rc=$?"
+  while true; do echo body; break; done > "$out"; echo "while rc=$?"
+  until false; do echo body; break; done > "$out"; echo "until rc=$?"
+  for a in 1 2; do
+    while read l; do echo body; done < "$in"; echo "inner $a rc=$?"
+  done
+
+  # Functions, substitutions and eval.
+  f() { echo x > "$out"; echo "in f rc=$?"; return 3; }; f; echo "f rc=$?"
+  g() { echo in-g; }; g > "$out"; echo "g rc=$?"
+  v=$(echo x > "$out"; echo "inner $?"); echo "[$v]"
+  v=$(cat < "$in"); echo "[$v] rc=$?"
+  eval 'echo x > "$out"'; echo "eval rc=$?"
+
+  # set -e treats it like any other failure.
+  ( set -e; echo x > "$out"; echo not-reached ); echo "errexit rc=$?"
+  ( set -e; cat < "$in"; echo not-reached ); echo "external errexit rc=$?"
+  ( set -e; echo x > "$out" || echo caught; echo survived ); echo "guarded rc=$?"
+
+  # What the failed command had opened is put back.
+  echo back-on-stdout
+} 2> all.err
+echo "--- stderr"
+sed -E 's/^[^:]*: (line [0-9]+: )?//' all.err
+echo "--- own stderr"
+sed -E 's/^[^:]*: (line [0-9]+: )?//' own.err own2.err
+
+cd /
+rm -rf "$d"

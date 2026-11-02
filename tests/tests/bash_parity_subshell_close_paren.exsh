@@ -1,0 +1,82 @@
+#!/usr/bin/env exsh
+# A ')' attached to a word closes the subshell. It was taken as part of the word, so
+# `(echo s)` and `(exit 3)` failed to parse and only `( echo s )` worked.
+d="${TMPDIR:-/tmp}/exsh_parity_paren.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+(echo s)
+(exit 3); echo "exit rc=$?"
+(echo a; echo b)
+(echo)
+(echo a;)
+
+# Nesting: a run of ')' closes one level each.
+( (echo nested))
+( (echo a); echo b )
+(echo a; (echo b;))
+( ( ( echo deep)))
+( (true)); echo "nested rc=$?"
+
+# Protected or already inside something else, it stays in the word.
+(echo "double)")
+(echo 'single)')
+(echo escaped\))
+(echo a\)b)
+(echo `echo backtick`)
+(echo $(echo dollar))
+(echo "$(echo quoted-dollar)")
+(echo $((1+2)))
+
+# The last word can be any kind of word.
+v=value
+(echo $v)
+(echo "$v")
+(echo ${v})
+(echo a$v)
+(echo $v.txt)
+(x=1)
+(x=(1 2); echo ${x[1]})
+(echo ${unset_v:-default})
+(echo })
+(echo a=b)
+
+# What may follow the subshell.
+(echo piped) | cat
+(echo to-file) > f.out; cat f.out
+(echo no-space)>g.out; cat g.out
+(true) && echo and-branch
+(false) || echo or-branch
+(echo first) && (echo second)
+(echo bg) & wait
+echo stdin | (cat)
+! (false); echo "negated rc=$?"
+
+# Compound commands and here-documents inside.
+(if true; then echo then-branch; fi)
+(for i in 1 2; do echo "for $i"; done)
+(case x in x) echo case-branch;; esac)
+(case x in (x) echo open-paren-pattern;; esac)
+(cat <<DOC
+here-document)
+DOC
+)
+(cat <<<here-string)
+(
+echo multi-line
+)
+(echo comment # not closed here )
+)
+
+# As a function body, a condition and inside a substitution.
+f() (echo function-body); f
+g() { (echo in-group); }; g
+if (true); then echo if-condition; fi
+while (false); do echo not-reached; done
+s=$( (echo in-substitution) ); echo "$s"
+s=$( (echo a); (echo b) ); echo "$s"
+s=$( (exit 4) ); echo "substitution rc=$?"
+
+cd /
+rm -rf "$d"
+(exit 3)

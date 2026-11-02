@@ -1,0 +1,13 @@
+#!/usr/bin/env exsh
+# &>> appends stdout and stderr. Not match_bash: bash 3.2 has no &>>, and the whole
+# script would be a syntax error there.
+d="${TMPDIR:-/tmp}/exsh_combined_append.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+echo one &> a.out
+echo two &>> a.out
+echo three &>>a.out;cat a.out
+{ echo out; echo err >&2; } &>> b.out; { echo out2; } &>> b.out; cat b.out
+{ echo no &>> .; echo "failed rc=$?"; } 2> /dev/null
+cd /
+rm -rf "$d"

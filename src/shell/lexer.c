@@ -393,6 +393,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
 
     bool inArrayLiteral = false;
     int arrayParenDepth = 0;
+    int literalParenDepth = 0;
 
     int eqSuppressDepth = 0;
     size_t firstUnquotedEq = (size_t)-1;
@@ -430,7 +431,14 @@ static ShellToken scanWord(ShellLexer *lexer) {
                 }
                 if (treat_as_operator && isStructuralWordCandidate(c)) {
                     if (allowStructuralLiterals && (lexer->rule_mask & SHELL_LEXER_RULE_1) == 0) {
-                        treat_as_operator = false;
+                        /* `(echo s)`: the ')' is not part of the word. One the
+                         * word opened itself stays in it, as in `^(ab)c$`. */
+                        treat_as_operator = c == ')' && lexer->rparen_closes && literalParenDepth == 0;
+                        if (c == '(') {
+                            literalParenDepth++;
+                        } else if (c == ')' && literalParenDepth > 0) {
+                            literalParenDepth--;
+                        }
                     }
                 }
                 if (treat_as_operator) {
@@ -748,6 +756,7 @@ void shellInitLexer(ShellLexer *lexer, const char *source) {
     lexer->at_line_start = true;
     lexer->rule_mask = SHELL_LEXER_RULE_1;
     lexer->unterminated = false;
+    lexer->rparen_closes = false;
 }
 
 void shellFreeToken(ShellToken *token) {
@@ -830,6 +839,10 @@ ShellToken shellNextToken(ShellLexer *lexer) {
 
     bool command_starts = (lexer->rule_mask & SHELL_LEXER_RULE_1) != 0;
     if (!command_starts && lexerAllowsStructuralWordLiterals(lexer) && isStructuralWordCandidate(c)) {
+        if (c == ')' && lexer->rparen_closes) {
+            advanceChar(lexer);
+            return makeSimpleToken(lexer, SHELL_TOKEN_RPAREN, ")", 1);
+        }
         ShellToken word = scanWord(lexer);
         if (!word.lexeme) {
             return makeErrorToken(lexer, "Failed to allocate word");
@@ -863,9 +876,18 @@ ShellToken shellNextToken(ShellLexer *lexer) {
         }
         case '&': {
             advanceChar(lexer);
-            if (peekChar(lexer) == '&') {
+            int next = peekChar(lexer);
+            if (next == '&') {
                 advanceChar(lexer);
                 return makeSimpleToken(lexer, SHELL_TOKEN_AND_AND, "&&", 2);
+            }
+            if (next == '>') {
+                advanceChar(lexer);
+                if (peekChar(lexer) == '>') {
+                    advanceChar(lexer);
+                    return makeSimpleToken(lexer, SHELL_TOKEN_ANDDGREAT, "&>>", 3);
+                }
+                return makeSimpleToken(lexer, SHELL_TOKEN_ANDGREAT, "&>", 2);
             }
             return makeSimpleToken(lexer, SHELL_TOKEN_AMPERSAND, "&", 1);
         }
@@ -898,11 +920,9 @@ ShellToken shellNextToken(ShellLexer *lexer) {
             return makeSimpleToken(lexer, SHELL_TOKEN_LPAREN, "(", 1);
         }
         case ')': {
+            /* Always one at a time: `( (true))` closes two subshells, and the
+             * parser reads the end of an arithmetic command from the source. */
             advanceChar(lexer);
-            if (peekChar(lexer) == ')') {
-                advanceChar(lexer);
-                return makeSimpleToken(lexer, SHELL_TOKEN_DRPAREN, "))", 2);
-            }
             return makeSimpleToken(lexer, SHELL_TOKEN_RPAREN, ")", 1);
         }
         case '{': {
@@ -1002,7 +1022,6 @@ const char *shellTokenTypeName(ShellTokenType type) {
         case SHELL_TOKEN_LPAREN: return "LPAREN";
         case SHELL_TOKEN_RPAREN: return "RPAREN";
         case SHELL_TOKEN_DLPAREN: return "DLPAREN";
-        case SHELL_TOKEN_DRPAREN: return "DRPAREN";
         case SHELL_TOKEN_LBRACE: return "LBRACE";
         case SHELL_TOKEN_RBRACE: return "RBRACE";
         case SHELL_TOKEN_FUNCTION: return "FUNCTION";
@@ -1030,6 +1049,8 @@ const char *shellTokenTypeName(ShellTokenType type) {
         case SHELL_TOKEN_GREATAND: return "GREATAND";
         case SHELL_TOKEN_LESSAND: return "LESSAND";
         case SHELL_TOKEN_CLOBBER: return "CLOBBER";
+        case SHELL_TOKEN_ANDGREAT: return "ANDGREAT";
+        case SHELL_TOKEN_ANDDGREAT: return "ANDDGREAT";
         case SHELL_TOKEN_COMMENT: return "COMMENT";
         case SHELL_TOKEN_EOF: return "EOF";
         case SHELL_TOKEN_ERROR: return "ERROR";

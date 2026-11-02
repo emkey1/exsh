@@ -1,0 +1,31 @@
+#!/usr/bin/env exsh
+# $- expands to the shell's option letters. It stayed as the text `$-`, so the usual
+# `case $- in *i*)` could never see an interactive shell. The interactive harness has
+# the interactive case.
+echo "[$-]"
+echo $-
+echo "[${-}]"
+echo a$-b
+echo "$-$-"
+x=$-; echo "$x"
+echo '$-'
+
+set -e; echo "set -e [$-]"; set +e; echo "set +e [$-]"
+set -o errexit; echo "-o errexit [$-]"; set +o errexit; echo "+o errexit [$-]"
+
+case $- in *i*) echo interactive;; *) echo not-interactive;; esac
+case $- in *e*) echo errexit-on;; *) echo errexit-off;; esac
+set -e
+case $- in *e*) echo errexit-on;; *) echo errexit-off;; esac
+set +e
+
+f() { echo "function [$-]"; }; f
+(echo "subshell [$-]")
+s=$(echo "substitution [$-]"); echo "$s"
+
+# Off inside a substitution, as with the option itself; a subshell keeps it.
+set -e
+s=$(echo "-e substitution [$-]"); echo "$s"
+(echo "-e subshell [$-]")
+echo "-e after [$-]"
+set +e

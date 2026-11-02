@@ -25,7 +25,6 @@ typedef enum {
     SHELL_TOKEN_LPAREN,
     SHELL_TOKEN_RPAREN,
     SHELL_TOKEN_DLPAREN,
-    SHELL_TOKEN_DRPAREN,
     SHELL_TOKEN_LBRACE,
     SHELL_TOKEN_RBRACE,
     SHELL_TOKEN_FUNCTION,
@@ -53,6 +52,8 @@ typedef enum {
     SHELL_TOKEN_GREATAND,
     SHELL_TOKEN_LESSAND,
     SHELL_TOKEN_CLOBBER,
+    SHELL_TOKEN_ANDGREAT,
+    SHELL_TOKEN_ANDDGREAT,
     SHELL_TOKEN_COMMENT,
     SHELL_TOKEN_EOF,
     SHELL_TOKEN_ERROR,
@@ -108,6 +109,9 @@ typedef struct {
      * expansion or a line continuation still open.  The text is not wrong, it
      * just stopped early: an interactive caller can ask for another line. */
     bool unterminated;
+    /* Set by the parser inside a subshell, where an unquoted ')' that opened
+     * nothing in its word closes the subshell instead of being a literal. */
+    bool rparen_closes;
 } ShellLexer;
 
 void shellInitLexer(ShellLexer *lexer, const char *source);

@@ -263,6 +263,11 @@ static unsigned int parserStructuralCloserBit(ShellTokenType type) {
     }
 }
 
+static void parserSetStructuralClosers(ShellParser *parser, unsigned int mask) {
+    parser->structural_closer_mask = mask;
+    parser->lexer.rparen_closes = (mask & STRUCTURAL_CLOSER_RPAREN) != 0;
+}
+
 static void applyLexicalRules(ShellToken *token) {
     if (!token) {
         return;
@@ -1085,15 +1090,10 @@ static ShellCommand *parseSimpleCommand(ShellParser *parser) {
     while (!parser->had_error) {
         if (parser->current.type == SHELL_TOKEN_WORD && parser->current.lexeme && parser->current.length == 1) {
             char ch = parser->current.lexeme[0];
-            bool treat_as_closer = false;
-            if (ch == ')' && (parser->structural_closer_mask & STRUCTURAL_CLOSER_RPAREN)) {
-                treat_as_closer = true;
-            } else if (ch == '}' && (parser->structural_closer_mask & STRUCTURAL_CLOSER_RBRACE)) {
-                treat_as_closer = true;
-            }
+            bool treat_as_closer = ch == '}' && (parser->structural_closer_mask & STRUCTURAL_CLOSER_RBRACE);
             if (treat_as_closer && !parser->current.single_quoted && !parser->current.double_quoted) {
                 parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
-                if (parser->current.type == SHELL_TOKEN_RPAREN || parser->current.type == SHELL_TOKEN_RBRACE) {
+                if (parser->current.type == SHELL_TOKEN_RBRACE) {
                     break;
                 }
             }
@@ -1238,13 +1238,13 @@ static ShellProgram *parseCompoundListUntil(ShellParser *parser, ShellTokenType 
         return NULL;
     }
     unsigned int saved_closer_mask = parser->structural_closer_mask;
-    parser->structural_closer_mask |= parserStructuralCloserBit(terminator1);
-    parser->structural_closer_mask |= parserStructuralCloserBit(terminator2);
-    parser->structural_closer_mask |= parserStructuralCloserBit(terminator3);
+    parserSetStructuralClosers(parser, saved_closer_mask | parserStructuralCloserBit(terminator1) |
+                                           parserStructuralCloserBit(terminator2) |
+                                           parserStructuralCloserBit(terminator3));
 
     ShellProgram *program = shellCreateProgram();
     if (!program) {
-        parser->structural_closer_mask = saved_closer_mask;
+        parserSetStructuralClosers(parser, saved_closer_mask);
         return NULL;
     }
     parseLinebreak(parser);
@@ -1264,7 +1264,7 @@ static ShellProgram *parseCompoundListUntil(ShellParser *parser, ShellTokenType 
         parseLinebreak(parser);
         parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
     }
-    parser->structural_closer_mask = saved_closer_mask;
+    parserSetStructuralClosers(parser, saved_closer_mask);
     return program;
 }
 
@@ -1736,7 +1736,8 @@ static ShellRedirection *parseRedirection(ShellParser *parser, bool *strip_tabs_
                parser->current.type == SHELL_TOKEN_DLESSDASH || parser->current.type == SHELL_TOKEN_TLESS ||
                parser->current.type == SHELL_TOKEN_GREATAND ||
                parser->current.type == SHELL_TOKEN_LESSAND || parser->current.type == SHELL_TOKEN_LESSGREAT ||
-               parser->current.type == SHELL_TOKEN_CLOBBER) {
+               parser->current.type == SHELL_TOKEN_CLOBBER || parser->current.type == SHELL_TOKEN_ANDGREAT ||
+               parser->current.type == SHELL_TOKEN_ANDDGREAT) {
         redir_type = parser->current.type;
     } else {
         return NULL;
@@ -1766,6 +1767,8 @@ static ShellRedirection *parseRedirection(ShellParser *parser, bool *strip_tabs_
         case SHELL_TOKEN_GREATAND: type = SHELL_REDIRECT_DUP_OUTPUT; break;
         case SHELL_TOKEN_LESSGREAT: type = SHELL_REDIRECT_INPUT; break;
         case SHELL_TOKEN_CLOBBER: type = SHELL_REDIRECT_CLOBBER; break;
+        case SHELL_TOKEN_ANDGREAT: type = SHELL_REDIRECT_OUTPUT_AND_ERROR; break;
+        case SHELL_TOKEN_ANDDGREAT: type = SHELL_REDIRECT_APPEND_OUTPUT_AND_ERROR; break;
         default: return NULL;
     }
 

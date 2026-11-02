@@ -1162,6 +1162,63 @@
             "description": "X=1 env | grep X finds X in any stage, and X is back afterwards.",
             "script": "Tests/exsh/tests/bash_parity_assign_pipeline.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_subshell_close_paren",
+            "name": "A ')' attached to a word closes the subshell",
+            "category": "parity",
+            "description": "(echo s), (exit 3), nested subshells, every kind of last word, and what may follow.",
+            "script": "Tests/exsh/tests/bash_parity_subshell_close_paren.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_assign_status",
+            "name": "An assignment takes its command substitution's status",
+            "category": "parity",
+            "description": "d=$(false) || ... runs, the last substitution decides, $? sees it at once, and set -e is off inside a substitution.",
+            "script": "Tests/exsh/tests/bash_parity_assign_status.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_redirect_failure",
+            "name": "A failed redirection fails the command, not the script",
+            "category": "parity",
+            "description": "Builtins, external commands, exec, pipeline stages, background jobs, loops and functions report it, status 1, and go on.",
+            "script": "Tests/exsh/tests/bash_parity_redirect_failure.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_redirect_missing_dir",
+            "name": "An output path with no directory fails the command",
+            "category": "parity",
+            "description": "The form from the report, echo x > /nonexistent/f, on each kind of command. Host only.",
+            "script": "Tests/exsh/tests/bash_parity_redirect_missing_dir.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_combined_redirect",
+            "name": "&> redirects stdout and stderr to one file",
+            "category": "parity",
+            "description": "An operator in any position, with no debug output, and left alone in here-documents, quotes and after a lone &.",
+            "script": "Tests/exsh/tests/bash_parity_combined_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "combined_redirect_append",
+            "name": "&>> appends stdout and stderr",
+            "category": "redirection",
+            "description": "Not match_bash: bash 3.2 has no &>>.",
+            "script": "Tests/exsh/tests/combined_redirect_append.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "one\ntwo\nthree\nout\nerr\nout2\nfailed rc=1"
+        },
+        {
+            "id": "bash_parity_option_flags",
+            "name": "$- expands to the option letters",
+            "category": "parity",
+            "description": "$- and ${-} in words, with set -e and set -o errexit, in functions, subshells and substitutions.",
+            "script": "Tests/exsh/tests/bash_parity_option_flags.exsh",
+            "expect": "match_bash"
         }
     ]
 }

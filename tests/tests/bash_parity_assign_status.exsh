@@ -1,0 +1,60 @@
+#!/usr/bin/env exsh
+# A command that only assigns takes the status of its last command substitution, or 0
+# with none. It was always 0, so `d=$(mktemp -d) || exit 1` carried on with an empty $d.
+d=$(false) || echo failed-branch
+x=$(false); echo "false rc=$?"
+x=$(exit 3); echo "exit rc=$?"
+x=$(true); echo "true rc=$?"
+false; x=$(true); echo "clears rc=$?"
+false; x=1; echo "no substitution rc=$?"
+x=$(echo out; exit 2); echo "$x rc=$?"
+x=$(false; true); echo "last command rc=$?"
+f() { return 5; }; x=$(f); echo "function rc=$?"
+
+# Every kind of substitution in the value.
+x=`exit 5`; echo "backtick rc=$?"
+x="$(exit 6)"; echo "quoted rc=$?"
+x=a$(exit 4)b; echo "inside a word rc=$?"
+x=${unset_v:-$(exit 7)}; echo "default rc=$?"
+x=$(( $(exit 8; ) + 1 )); echo "arithmetic rc=$?"
+a=($(exit 9) one); echo "array rc=$?"
+
+# The last one wins.
+x=$(exit 3) y=1; echo "literal after rc=$?"
+x=$(exit 3) y=$(true); echo "true after rc=$?"
+x=$(true) y=$(exit 3); echo "exit after rc=$?"
+x=$(exit 3)$(exit 4); echo "same word rc=$?"
+x=$(exit 3)$(true)$(exit 3); echo "repeated text rc=$?"
+
+# $? sees it as soon as the substitution has run.
+x=$(exit 3) y=$?; echo "y=$y"
+echo $(exit 3) $?
+y=$(x=$(exit 2); echo $?); echo "nested [$y]"
+false; x=$(echo "$?"); echo "inner saw [$x] rc=$?"
+
+# It drives conditions and lists.
+if x=$(false); then echo then-branch; else echo else-branch; fi
+if x=$(true); then echo then-branch; else echo else-branch; fi
+while x=$(false); do echo not-reached; break; done; echo while-done
+until x=$(true); do echo not-reached; break; done; echo until-done
+x=$(false) && echo not-reached
+x=$(true) && echo and-branch
+! x=$(false); echo "negated rc=$?"
+
+# In a function, it is the function's status.
+g() { x=$(exit 7); }; g; echo "g rc=$?"
+h() { x=$(exit 7); return; }; h; echo "h rc=$?"
+for i in 1 2; do x=$(exit $i); echo "loop rc=$?"; done
+
+# With a command, the command's own status decides.
+x=$(false) true; echo "command rc=$?"
+export e=$(false); echo "export rc=$?"
+declare t=$(false); echo "declare rc=$?"
+l() { local v=$(false); echo "local rc=$?"; }; l
+echo $(false); echo "echo rc=$?"
+
+# set -e sees the failure, but is off inside the substitution itself.
+( set -e; x=$(false); echo not-reached ); echo "errexit rc=$?"
+( set -e; x=$(false) || echo caught; echo survived ); echo "guarded rc=$?"
+( set -e; if x=$(false); then :; fi; echo condition-survived ); echo "condition rc=$?"
+( set -e; x=$(false; echo ran); echo "[$x]"; echo "still on [$-]" ); echo "inside rc=$?"

@@ -1,0 +1,73 @@
+#!/usr/bin/env exsh
+# &> sends stdout and stderr to one file. It was rewritten as text before parsing: the
+# rewrite printed a debug line, took `a.out;` for the path, and also changed
+# here-documents, stopped working after an apostrophe in a comment like this: it's,
+# and left the 2>&1 on the next command. (&>> is in combined_redirect_append: bash 3.2
+# has no &>>.)
+d="${TMPDIR:-/tmp}/exsh_parity_combined.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+echo a &> a.out; cat a.out
+echo b &>b.out;cat b.out
+echo c&>c.out; cat c.out
+echo d &>   d.out ; cat d.out
+&> front.out echo front; cat front.out
+
+# Both streams, and in order.
+{ echo out; echo err >&2; echo out2; } &> group.out; cat group.out
+( echo out; echo err >&2 ) &> sub.out; cat sub.out
+cat missing.in &> ext.out; echo "external rc=$?"; wc -l < ext.out | tr -d ' '
+echo first > over.out; echo second &> over.out; cat over.out
+
+# The target is an ordinary word.
+n=name
+echo quoted &> "$n.1"; cat name.1
+echo plain &> $n.2; cat name.2
+echo spaced &> "b c"; cat "b c"
+
+# What can follow it.
+echo and &> x.out && echo and-branch
+echo or &> x.out || echo not-reached
+echo piped &> x.out | cat; echo "pipe rc=$?"
+echo background &> bg.out & wait; cat bg.out
+
+# On compound commands and functions.
+if echo cond &> x.out; then echo then-branch; cat x.out; fi
+if true; then echo if-body; fi &> if.out; cat if.out
+case x in x) echo case-body;; esac &> case.out; cat case.out
+for i in 1 2; do echo "for $i"; done &> for.out; cat for.out
+while read l; do echo "read $l"; done &> while.out <<DOC
+line
+DOC
+cat while.out
+f() { echo in-f; echo f-err >&2; } &> f.out; f; cat f.out
+g() { echo in-g; echo g-err >&2; }; g &> g.out; cat g.out
+
+# In a substitution and in eval.
+s=$(echo inner &> sub2.out; echo after); echo "$s"; cat sub2.out
+s=$(echo quiet &> /dev/null); echo "[$s]"
+eval 'echo evaluated &> ev.out'; cat ev.out
+
+# A target that cannot open fails the command, nothing else.
+{ echo no &> .; echo "failed rc=$?"; } 2> /dev/null
+
+# Anywhere else it is not an operator.
+cat <<DOC
+here-document &> stays; text
+DOC
+echo "&>" double
+echo '&>' single
+echo \&\> escaped
+[ -e double ] || [ -e single ] || [ -e escaped ] || echo no-files
+
+# & on its own is still background.
+echo bg1 & wait
+echo bg2 &
+wait
+true & echo after-amp; wait
+echo status-amp &
+wait; echo "wait rc=$?"
+
+cd /
+rm -rf "$d"

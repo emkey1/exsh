@@ -1,0 +1,17 @@
+#!/usr/bin/env exsh
+# An output path whose directory does not exist. Not in the iOS host list: there the path
+# is under the virtual root and open creates the directories, so nothing fails.
+missing=/nonexistent/exsh_parity/f
+{
+  echo x > "$missing"; echo "builtin rc=$?"
+  ls > "$missing"; echo "external rc=$?"
+  echo x > "$missing" | cat; echo "stage rc=$?"
+  echo x > "$missing" & wait $!; echo "background rc=$?"
+  { echo x; } > "$missing"; echo "group rc=$?"
+  ( echo x ) > "$missing"; echo "subshell rc=$?"
+  for i in 1; do echo x; done > "$missing"; echo "loop rc=$?"
+  echo x &> "$missing"; echo "both rc=$?"
+  exec > "$missing"; echo "exec rc=$?"
+} 2> "${TMPDIR:-/tmp}/exsh_parity_missing_dir.$$"
+sed -E 's/^[^:]*: (line [0-9]+: )?//' "${TMPDIR:-/tmp}/exsh_parity_missing_dir.$$"
+rm -f "${TMPDIR:-/tmp}/exsh_parity_missing_dir.$$"

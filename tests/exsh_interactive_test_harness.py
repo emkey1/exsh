@@ -805,6 +805,43 @@ def scenario_open_quote_continues(shell: PtyShell) -> tuple[bool, str]:
     return True, "open quote read its continuation line"
 
 
+def scenario_option_flags_show_interactive(shell: PtyShell) -> tuple[bool, str]:
+    """$- has an i at the prompt: `case $- in *i*)` is how rc files ask."""
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    shell.send_line('case $- in *i*) printf "__FLAGS__%s\\n" interactive;; *) printf "__FLAGS__%s\\n" script;; esac')
+    if not shell.wait_for_substring("__FLAGS__interactive", timeout=2.5):
+        return False, "$- did not show an interactive shell"
+    return True, "$- contains i at the prompt"
+
+
+def scenario_redirect_and_subshell_at_prompt(shell: PtyShell) -> tuple[bool, str]:
+    """A typed line gets the same &> and (cmd) handling as a script.
+
+    The prompt had a text rewrite of its own for &>, with the same bug: the path
+    ran up to the next space, so `&> file;` opened a file named `file;`.
+    """
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("combined-redirect")
+    _unlink_if_exists(marker)
+
+    shell.send_line(f'(printf "__OUT__\\n"; printf "__ERR__\\n" >&2) &> {_shell_path(marker)}; printf "__NEXT__%s\\n" done')
+    if not shell.wait_for_substring("__NEXT__done", timeout=2.5):
+        return False, "the command after &> did not run"
+    if not shell.wait_for_path(marker, timeout=2.5):
+        return False, "&> at the prompt did not create its file"
+    written = marker.read_text()
+    _unlink_if_exists(marker)
+    if "__OUT__" not in written or "__ERR__" not in written:
+        return False, f"&> at the prompt wrote {written!r}"
+    if "[rewrite]" in shell.tail(6000):
+        return False, "&> at the prompt printed a debug line"
+    return True, "&> and a subshell work at the prompt"
+
+
 def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
     """A genuine syntax error still reports at once; only unfinished input waits."""
     ok, reason = _wait_for_prompt(shell)
@@ -834,6 +871,16 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_open_quote",
         name="Unterminated quote reads a continuation line",
         run=scenario_open_quote_continues,
+    ),
+    Scenario(
+        test_id="interactive_option_flags",
+        name="$- shows an interactive shell",
+        run=scenario_option_flags_show_interactive,
+    ),
+    Scenario(
+        test_id="interactive_combined_redirect_subshell",
+        name="&> and a subshell work at the prompt",
+        run=scenario_redirect_and_subshell_at_prompt,
     ),
     Scenario(
         test_id="interactive_syntax_error_no_hang",

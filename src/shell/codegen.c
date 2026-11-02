@@ -738,6 +738,8 @@ static const char *redirTypeName(ShellRedirectionType type) {
         case SHELL_REDIRECT_DUP_INPUT: return "<&";
         case SHELL_REDIRECT_DUP_OUTPUT: return ">&";
         case SHELL_REDIRECT_CLOBBER: return ">|";
+        case SHELL_REDIRECT_OUTPUT_AND_ERROR: return "&>";
+        case SHELL_REDIRECT_APPEND_OUTPUT_AND_ERROR: return "&>>";
     }
     return "";
 }
@@ -1387,11 +1389,21 @@ static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool 
 
     emitBuiltinProc(chunk, "__shell_loop", arg_count, line);
 
+    bool usesLoopReady = isFor || isCStyle;
+    /* A while or until whose redirection failed must not evaluate its condition:
+     * `read` would take the shell's own stdin. A for loop checks this each pass. */
+    int redirFailedJump = -1;
+    if (!usesLoopReady && redirs && redirs->count > 0) {
+        emitCallHost(chunk, HOST_FN_SHELL_LOOP_IS_READY, line);
+        writeBytecodeChunk(chunk, JUMP_IF_FALSE, line);
+        redirFailedJump = chunk->count;
+        emitInt32(chunk, 0xFFFFFFFF, line);
+    }
+
     int conditionStart = chunk->count;
     int exitJump = -1;
     bool fusedLoop = false;
 
-    bool usesLoopReady = isFor || isCStyle;
     if (usesLoopReady) {
         emitCallHost(chunk, HOST_FN_SHELL_LOOP_IS_READY, line);
         writeBytecodeChunk(chunk, JUMP_IF_FALSE, line);
@@ -1450,6 +1462,10 @@ static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool 
 
     uint32_t loopOffset = (uint32_t)(conditionStart - (loopJump + 4));
     patchInt32(chunk, loopJump, loopOffset);
+
+    if (redirFailedJump >= 0) {
+        patchInt32(chunk, redirFailedJump, (uint32_t)(exitLabel - (redirFailedJump + 4)));
+    }
 
     if (exitJump >= 0) {
         uint32_t exitOffset = (uint32_t)(exitLabel - (exitJump + 4));
