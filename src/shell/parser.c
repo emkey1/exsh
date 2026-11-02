@@ -1,6 +1,7 @@
 #include "shell/parser.h"
 #include "core/utils.h"
 #include "shell/quote_markers.h"
+#include "shell/word_scan.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,7 +95,8 @@ static bool parseBacktickCommandSubstitution(const char *text, size_t start, siz
 static char *normalizeDollarCommand(const char *command, size_t len);
 static char *normalizeBacktickCommand(const char *command, size_t len);
 
-static ShellProgram *shellParseStringInternal(const char *source, ShellParser *parser, bool quiet) {
+static ShellProgram *shellParseStringInternal(const char *source, ShellParser *parser, bool quiet,
+                                              int first_line) {
     if (!parser) {
         return NULL;
     }
@@ -102,6 +104,9 @@ static ShellProgram *shellParseStringInternal(const char *source, ShellParser *p
     memset(parser, 0, sizeof(*parser));
     parser->quiet = quiet;
     shellInitLexer(&parser->lexer, source);
+    if (first_line > 0) {
+        parser->lexer.line = first_line;
+    }
     parser->had_error = false;
     parser->panic_mode = false;
     parser->next_rule_mask = RULE_MASK_COMMAND_START;
@@ -130,7 +135,11 @@ static ShellProgram *shellParseStringInternal(const char *source, ShellParser *p
 }
 
 ShellProgram *shellParseString(const char *source, ShellParser *parser) {
-    return shellParseStringInternal(source, parser, false);
+    return shellParseStringInternal(source, parser, false, 0);
+}
+
+ShellProgram *shellParseStringAtLine(const char *source, ShellParser *parser, int first_line) {
+    return shellParseStringInternal(source, parser, false, first_line);
 }
 
 bool shellSourceIsIncomplete(const char *source) {
@@ -138,7 +147,7 @@ bool shellSourceIsIncomplete(const char *source) {
         return false;
     }
     ShellParser parser;
-    ShellProgram *program = shellParseStringInternal(source, &parser, true);
+    ShellProgram *program = shellParseStringInternal(source, &parser, true, 0);
     /* A word can run off the end with a quote still open without the parser
      * ever raising an error, so the lexer's own verdict counts too. */
     bool incomplete = parser.incomplete || parser.lexer.unterminated;
@@ -992,16 +1001,39 @@ static ShellCommand *parsePipelineCommand(ShellParser *parser) {
         return NULL;
     }
     ShellCommand *command = parseCommand(parser);
-    if (command && parser->pending_here_docs && parser->pending_here_docs->count > 0) {
+    /* The bodies start on the next line. On `cat <<EOF | wc -l` that is still ahead of
+     * the lexer, and shellParserAdvance reads them when it gets past the newline. */
+    if (command && parser->pending_here_docs && parser->pending_here_docs->count > 0 &&
+        parser->current.type == SHELL_TOKEN_NEWLINE) {
         parserConsumePendingHereDocs(parser);
     }
     return command;
+}
+
+/* `((` opens arithmetic only if its text ends in `))`. Otherwise it is two subshells:
+ * `((echo a); echo b)`. The token is split by handing its second byte back. */
+static void parserSplitDoubleParenUnlessArithmetic(ShellParser *parser) {
+    if (parser->current.type != SHELL_TOKEN_DLPAREN) {
+        return;
+    }
+    if (shellScanArithmetic(parser->lexer.src, parser->lexer.length, parser->lexer.pos) != SHELL_SCAN_UNTERMINATED) {
+        return;
+    }
+    parser->lexer.pos--;
+    parser->lexer.column--;
+    shellFreeToken(&parser->current);
+    parser->current.type = SHELL_TOKEN_LPAREN;
+    parser->current.base_type = SHELL_TOKEN_LPAREN;
+    parser->current.reserved_type = SHELL_TOKEN_LPAREN;
+    parser->current.lexeme = strdup("(");
+    parser->current.length = 1;
 }
 
 static ShellCommand *parseCommand(ShellParser *parser) {
     if (!parser) {
         return NULL;
     }
+    parserSplitDoubleParenUnlessArithmetic(parser);
     switch (parser->current.type) {
         case SHELL_TOKEN_FUNCTION:
             return parseFunctionDefinition(parser);
@@ -1081,6 +1113,43 @@ static ShellCommand *parseArithmeticCommand(ShellParser *parser) {
     return command;
 }
 
+static bool tokenIsBareWord(const ShellToken *token, const char *text) {
+    return token->lexeme && strcmp(token->lexeme, text) == 0;
+}
+
+/* The current token is `[[`. Everything up to the `]]` is one conditional expression:
+ * the lexer hands the operators over as words. */
+static void parseDoubleBracketWords(ShellParser *parser, ShellCommand *command) {
+    parser->lexer.dbracket = true;
+    while (!parser->had_error) {
+        if (parser->current.type == SHELL_TOKEN_EOF) {
+            parserErrorAt(parser, &parser->current, "Expected `]]' to close conditional expression");
+            break;
+        }
+        if (parser->current.type == SHELL_TOKEN_ERROR) {
+            parserErrorAt(parser, &parser->current, parser->current.lexeme);
+            break;
+        }
+        bool closing = tokenIsBareWord(&parser->current, "]]");
+        if (closing) {
+            parser->lexer.dbracket = false;
+        } else if (tokenIsBareWord(&parser->current, "=~")) {
+            parser->lexer.dbracket_regex = true;
+        }
+        ShellWord *word = parseWordToken(parser, "Expected word in conditional expression");
+        if (word) {
+            populateWordExpansions(word);
+            shellCommandAddWord(command, word);
+        }
+        if (closing) {
+            break;
+        }
+    }
+    parser->lexer.dbracket = false;
+    parser->lexer.dbracket_regex = false;
+    parserScheduleRuleMask(parser, RULE_MASK_COMMAND_CONTINUATION);
+}
+
 static ShellCommand *parseSimpleCommand(ShellParser *parser) {
     if (!parser) {
         return NULL;
@@ -1096,6 +1165,11 @@ static ShellCommand *parseSimpleCommand(ShellParser *parser) {
     command->column = parser->current.column;
 
     bool seen_word = false;
+    if ((parser->current.type == SHELL_TOKEN_WORD || parser->current.type == SHELL_TOKEN_NAME) &&
+        tokenIsBareWord(&parser->current, "[[")) {
+        parseDoubleBracketWords(parser, command);
+        seen_word = true;
+    }
     while (!parser->had_error) {
         if (parser->current.type == SHELL_TOKEN_WORD && parser->current.lexeme && parser->current.length == 1) {
             char ch = parser->current.lexeme[0];
@@ -1259,7 +1333,8 @@ static ShellProgram *parseCompoundListUntil(ShellParser *parser, ShellTokenType 
     parseLinebreak(parser);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
     while (!parser->had_error && parser->current.type != terminator1 && parser->current.type != terminator2 &&
-           parser->current.type != terminator3 && parser->current.type != SHELL_TOKEN_EOF) {
+           parser->current.type != terminator3 && parser->current.type != SHELL_TOKEN_SEMI_AMP &&
+           parser->current.type != SHELL_TOKEN_DSEMI_AMP && parser->current.type != SHELL_TOKEN_EOF) {
         if (!parseList(parser, program)) {
             break;
         }
@@ -1277,6 +1352,35 @@ static ShellProgram *parseCompoundListUntil(ShellParser *parser, ShellTokenType 
     return program;
 }
 
+/* The condition of an if or while is a whole list, and its last command decides:
+ * `while read x; [ -n "$x" ]; do`. One command stays as it is, which is what the
+ * loop's fast paths look for. */
+static ShellCommand *parseConditionList(ShellParser *parser, ShellTokenType terminator) {
+    int line = parser->current.line;
+    int column = parser->current.column;
+    ShellProgram *list = parseCompoundListUntil(parser, terminator, SHELL_TOKEN_EOF, SHELL_TOKEN_EOF);
+    if (!list) {
+        return NULL;
+    }
+    if (list->commands.count == 1) {
+        ShellCommand *only = list->commands.items[0];
+        list->commands.count = 0;
+        shellFreeProgram(list);
+        return only;
+    }
+    if (list->commands.count == 0) {
+        shellFreeProgram(list);
+        parserErrorAt(parser, &parser->current, "Expected command");
+        return NULL;
+    }
+    ShellCommand *group = shellCreateBraceGroupCommand(list);
+    if (group) {
+        group->line = line;
+        group->column = column;
+    }
+    return group;
+}
+
 static ShellCommand *parseIfClause(ShellParser *parser) {
     int line = parser->current.line;
     int column = parser->current.column;
@@ -1286,13 +1390,7 @@ static ShellCommand *parseIfClause(ShellParser *parser) {
      * (or `elif`) alone on its line, condition on the next. */
     parseLinebreak(parser);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
-    ShellCommand *condition = parseAndOr(parser);
-    parseLinebreak(parser);
-    if (parser->current.type == SHELL_TOKEN_SEMICOLON) {
-        parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
-        shellParserAdvance(parser);
-        parseLinebreak(parser);
-    }
+    ShellCommand *condition = parseConditionList(parser, SHELL_TOKEN_THEN);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
     shellParserConsume(parser, SHELL_TOKEN_THEN, "Expected 'then' after if condition");
     parseLinebreak(parser);
@@ -1333,13 +1431,7 @@ static ShellCommand *parseWhileClause(ShellParser *parser, bool is_until) {
     /* Same as `if`: `while`/`until` may sit alone on its line. */
     parseLinebreak(parser);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
-    ShellCommand *condition = parseAndOr(parser);
-    parseLinebreak(parser);
-    if (parser->current.type == SHELL_TOKEN_SEMICOLON) {
-        parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
-        shellParserAdvance(parser);
-        parseLinebreak(parser);
-    }
+    ShellCommand *condition = parseConditionList(parser, SHELL_TOKEN_DO);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
     shellParserConsume(parser, SHELL_TOKEN_DO, "Expected 'do' after loop condition");
     parseLinebreak(parser);
@@ -1456,6 +1548,14 @@ static ShellCommand *parseForClause(ShellParser *parser) {
                 break;
             }
         }
+    } else {
+        /* With no `in` it is "$@". With an `in` that comes to nothing it is nothing:
+         * `for x in $empty` inside a function must not walk the function's arguments. */
+        const char all_args[] = {SHELL_QUOTE_MARK_DOUBLE, '$', '@', SHELL_QUOTE_MARK_DOUBLE, '\0'};
+        ShellWord *word = shellCreateWord(all_args, false, true, true, false, line, column);
+        if (word && !parserWordArrayAppend(&value_words, word)) {
+            shellFreeWord(word);
+        }
     }
 
     if (parser->current.type == SHELL_TOKEN_SEMICOLON || parser->current.type == SHELL_TOKEN_NEWLINE) {
@@ -1535,7 +1635,13 @@ static ShellCommand *parseCaseClause(ShellParser *parser) {
         ShellProgram *body = parseCompoundListUntil(parser, SHELL_TOKEN_DSEMI, SHELL_TOKEN_ESAC, SHELL_TOKEN_EOF);
         clause->body = body;
         shellCaseAddClause(case_stmt, clause);
-        if (parser->current.type == SHELL_TOKEN_DSEMI) {
+        if (parser->current.type == SHELL_TOKEN_SEMI_AMP) {
+            clause->terminator = SHELL_CASE_FALL_THROUGH;
+        } else if (parser->current.type == SHELL_TOKEN_DSEMI_AMP) {
+            clause->terminator = SHELL_CASE_TEST_NEXT;
+        }
+        if (parser->current.type == SHELL_TOKEN_DSEMI || parser->current.type == SHELL_TOKEN_SEMI_AMP ||
+            parser->current.type == SHELL_TOKEN_DSEMI_AMP) {
             parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
             shellParserAdvance(parser);
             parseLinebreak(parser);
@@ -1554,14 +1660,26 @@ static ShellCommand *parseCaseClause(ShellParser *parser) {
     return command;
 }
 
+/* Any plain word names a function, as in my-func() and my.func(). */
+static bool tokenIsFunctionName(const ShellToken *token) {
+    if (token->type == SHELL_TOKEN_NAME) {
+        return true;
+    }
+    if (token->type != SHELL_TOKEN_WORD || token->reserved_candidate || !token->lexeme || !token->lexeme[0] ||
+        token->contains_parameter_expansion || token->contains_command_substitution ||
+        token->contains_arithmetic_expansion) {
+        return false;
+    }
+    return strchr(token->lexeme, SHELL_QUOTE_MARK_SINGLE) == NULL &&
+           strchr(token->lexeme, SHELL_QUOTE_MARK_DOUBLE) == NULL && strchr(token->lexeme, '=') == NULL;
+}
+
 static bool parserIsFunctionDefinitionStart(ShellParser *parser) {
     if (!parser) {
         return false;
     }
     const ShellToken *token = &parser->current;
-    bool is_name_token = (token->type == SHELL_TOKEN_NAME) ||
-                         (token->type == SHELL_TOKEN_WORD && token->name_candidate && !token->reserved_candidate);
-    if (!is_name_token) {
+    if (!tokenIsFunctionName(token)) {
         return false;
     }
 
@@ -1640,7 +1758,7 @@ static ShellCommand *parseFunctionDefinition(ShellParser *parser) {
     parserScheduleRuleMask(parser, RULE_MASK_FUNCTION_NAME);
     parserReclassifyCurrentToken(parser, RULE_MASK_FUNCTION_NAME);
     shellParserAdvance(parser);
-    if (parser->previous.type != SHELL_TOKEN_NAME) {
+    if (!tokenIsFunctionName(&parser->previous)) {
         parserErrorAt(parser, &parser->previous, "Expected function name");
         return NULL;
     }
@@ -1816,17 +1934,8 @@ static bool parseDollarCommandSubstitution(const char *text, size_t start, size_
     if (!text || start >= strlen(text) || text[start] != '$' || text[start + 1] != '(') {
         return false;
     }
-    size_t i = start + 2;
-    int depth = 1;
-    while (text[i] && depth > 0) {
-        if (text[i] == '(') {
-            depth++;
-        } else if (text[i] == ')') {
-            depth--;
-        }
-        i++;
-    }
-    if (depth != 0) {
+    size_t i = shellScanDollarParen(text, strlen(text), start + 2);
+    if (i == SHELL_SCAN_UNTERMINATED) {
         return false;
     }
     size_t len = i - start;
@@ -1943,6 +2052,7 @@ static void populateWordExpansions(ShellWord *word) {
     size_t len = strlen(text);
     size_t i = 0;
     bool in_single = false;
+    bool in_double = false;
     while (i < len) {
         char c = text[i];
         /* Expansion skips these, so one recorded here would hold up the real ones after it. */
@@ -1955,12 +2065,29 @@ static void populateWordExpansions(ShellWord *word) {
             i++;
             continue;
         }
+        if (c == SHELL_QUOTE_MARK_DOUBLE) {
+            in_double = !in_double;
+            i++;
+            continue;
+        }
+        if (!in_double && (c == '<' || c == '>') && i + 1 < len && text[i + 1] == '(') {
+            size_t stop = shellScanDollarParen(text, len, i + 2);
+            i = stop == SHELL_SCAN_UNTERMINATED ? len : stop;
+            continue;
+        }
         if (c == '$') {
             size_t span = 0;
             char *command = NULL;
+            if (i + 2 < len && text[i + 1] == '(' && text[i + 2] == '(') {
+                size_t stop = shellScanArithmetic(text, len, i + 3);
+                if (stop != SHELL_SCAN_UNTERMINATED) {
+                    /* The expander runs what is in there itself. */
+                    i = stop;
+                    continue;
+                }
+            }
             if (i + 1 < len && text[i + 1] == '(') {
-                if (i + 2 < len && text[i + 2] == '(') {
-                } else if (parseDollarCommandSubstitution(text, i, &span, &command)) {
+                if (parseDollarCommandSubstitution(text, i, &span, &command)) {
                     if (command) {
                         shellWordAddCommandSubstitution(word, SHELL_COMMAND_SUBSTITUTION_DOLLAR, command, span);
                         free(command);
@@ -1987,13 +2114,8 @@ static void populateWordExpansions(ShellWord *word) {
                         free(name);
                     }
                 }
-                while (j < len && text[j] && text[j] != '}') {
-                    j++;
-                }
-                if (j < len && text[j] == '}') {
-                    j++;
-                }
-                i = j;
+                size_t stop = shellScanBraceParam(text, len, i + 2, false);
+                i = stop == SHELL_SCAN_UNTERMINATED ? len : stop;
                 continue;
             } else {
                 const char *start = text + j;

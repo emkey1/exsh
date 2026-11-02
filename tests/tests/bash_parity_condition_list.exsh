@@ -1,0 +1,51 @@
+#!/usr/bin/env exsh
+# The condition of an if or while is a whole list, and the last command decides.
+if false; true; then echo then; else echo else; fi
+if true; false; then echo then; else echo else; fi
+if true
+   false
+   true
+then echo then; fi
+if true; then echo a; elif false; true; then echo b; fi
+if false; then echo a; elif false; true; then echo b; fi
+i=0; while i=$((i+1)); [ $i -lt 3 ]; do echo $i; done; echo end $i
+i=0; until i=$((i+1)); [ $i -ge 2 ]; do echo $i; done; echo end $i
+printf 'a\nb\n' | while read x; [ -n "$x" ]; do echo "[$x]"; done
+if echo side; [ 1 = 1 ]; then echo ok; fi
+set -e; if false; true; then echo survived; fi; set +e
+if ( false ); true; then echo sub; fi
+if { false; }; true; then echo group; fi
+if a=1; b=2; [ $a = 1 ]; then echo $a$b; fi
+while false; do echo no; done; echo $?
+
+# A for with an empty list runs no times, and only one with no `in` takes the arguments.
+f() { for x in $nothing; do echo "no $x"; done; echo done1; }; f a b
+f() { for x in; do echo "no $x"; done; echo done2; }; f a b
+f() { for x; do echo "yes $x"; done; }; f a "b c"
+f() { for x
+do echo "yes $x"; done; }; f a
+set -- p q; for x; do echo "$x"; done; for x in $nothing; do echo no; done
+
+# break ends its own loops and no more: what follows still runs, in full.
+for a in 1 2; do for b in 1 2; do break; done; /bin/echo "after inner $a"; done
+for a in 1 2; do for b in 1 2; do for c in 1; do break 2; done; echo no; done; /bin/echo "outer $a"; done
+for a in 1 2; do for b in 1 2; do continue; echo no; done; /bin/echo "cont $a"; done
+for a in 1 2; do for b in 1 2; do continue 2; echo no; done; echo no; done; /bin/echo "after $a"
+f() { for x in 1 2; do break; done; }
+for a in 1 2; do f; /bin/echo "called $a"; done
+g() { while true; do case a in *) break;; esac; done; }
+for a in 1 2; do eval g; x=$(/bin/echo "sub $a"); echo "$x"; /bin/echo external | /usr/bin/tr e E; done
+i=0; while [ $i -lt 2 ]; do i=$((i+1)); for b in 1; do break; done; done; echo "$i"
+
+# Smaller things real scripts stepped on.
+IFS=,; x='a,,b,'; set -- $x; echo $#; for i in "$@"; do echo "[$i]"; done; x=,; set -- $x; echo $#; unset IFS
+echo --; echo -- x; echo -n; echo -x
+f() { local OPTIND; while getopts "ab" o; do echo $o; done; }; f -ab; f -a
+d="${TMPDIR:-/tmp}/exsh_parity_small.$$"; mkdir -p "$d/p"; cd "$d"
+echo 'echo found' > p/lib; (PATH=$PWD/p:$PATH; . lib)
+printf 'echo from script\n' > s; chmod +x s; ./s; echo $?
+type -t if; type -t echo; type -t '[['
+shopt -s nullglob; set -- /nonexistent/*; echo $#; shopt -u nullglob; set -- /nonexistent/*; echo $#
+mkdir h; touch h/.a h/b; (cd h; echo *; shopt -s dotglob; echo *; shopt -u dotglob; echo *)
+(shopt -s failglob; echo /nonexistent/* 2>/dev/null; echo no); echo "st $?"
+cd /; rm -rf "$d"

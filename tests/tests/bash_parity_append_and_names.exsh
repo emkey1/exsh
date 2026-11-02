@@ -1,0 +1,35 @@
+#!/usr/bin/env exsh
+# x+=y did not parse as an assignment, and a function name could only be an identifier.
+x=1; x+=2; echo $x
+y=a; y+=bc; echo $y; y+=" d"; echo "$y"
+unset z; z+=q; echo $z
+x=a; y=b; x+=$y; echo $x
+export e=a; e+=b; sh -c 'echo $e'
+f() { local x=a; x+=b; echo $x; }; f
+echo x+=2
+declare -i n=1; n+=2; echo $n
+a=(x); a+=("y z" w); echo ${#a[@]} "${a[1]}" "${a[2]}"
+a=(x y); a[1]+=z; echo "${a[1]}"
+unset s; s=one; s+=(two); echo "${s[0]} ${s[1]}"
+declare -i m; m=2+3; echo $m; m=m+1; echo $m
+
+my-func() { echo hi; }; my-func
+my-func2() { echo "$1"; }; my-func2 a
+function my-other { echo yo; }; my-other
+my.func() { echo dot; }; my.func
+my:func() { echo colon; }; my:func
+function f() { echo p; }; f
+f()
+{
+  echo nl
+}
+f
+f() ( echo sub ); f
+f() if true; then echo y; fi; f
+d="${TMPDIR:-/tmp}/exsh_parity_names.$$"; mkdir -p "$d"; cd "$d"
+f() { echo a; } > out; f; cat out
+cd /; rm -rf "$d"
+f() { echo a; }; unset -f f; f 2>/dev/null; echo $?
+g() { echo a; }; unset g; g 2>/dev/null; echo $?
+h=1; h() { echo fn; }; unset h; h; echo "[$h]"; unset h; h 2>/dev/null; echo $?
+function 1bad() { echo digit first; }; 1bad; unset -f 1bad

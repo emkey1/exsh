@@ -1,0 +1,73 @@
+#!/usr/bin/env exsh
+# What goes between ${ and }. Most of these used to stay in the output as text.
+show() { echo "$# $(printf '[%s]' "$@")"; }
+
+# Defaults, alternatives, assignment.
+unset x; echo "${x:-d} ${x-d}"; x=; echo "[${x:-d}] [${x-d}]"; x=v; echo "${x:-d} ${x-d}"
+unset x; echo "[${x:+a}] [${x+a}]"; x=; echo "[${x:+a}] [${x+a}]"; x=v; echo "[${x:+a}] [${x+a}]"
+unset x; echo "${x:=d}"; echo "$x"; y=; echo "[${y=e}] [${y:=f}]"; echo "$y"
+unset x; (echo "${x:?oops}"; echo no) 2>/dev/null; echo "status $?"
+unset x; (echo "${x?oops}"; echo no) 2>/dev/null; echo "status $?"
+x=; (echo "[${x?oops}]"; echo yes) 2>/dev/null; echo "status $?"
+x=v; echo "${x:?oops} ${x?oops}"
+unset x; y=$(echo "${x:?oops}"; echo no) 2>/dev/null; echo "[$y] $?"
+unset x; echo "[$(echo "${x:?oops}") still here]" 2>/dev/null
+unset x; (for i in ${x:?oops}; do echo no; done; echo no) 2>/dev/null; echo "status $?"
+unset x; (case ${x:?oops} in *) echo no;; esac; echo no) 2>/dev/null; echo "status $?"
+unset x; (echo a > ${x:?oops}; echo no) 2>/dev/null; echo "status $?"
+
+# Nesting and quoting inside the word.
+unset x; y=q; echo ${x:-${y}} ${x:-${y:-z}} "${x:-$y}"
+x=1; echo ${x:+${y}b}
+unset x; echo "${x:-a}b}"
+unset x; show ${x:-"a b"} ${x:-a b}
+show "${x:-a b}"
+show ${x:-} "${x:-}"
+echo ${x:-$(echo s)}
+echo ${x:-$(echo "}")}
+echo ${x:-$((1+2))}
+echo ${x:-'a  b'}
+echo "${x:-'a'}"
+
+# Patterns.
+x=a/b/c; echo ${x#*/} ${x##*/} ${x%/*} ${x%%/*}
+x=abc; p=a; echo ${x#$p} ${x%c}
+x='*abc'; echo ${x#"*"}
+x=123abc; echo ${x##[0-9]} ${x#[0-9]*}
+x="a b"; echo "${x%% *}"
+p='*'; x=abc; echo ${x#$p} "${x#"$p"}"
+x=$'a\nb'; echo "${x%$'\n'*}"
+
+# Replacement.
+x=abcabc
+echo ${x/b/B} ${x//b/B} ${x/#a/A} ${x/#b/A} ${x/%c/C} ${x/%b/C} ${x/b} ${x//b}
+echo ${x/b*a/X} ${x//[ab]/X} ${x/?/Y}
+x=abc; p=b; r=Q; echo ${x/$p/$r}
+x='a*c'; echo ${x/"*"/X}
+x=a/b/c; echo ${x//\//-}
+x='a b  c'; echo "${x/b/B}"
+unset x; echo "[${x/a/b}]"
+x=abc; echo "${x/b/ B }"
+echo ${x/#/p} ${x/%/s}
+set -- abc def; echo ${1/b/B} ${@/a/A}
+a=(abc abd); echo "${a[@]/a/A}"; echo "${a[0]/b/B}"
+
+# Length and slices.
+x=abc; echo ${#x}; a=(p q r); echo ${#a[@]} ${#a[*]} ${#a[1]}; set -- 1 2; echo ${#@} ${#*} ${#}
+x=abcdef; echo ${x:2} ${x:2:2} ${x: -2} ${x: -3:2} ${x:(-2)}
+n=1; m=2; echo ${x:$n:$m} ${x:n:m} ${x:n+1} ${x:0:n+1}
+set -- a b c d; echo "${@:2}"; echo "${@:2:2}"; echo "${*:2:1}"; echo ${@:3}; echo "${@:1:1}"
+show "${@:2:2}"
+
+# Indirection.
+x=y; y=z; echo ${!x}
+set -- a b; n=2; echo ${!n}
+ab1=1; ab2=2; echo ${!ab*}
+a=(p q); echo "${!a[@]}"
+
+# On all the arguments.
+set -- xa xb; echo "${@#x}"; echo "${*%a}"
+
+# Special parameters.
+set --; echo ${1:-d}; echo ${#:-e}; echo ${?:-f}
+set -- a b c d e f g h i j; echo $10 ${10} ${#10}

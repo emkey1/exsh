@@ -1,0 +1,19 @@
+#!/usr/bin/env exsh
+(trap 'echo caught' ERR; false; echo after)
+(trap 'echo e$?' ERR; false; true; echo end)
+(trap 'echo e' ERR; if false; then :; fi; false || true; ! false; echo end)
+(trap 'echo e' ERR; f() { return 1; }; f; echo end)
+(trap 'echo e' ERR; trap - ERR; false; echo off)
+(trap 'echo e; exit 3' ERR; false; echo no); echo $?
+(set -e; trap 'echo e' ERR; false; echo no); echo $?
+(trap 'echo dbg' DEBUG; true; trap - DEBUG; echo off)
+(f() { return 0; }; trap 'echo r' RETURN; f; trap - RETURN; echo done)
+(f() { trap 'echo own' RETURN; }; f; echo done)
+(trap 'echo x' USR1; trap -p USR1)
+(trap 'echo it'\''s' USR1; trap -p USR1)
+(trap 'echo bye' EXIT; trap -p EXIT; trap - EXIT)
+(trap '' TERM; trap -p TERM)
+(trap 'echo $?' EXIT; exit 5); echo $?
+trap > /dev/null; echo $?
+trap -l > /dev/null; echo $?
+trap 'echo x' NOSUCH 2>/dev/null; echo $?

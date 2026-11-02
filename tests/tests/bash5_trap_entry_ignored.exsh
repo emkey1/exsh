@@ -1,0 +1,7 @@
+#!/usr/bin/env exsh
+# A signal ignored when a script starts stays ignored, and trap lists it. bash 3.2 does not
+# list it, so this has a fixed answer.
+trap '' USR1
+exsh -c 'trap "echo x" USR1; trap -p USR1; trap - USR1; trap -p USR1'
+trap - USR1
+exsh -c 'trap "echo x" USR1; trap -p USR1'

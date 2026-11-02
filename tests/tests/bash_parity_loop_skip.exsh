@@ -1,0 +1,49 @@
+#!/usr/bin/env exsh
+# After break or continue, nothing else in the body runs, words included. `case` still ran
+# its substitutions, and `while :` there went round for good, which hung real configure scripts.
+d="${TMPDIR:-/tmp}/exsh_parity_skip.$$"; mkdir -p "$d"; cd "$d" || exit 1
+no() { echo "no: $*"; }
+ff() { test -f "$1" && test -x "$1"; }
+
+for p in a b; do
+  for e in ''; do
+    ff "/nosuch/$p$e" || continue
+    case `no subject 1>&2` in
+    *) no body; while :; do no loop; break; done;;
+    esac
+    no after
+  done
+done
+echo done1
+for p in a; do false || continue; case a in a) no a;; esac; no b; done; echo "[$?]"
+for p in a; do false || continue
+  if true; then no if; fi
+  { no group; }
+  ( no subshell )
+  x=`no assign 1>&2`
+  while true; do no while; break; done
+done
+echo done2
+for p in a; do false || continue; for q in $(no list 1>&2); do no; done; no c; done; echo "[1 $?]"
+for p in a; do false || continue; made() { :; }; done; type made >/dev/null 2>&1; echo "[2 $?]"
+for p in a; do false || continue; { no group; } > made; done; [ -e made ]; echo "[3 $?]"
+for p in a; do false || continue; (( x = 5 )); [[ $(no cond 1>&2) ]]; no d; done; echo "[4 ${x:-unset}]"
+for p in a; do false || continue; if no if; then no then; else no else; fi; done; echo "[5 $?]"
+for p in a; do true; continue; ! true; done; echo "[6 $?]"
+for p in a; do false; break; case a in a) false;; esac; done; echo "[7 $?]"
+for p in a b; do for q in c; do continue 2; done; case `no two 1>&2` in *) no;; esac; done; echo "[8 $?]"
+for p in a; do break; until false; do no until; done; while true; do no while; done; done; echo "[9 $?]"
+for p in a; do break; for ((i=0;;i++)); do no cfor; done; done; echo "[10 ${i:-unset}]"
+for p in a; do break; x=$(no x 1>&2); y=`no y 1>&2`; done; echo "[11 ${y:-unset}]"
+for p in a; do break; echo $(no pipe 1>&2) | cat; done; echo "[12]"
+for p in a; do break; cat <<EOF
+$(no heredoc 1>&2)
+EOF
+done; echo "[13]"
+while :; do break; case $(no case 1>&2) in x) ;; esac; done; echo "[14]"
+f2() { return 3; case $(no ret 1>&2) in x) ;; esac; }; f2; echo "[15 $?]"
+f3() { for p in a; do return 4; while :; do :; done; done; }; f3; echo "[16 $?]"
+i=0; while [ $i -lt 1 ]; do i=$((i+1)); continue; while [ 1 = 1 ]; do no fast; done; done; echo "[17 $i]"
+i=0; while :; do i=$((i+1)); [ $i -gt 2 ] && break; continue; case a in a) no z;; esac; done; echo "[18 $i]"
+
+cd /; rm -rf "$d"

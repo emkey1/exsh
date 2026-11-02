@@ -5,6 +5,6 @@ echo "math:$((2 + 3 * 4))"
 echo "vars:$((FOO + BAR))"
 echo "dollar:$(( $FOO - 1 ))"
 echo "nested:$(( (FOO + 3) / BAR ))"
-echo "bad:$((BAR+))"
+(echo "bad:$((BAR+))") 2>/dev/null
 echo "status:$?"
 echo "arithmetic:end"

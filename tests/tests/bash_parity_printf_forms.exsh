@@ -1,0 +1,27 @@
+#!/usr/bin/env exsh
+printf 'a\101b\n'
+printf '\1\n' | tr '\001' A
+printf '\x41\n'
+printf '%b\n' 'x\ty'; printf '%b\n' x; printf '%b' 'a\n'
+printf '%b\n' '\0101' '\101'
+printf '%b\n' 'a\cb'; echo z
+printf '%q\n' 'a b' "it's" a
+printf '%s-' a b c; echo
+printf '%s|%d|\n'
+printf '%5s|%-5s|%05d|%x|%o|%c|%e\n' a b 42 255 8 hello 1.5
+printf '100%%\n'
+printf -- '-x\n'
+printf -v x '%s' abc; echo "$x"
+printf -v y '%d-%d' 1 2; echo "$y"
+printf '%d\n' abc 2>/dev/null; echo $?
+printf '%d\n' "'A"
+printf '%c|%c\n' 65 abc
+printf '%s' "$(seq 1 1000)" | wc -c | tr -d ' '
+printf '%300s' a | wc -c | tr -d ' '
+printf '%b|' 'a\tb' c; echo
+printf '%d %i %u %x %X %o\n' 10 10 10 255 255 8
+printf '%d\n' 0x10 010
+printf '\q\n'
+printf 'a\tb\\c\n'
+echo -e 'a\tb\101\n'; echo -e '\0101'; echo -e '\x41'; echo -e 'a\cb'; echo; echo -n x; echo
+echo -e '\q'

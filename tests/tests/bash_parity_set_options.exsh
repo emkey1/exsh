@@ -1,0 +1,52 @@
+#!/usr/bin/env exsh
+# set -f, -C, -u and -x were accepted and ignored.
+d="${TMPDIR:-/tmp}/exsh_parity_set.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+has() { case $- in *$1*) echo "$1 on";; *) echo "$1 off";; esac; }
+
+# noglob
+touch a1
+set -f; echo a*; has f; case a1 in a*) echo patterns still match;; esac; set +f; echo a*; has f
+set -o noglob; echo a*; set +o noglob; echo a*
+x='a*'; echo $x; set -f; echo $x; set +f
+
+# noclobber
+echo a > f; set -C; has C; (echo b > f) 2>/dev/null; echo $?; cat f; echo c >| f; cat f; set +C; echo d > f; cat f
+set -o noclobber; (echo b > f) 2>/dev/null; echo $?; cat f
+echo a > g; (echo x > g) 2>/dev/null; rm g; echo b > g; cat g; echo c >> g; cat g
+echo a > /dev/null; echo $?
+set +o noclobber
+
+# nounset
+(set -u; echo $nosuch; echo no) 2>/dev/null; echo $?
+(set -u; echo ${nosuch}; echo no) 2>/dev/null; echo $?
+(set -u; echo $1; echo no) 2>/dev/null; echo $?
+(set -u; echo ${#nosuch}; echo no) 2>/dev/null; echo $?
+(set -u; echo ${nosuch:-d}; echo "${nosuch-e}"; echo "[${nosuch+f}]")
+(set -u; set --; echo "[$@]" "[$*]" $#)
+(set -u; has u; set +u; has u)
+(set -u; x=1; echo $x)
+(set -o nounset; echo $nosuch; echo no) 2>/dev/null; echo $?
+
+# xtrace
+(exec 2>&1; set -x; x=1; echo "a b" $x; set +x; echo c)
+(exec 2>&1; PS4='> '; set -x; echo a; set +x)
+(exec 2>&1; set -x; echo 'a b' "" c; set +x)
+(set -x; has x; set +x; has x) 2>/dev/null
+
+# verbose is only accepted
+(set -v; has v; set +v) 2>/dev/null
+
+# Combined letters and the long names.
+(set -eu; has e; has u)
+(set -o errexit -o nounset; has e; has u)
+set -o nosuch 2>/dev/null || echo refused
+set -o | grep -c noglob
+
+cd /
+rm -rf "$d"
+
+# umask -S leaves out what a class may not do.
+(umask 022; umask; umask -S; umask 027; umask -S; umask 777; umask -S; umask 0; umask -S)

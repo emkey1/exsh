@@ -1,0 +1,41 @@
+#!/usr/bin/env exsh
+# Only the prompt expanded a tilde before.
+d="${TMPDIR:-/tmp}/exsh_parity_tilde.$$"
+mkdir -p "$d/sub" || exit 1
+cd "$d" || exit 1
+HOME="$d"
+
+strip() { echo "${1//$d/H}"; }
+
+strip "$(echo ~)"
+strip "$(echo ~/a)"
+echo "~" '~' \~ "~/a"
+echo a~ a~/b
+x=~/a; strip "$x"
+x=~/a:~/b:c~; strip "$x"
+x="~/a"; echo "$x"
+cd ~/sub; basename "$PWD"
+cd ~; [ "$PWD" = "$HOME" ] && echo home
+echo a > ~/t.txt; cat t.txt
+for i in ~ ~/x; do strip "$i"; done
+case ~ in "$HOME") echo case;; *) echo no;; esac
+[ ~ = "$HOME" ] && echo test
+[[ ~ == "$HOME" ]] && echo bracket
+a=(~ ~/b); strip "${a[0]} ${a[1]}"
+export y=~/a; strip "$y"
+unset z; strip "${z:-~}"
+strip "$(echo x=~/a)"
+cd /; cd /usr; echo ~+ ~-
+echo ~nosuchuser_xyz ~nosuchuser_xyz/a
+x='~'; echo "$x" $x
+cat <<EOF
+~
+EOF
+printf '[%s]\n' ~/"a b" | sed "s|$d|H|"
+
+# A home with spaces is one word.
+HOME='/tmp/a b'
+x=$(printf '[%s]' ~ ~/c); echo "$x"
+
+cd /
+rm -rf "$d"

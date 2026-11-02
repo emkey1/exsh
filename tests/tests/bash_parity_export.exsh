@@ -1,0 +1,29 @@
+#!/usr/bin/env exsh
+# A child sees only what is exported. Every shell variable used to reach it.
+x=1; sh -c 'echo "[$x]"'
+export x; sh -c 'echo "[$x]"'
+export y=1; sh -c 'echo "[$y]"'
+export -n y; sh -c 'echo "[$y]"'; echo "[$y]"
+p=1 sh -c 'echo "[$p]"'; echo "[$p]"
+z=1; z=2 sh -c 'echo "[$z]"'; echo "[$z]"
+f() { local v=1; v=2 sh -c 'echo "[$v]"'; echo $v; }; f
+g() { local v=1; export v; sh -c 'echo "[$v]"'; }; g
+export q; q=5; sh -c 'echo "[$q]"'
+export r=1; unset r; r=2; sh -c 'echo "[$r]"'
+declare -x e1=1; sh -c 'echo "[$e1]"'; declare +x e1; sh -c 'echo "[$e1]"'
+m=1; export -p | grep -c 'declare -x m='; export n=2; export -p | grep -c 'declare -x n='
+myvar=1; env | grep -c '^myvar='; true
+myvar=1; o=$(sh -c 'echo "[$myvar]"'); echo $o
+myvar=1; sh -c 'echo "[$myvar]"' | cat
+myvar=1; sh -c 'echo "[$myvar]"' & wait
+myvar=1; (exec sh -c 'echo "[$myvar]"')
+myvar=1; (sh -c 'echo "[$myvar]"')
+myvar=1; (echo "[$myvar]")
+myvar=1; echo "[$(echo $myvar)]"
+h() { echo "[$w]"; }; w=1 h; echo "[$w]"
+w=1 true; echo "[$w]"
+PATH=$PATH sh -c 'true'; echo $?
+export LONGNAME=a; sh -c 'echo "${LONGNAME}"'
+
+# Arrays are no one else's business.
+a=(x y); env | grep -c '^a='; true

@@ -1,0 +1,32 @@
+#!/usr/bin/env exsh
+x=1; declare -p x
+export ex=2; declare -p ex
+declare -p nosuch 2>/dev/null; echo $?
+declare -r r1=1; (r1=2) 2>/dev/null; echo $? $r1
+declare -r r2=2; declare -p r2
+declare -i n=1; declare -p n
+f() { :; }; declare -F f; declare -F nosuchf; echo $?
+declare -f f > /dev/null; echo $?
+f() { local -i n=1+1; echo $n; }; f
+f() { local -r c=1; echo $c; }; f
+f() { local -a a=(x y); echo ${#a[@]}; }; f
+f() { local -x e=1; sh -c 'echo "[$e]"'; }; f
+typeset t=1; echo $t
+f() { typeset t=2; echo $t; }; f; echo $t
+f() { declare d=3; echo $d; }; f; echo "[$d]"
+declare -a a=(x y); declare -p a | grep -c x
+declare nosep; echo "[$nosep]"
+declare -i m=1; m+=2; echo $m
+unset -v x; echo "[$x]"
+f() { :; }; unset -f f; declare -F f; echo $?
+readonly ro=1; unset ro 2>/dev/null; echo $? $ro
+read -d , v <<< "a,b"; echo $v
+printf 'abc' | { read x; echo $?; echo $x; }
+printf 'abcdef' | { read -n 3 x; echo "$x"; }
+read -a arr <<< "p q r"; echo ${#arr[@]} ${arr[1]}
+read -r line <<< 'a\b'; echo "$line"
+read line <<< 'a\b'; echo "$line"
+IFS=, read a1 a2 <<< "a,b"; echo "$a1 $a2"
+read <<< "reply"; echo "$REPLY"
+read -s q <<< "silent"; echo "$q"
+read -p "" pp <<< "prompted"; echo "$pp"

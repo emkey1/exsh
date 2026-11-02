@@ -135,6 +135,18 @@ exsh reuses the shared builtin registry defined in `backend_ast/builtin.c` and
 extends it with orchestration helpers implemented in
 `backend_ast/shell.c`. The following categories are available out of the box:
 
+- What a script without PSCAL extensions gets is meant to be what bash does, down
+  to the status and the words a command sees: quoting, all of `${...}`, arithmetic,
+  `[[ ]]` with `=~`, brace and tilde expansion, arrays, process substitution and
+  `set -aCefuvx`. Aliases expand at a prompt, and in a script only after
+  `shopt -s expand_aliases`. The `bash_parity_*` tests compare the two directly. Still
+  different: `select`, `compgen`/`complete`/`compopt`, `suspend`, `declare -n`,
+  `printf '%(fmt)T'`, `for in in in` and `exit abc`. `set -o posix` does not make a
+  failing special builtin end the script, `set -v` is accepted but prints nothing,
+  `set -x` does not show compound commands, a `DEBUG` trap runs only for top-level
+  commands, and `[[ ]]` expands all of its operands first. On iOS, where nothing
+  execs, an applet sees variables that were not exported, `./f` runs without the
+  execute bit, and `cd` resolves links at once.
 - Shell control builtins (`cd`, `pwd`, `exit`, `alias`, `export`, `setenv`,
   `unset`, `unsetenv`) and an interactive `help` builtin for listing and
   describing available commands. The directory-stack helpers (`dirs`, `pushd`,

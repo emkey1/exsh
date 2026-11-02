@@ -1,0 +1,79 @@
+#!/usr/bin/env exsh
+# A here document's body starts on the next line. With anything after the operator on the
+# same line, that text was taken for the body and the real body was run as commands.
+cat <<EOF | tr a-z A-Z
+hi
+EOF
+cat <<EOF | wc -l | tr -d ' '
+one
+two
+EOF
+cat <<EOF && echo after
+hi
+EOF
+cat <<EOF; echo after
+hi
+EOF
+cat <<A; cat <<B
+one
+A
+two
+B
+false || cat <<EOF
+or
+EOF
+f() {
+cat <<EOF
+body
+EOF
+}
+f
+for i in 1 2; do cat <<EOF
+$i
+EOF
+done
+if true; then cat <<EOF
+yes
+EOF
+fi
+x=$(seq 1 3); cat <<EOF | wc -l | tr -d ' '
+$x
+EOF
+cat <<EOF |
+piped next line
+EOF
+cat
+{ cat <<EOF
+group
+EOF
+}
+(cat <<EOF
+sub
+EOF
+)
+set -- a b; cat <<EOF
+$@ $*
+EOF
+exec 3<<< "from3"; read -u 3 r3; echo "$r3"; exec 3<&-
+cat <<< "a b"; cat <<< a
+cat <<< $'with\nnewline'
+
+# Lines that look like C directives are comments, or text where they are quoted.
+x="\
+#ifdef NOPE
+in a string
+#endif"
+echo "$x"
+cat <<EOF
+#ifdef NOPE
+in a here document
+#else
+other
+#endif
+EOF
+#ifdef NOPE
+echo after a comment
+#endif
+#if 0
+echo also after a comment
+#endif

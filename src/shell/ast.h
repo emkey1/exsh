@@ -131,9 +131,17 @@ typedef struct ShellConditional {
     struct ShellProgram *else_branch;
 } ShellConditional;
 
+/* How a clause ends: ;; or ;& or ;;& */
+typedef enum {
+    SHELL_CASE_END = 0,
+    SHELL_CASE_FALL_THROUGH,
+    SHELL_CASE_TEST_NEXT
+} ShellCaseTerminator;
+
 typedef struct ShellCaseClause {
     ShellWordArray patterns;
     struct ShellProgram *body;
+    ShellCaseTerminator terminator;
     int line;
     int column;
 } ShellCaseClause;

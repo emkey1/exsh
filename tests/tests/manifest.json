@@ -571,7 +571,7 @@
             "description": "Handles integer math, variables, and syntax errors with preserved text.",
             "script": "Tests/exsh/tests/arithmetic_expansion.exsh",
             "expect": "runtime_ok",
-            "expected_stdout": "arithmetic:start\nmath:14\nvars:10\ndollar:6\nnested:3\nbad:$((BAR+))\nstatus:1\narithmetic:end"
+            "expected_stdout": "arithmetic:start\nmath:14\nvars:10\ndollar:6\nnested:3\nstatus:1\narithmetic:end"
         },
         {
             "id": "random_parameter",
@@ -953,7 +953,7 @@
             "description": "Setting umask updates the process mask and reports numeric/symbolic output.",
             "script": "Tests/exsh/tests/umask_basic.exsh",
             "expect": "runtime_ok",
-            "expected_stdout": "numeric:0002\nsymbolic:u=rwx,g=rwx,o=r-x\n"
+            "expected_stdout": "numeric:0002\nsymbolic:u=rwx,g=rwx,o=rx\n"
         },
         {
             "id": "builtin_umask_invalid",
@@ -1365,6 +1365,216 @@
             "description": "Commands, builtins, pipelines, groups, subshells, functions and nested substitutions write far more than a pipe holds; status and trailing newlines are kept; what the command does with descriptors does not reach the shell's read end.",
             "script": "Tests/exsh/tests/bash_parity_big_substitution.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_big_here",
+            "name": "Here documents larger than a pipe, and small substitutions",
+            "category": "parity",
+            "description": "Substitutions and here documents larger than a pipe's buffer, which used to hang; also substitutions whose text holds a quoted ) or a case statement.",
+            "script": "Tests/exsh/tests/bash_parity_big_here.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_array_literal",
+            "name": "Array literals keep each element's quoting",
+            "category": "parity",
+            "description": "a=(\"b c\" d) has two elements; globbing, splitting, keyed elements, gaps, slices and declarations.",
+            "script": "Tests/exsh/tests/bash_parity_array_literal.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_tilde",
+            "name": "Tilde expansion in scripts",
+            "category": "parity",
+            "description": "~ at the start of a word and after = or : in an assignment, and nowhere it is quoted.",
+            "script": "Tests/exsh/tests/bash_parity_tilde.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_param_ops",
+            "name": "Parameter expansion operators",
+            "category": "parity",
+            "description": "Defaults, alternatives, assignment, errors, nesting, patterns, replacement, slices and indirection.",
+            "script": "Tests/exsh/tests/bash_parity_param_ops.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_ifs_join",
+            "name": "IFS joins $* and has a default",
+            "category": "parity",
+            "description": "$* and ${a[*]} join with IFS's first character, IFS is set from the start, and only declarations keep an assignment-like argument whole.",
+            "script": "Tests/exsh/tests/bash_parity_ifs_join.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_double_bracket",
+            "name": "[[ ]] operators",
+            "category": "parity",
+            "description": "&&, ||, !, parentheses, =~ with BASH_REMATCH, and operands that look like operators.",
+            "script": "Tests/exsh/tests/bash_parity_double_bracket.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_brace_expansion",
+            "name": "Brace expansion",
+            "category": "parity",
+            "description": "Lists, ranges, nesting, and where it does not apply.",
+            "script": "Tests/exsh/tests/bash_parity_brace_expansion.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_printf_forms",
+            "name": "printf and echo -e forms",
+            "category": "parity",
+            "description": "Octal and hex escapes, %b, %q, -v, --, long %s, and character codes.",
+            "script": "Tests/exsh/tests/bash_parity_printf_forms.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_set_options",
+            "name": "set -f, -C, -u and -x",
+            "category": "parity",
+            "description": "Each takes effect and shows in $-.",
+            "script": "Tests/exsh/tests/bash_parity_set_options.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_special_vars",
+            "name": "Variables the shell keeps",
+            "category": "parity",
+            "description": "LINENO, PIPESTATUS, FUNCNAME, BASH_SOURCE, SECONDS, PPID, UID and friends.",
+            "script": "Tests/exsh/tests/bash_parity_special_vars.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_append_and_names",
+            "name": "+= and function names",
+            "category": "parity",
+            "description": "x+=y in all its forms, and function names that are not identifiers.",
+            "script": "Tests/exsh/tests/bash_parity_append_and_names.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_arith_ops",
+            "name": "Arithmetic",
+            "category": "parity",
+            "description": "The whole of C's integer operators, bases, assignment, and what a failure does.",
+            "script": "Tests/exsh/tests/bash_parity_arith_ops.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_ansi_c_quoting",
+            "name": "$'...' and $\"...\"",
+            "category": "parity",
+            "description": "ANSI-C quoting, in words and in parameter patterns.",
+            "script": "Tests/exsh/tests/bash_parity_ansi_c_quoting.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_export",
+            "name": "A child sees only what is exported",
+            "category": "parity",
+            "description": "export, export -n, declare -x, prefix assignments and locals across exec, pipelines and subshells.",
+            "script": "Tests/exsh/tests/bash_parity_export.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_heredoc_lines",
+            "name": "Here documents with more on the line",
+            "category": "parity",
+            "description": "Pipelines, lists and compound commands around a here document, and here strings.",
+            "script": "Tests/exsh/tests/bash_parity_heredoc_lines.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_eval_source_state",
+            "name": "eval and source are part of the caller",
+            "category": "parity",
+            "description": "break, continue and return pass through them, and options set in them stay.",
+            "script": "Tests/exsh/tests/bash_parity_eval_source_state.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_traps_named",
+            "name": "ERR, DEBUG, RETURN and trap -p",
+            "category": "parity",
+            "description": "Named traps fire when bash would, and trap -p shows them.",
+            "script": "Tests/exsh/tests/bash_parity_traps_named.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_alias_text",
+            "name": "Alias text is parsed",
+            "category": "parity",
+            "description": "An alias holding ; | or > works, and the command's other words follow it.",
+            "script": "Tests/exsh/tests/bash_parity_alias_text.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_process_subst",
+            "name": "Process substitution",
+            "category": "parity",
+            "description": "<(cmd) and >(cmd) as words and redirection targets.",
+            "script": "Tests/exsh/tests/bash_parity_process_subst.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_declare_unset",
+            "name": "declare, local, unset and read options",
+            "category": "parity",
+            "description": "declare -p -F -x -r -i, local options, unset -f -v, read -d -n -t -s -p.",
+            "script": "Tests/exsh/tests/bash_parity_declare_unset.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_cd_logical",
+            "name": "cd keeps the logical path",
+            "category": "parity",
+            "description": "cd and pwd through a symbolic link, cd -P, cd -, a stale $PWD.",
+            "script": "Tests/exsh/tests/bash_parity_cd_logical.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash5_forms",
+            "name": "Forms bash 4 and 5 added",
+            "category": "parity",
+            "description": "Case modification, negative subscripts, zero-padded ranges, ;& and ;;&, [[ -v ]], declare -A, declare -l and -u, ${x@Q}.",
+            "script": "Tests/exsh/tests/bash5_forms.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9"
+        },
+        {
+            "id": "bash_parity_condition_list",
+            "name": "if and while take a list",
+            "category": "parity",
+            "description": "Several commands before then or do, with the last one deciding.",
+            "script": "Tests/exsh/tests/bash_parity_condition_list.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_loop_skip",
+            "name": "Nothing runs after break or continue",
+            "category": "parity",
+            "description": "The rest of a loop body goes by without running, its words and nested loops included.",
+            "script": "Tests/exsh/tests/bash_parity_loop_skip.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_bit",
+            "name": "The execute bit decides",
+            "category": "parity",
+            "description": "A file without the execute bit gives 126.",
+            "script": "Tests/exsh/tests/bash_parity_exec_bit.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash5_trap_entry_ignored",
+            "name": "A signal ignored on entry stays ignored",
+            "category": "parity",
+            "description": "trap cannot change a signal ignored when the script started, and lists it.",
+            "script": "Tests/exsh/tests/bash5_trap_entry_ignored.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "trap -- '' SIGUSR1\ntrap -- '' SIGUSR1\ntrap -- 'echo x' SIGUSR1"
         }
     ]
 }

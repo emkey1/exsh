@@ -1,0 +1,35 @@
+#!/usr/bin/env exsh
+# "$*" and "${a[*]}" join with IFS's first character. IFS has its default value from the
+# start, so saving and restoring it leaves splitting as it was.
+show() { echo "$# $(printf '[%s]' "$@")"; }
+
+set -- a b; IFS=,; echo "$*"; echo "${*}"
+IFS=; echo "$*"
+unset IFS; echo "$*"
+IFS=:,; echo "$*"
+set -- "a,b" c; IFS=,; show $*; show $@
+x=a,b; show $x
+unset IFS
+
+printf '%s' "$IFS" | tr ' \t\n' STN; echo
+old=$IFS; IFS=,; IFS=$old; x="a b"; set -- $x; echo $#
+unset IFS; x="a b"; set -- $x; echo $#; echo "[${IFS-unset}]"
+x=$'a\nb'; set -- $x; echo $#
+
+f() { local IFS=,; set -- a b; echo "$*"; x="p,q"; show $x; }; f; x="p,q"; show $x
+
+set -- a b; x="$@"; echo "$x"; y=$@; echo "$y"; z=$*; echo "$z"
+cat <<EOF
+$@ $*
+EOF
+case "$@" in "a b") echo y;; *) echo n;; esac
+set -- "a b" c; show "$@"x; show x"$@"
+a=(p "q r"); show x"${a[@]}"y
+set --; show "$@"; show "$@" x; show "$*"
+a=(); show "${a[@]}"; show "${a[*]}"
+
+x="a  b"; echo y=$x
+touch_dir="${TMPDIR:-/tmp}/exsh_parity_ifs.$$"; mkdir -p "$touch_dir"; cd "$touch_dir"
+touch a=1; echo a=*
+cd /; rm -rf "$touch_dir"
+export e="a  b"; echo "$e"

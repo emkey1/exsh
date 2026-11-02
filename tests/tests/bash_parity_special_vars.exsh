@@ -1,0 +1,45 @@
+#!/usr/bin/env exsh
+d="${TMPDIR:-/tmp}/exsh_parity_special.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+echo $LINENO
+echo $LINENO
+
+echo ${LINENO}
+echo a \
+  $LINENO
+f() {
+  echo $LINENO
+}
+f
+
+true | false | true; echo "${PIPESTATUS[@]}"
+false | true; echo ${PIPESTATUS[0]} ${PIPESTATUS[1]}
+false; echo ${PIPESTATUS[0]}
+true | true | true; echo ${#PIPESTATUS[@]}
+(exit 3) | (exit 4); echo "${PIPESTATUS[@]}"
+echo a | grep z > /dev/null; echo "${PIPESTATUS[@]}"
+false | { true; }; echo "${PIPESTATUS[@]}"
+false | true; echo ${PIPESTATUS[0]}; echo ${PIPESTATUS[0]}
+
+f() { echo $FUNCNAME; }; f
+g() { echo "${FUNCNAME[0]} ${FUNCNAME[1]} ${#FUNCNAME[@]}"; }; f() { g; }; f
+echo "[${FUNCNAME[0]}]"
+
+[ -n "$RANDOM" ] && echo r; [ -n "$SECONDS" ] && echo s
+[ -n "$PPID" ] && echo p; [ -n "$UID" ] && echo u; [ -n "$EUID" ] && echo e
+[ "$UID" = "$(id -u)" ] && echo same
+[ -n "$HOSTNAME" ] && echo h; [ -n "$OSTYPE" ] && echo o; [ -n "$HOSTTYPE" ] && echo t; [ -n "$MACHTYPE" ] && echo m
+SECONDS=100; [ "$SECONDS" -ge 100 ] && echo set
+x=$PPID; (echo "$x" | grep -q '^[0-9]*$') && echo digits
+
+echo "${BASH_SOURCE[0]}" | sed 's|.*/||'
+echo 'echo "${BASH_SOURCE[0]}"' > lib.sh; . ./lib.sh
+
+# Text run by eval and $(...) counts on from the line of the command holding it.
+echo "$(echo $LINENO)"
+eval 'echo $LINENO'
+
+cd /
+rm -rf "$d"

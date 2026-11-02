@@ -24,7 +24,7 @@ true >&-; echo "closed $?"
   echo a 3>&f; echo "third fd rc=$?"; ls
   cat <& f; echo "input rc=$?"
 } 2>/dev/null
-ls /nonexistent/zz 2>&1 | wc -l | tr -d ' '
+ls /nonexistent/zz 2>&1 | grep -c .
 
 # A word that expands to anything but one word.
 x='a b'

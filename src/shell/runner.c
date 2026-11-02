@@ -2,7 +2,6 @@
 
 #include "compiler/bytecode.h"
 #include "core/cache.h"
-#include "core/preproc.h"
 #include "shell/builtins.h"
 #include "shell/codegen.h"
 #include "shell/opt.h"
@@ -593,13 +592,6 @@ int shellRunSource(const char *source,
 
     vmSetVerboseErrors(options->verbose_errors);
 
-    const char *defines[1];
-    int define_count = 0;
-    char *pre_src = preprocessConditionals(source, defines, define_count);
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
-        fprintf(stderr, "[shell-run] preprocessed\n");
-    }
-
     if (options->exit_on_signal) {
         shellRuntimeSetExitOnSignal(true);
     }
@@ -610,9 +602,6 @@ int shellRunSource(const char *source,
     if (!shellSymbolTableScopeIsActive()) {
         if (!shellSymbolTableScopePush(&table_scope)) {
             fprintf(stderr, "shell: failed to allocate symbol tables.\n");
-            if (pre_src) {
-                free(pre_src);
-            }
             if (source_pushed) {
                 shellRuntimeTrackSourcePop();
                 source_pushed = false;
@@ -652,13 +641,14 @@ int shellRunSource(const char *source,
     bool should_run_exit_trap = false;
     bool trap_exit_requested = false;
 
-    const char *parse_src = pre_src ? pre_src : source;
+    /* `#ifdef` is a comment in a shell script, and in a string or here document it is text. */
+    const char *parse_src = source;
 
     ShellParser parser;
     if (getenv("PSCALI_PROMPT_DEBUG")) {
         fprintf(stderr, "[shell-run] parsing\n");
     }
-    program = shellParseString(parse_src, &parser);
+    program = shellParseStringAtLine(parse_src, &parser, options->first_line);
     shellParserFree(&parser);
     if (getenv("PSCALI_PROMPT_DEBUG")) {
         fprintf(stderr, "[shell-run] parsed had_error=%d program=%p\n",
@@ -667,7 +657,13 @@ int shellRunSource(const char *source,
     }
     if (parser.had_error || !program) {
         fprintf(stderr, "Parsing failed.\n");
+        exit_code = 2;
         goto cleanup;
+    }
+
+    /* eval '' and an empty sourced file succeed, whatever came before. */
+    if (options->share_runtime_context && program->commands.count == 0) {
+        shellRuntimeSetLastStatus(0);
     }
 
     if (options->dump_ast_json) {
@@ -756,12 +752,16 @@ int shellRunSource(const char *source,
         fprintf(stderr, "[shell-run] vm-init\n");
     }
     vm_initialized = true;
-    vm_shell_ctx = shellRuntimeCreateContext();
-    if (!vm_shell_ctx) {
-        fprintf(stderr, "shell: failed to allocate shell runtime context.\n");
-        goto cleanup;
+    if (options->share_runtime_context) {
+        vm->frontendContext = shellRuntimeCurrentContext();
+    } else {
+        vm_shell_ctx = shellRuntimeCreateContext();
+        if (!vm_shell_ctx) {
+            fprintf(stderr, "shell: failed to allocate shell runtime context.\n");
+            goto cleanup;
+        }
+        vm->frontendContext = vm_shell_ctx;
     }
-    vm->frontendContext = vm_shell_ctx;
     previous_thread_owner = gShellThreadOwnerVm;
     if (!gShellThreadOwnerVm) {
         gShellThreadOwnerVm = vm;
@@ -873,9 +873,6 @@ cleanup:
     }
     if (table_scope_owned) {
         shellSymbolTableScopePop(&table_scope);
-    }
-    if (pre_src) {
-        free(pre_src);
     }
     vmOpcodeProfileDump();
     return exit_code;

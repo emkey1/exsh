@@ -527,16 +527,6 @@ static BodyCommandType classifyBodyCommand(const ShellCommand *cmd) {
                 }
                 return BODY_CMD_BRACKET;
             }
-            if (strcmp(text, "[[") == 0) {
-                if (words->count < 2) {
-                    return BODY_CMD_OTHER;
-                }
-                const ShellWord *last = words->items[words->count - 1];
-                if (!last || !last->text || strcmp(last->text, "]]") != 0 || !wordIsLiteralCommand(last)) {
-                    return BODY_CMD_OTHER;
-                }
-                return BODY_CMD_BRACKET;
-            }
             return BODY_CMD_OTHER;
         }
         case SHELL_COMMAND_ARITHMETIC: {
@@ -1572,6 +1562,7 @@ static void compileCase(BytecodeChunk *chunk, const ShellCase *case_stmt, int li
         }
     }
 
+    int fall_through_jump = -1;
     for (size_t i = 0; i < clause_count; ++i) {
         ShellCaseClause *clause = case_stmt->clauses.items[i];
         size_t pattern_count = clause ? clause->patterns.count : 0;
@@ -1603,13 +1594,29 @@ static void compileCase(BytecodeChunk *chunk, const ShellCase *case_stmt, int li
             emitPushString(chunk, "restore", clause_line);
             emitBuiltinProc(chunk, "__shell_case_clause", 1, clause_line);
         }
+        /* ;& lands here: this body runs with no test and the status left by the last one. */
+        if (fall_through_jump >= 0) {
+            patchInt32(chunk, fall_through_jump, (uint32_t)(chunk->count - (fall_through_jump + 4)));
+            fall_through_jump = -1;
+        }
         compileProgram(chunk, clause ? clause->body : NULL);
 
-        writeBytecodeChunk(chunk, JUMP, clause_line);
-        int end_jump_pos = chunk->count;
-        emitInt32(chunk, 0xFFFFFFFF, clause_line);
-        if (end_jumps && end_jump_count < clause_count) {
-            end_jumps[end_jump_count++] = end_jump_pos;
+        ShellCaseTerminator terminator = clause ? clause->terminator : SHELL_CASE_END;
+        if (terminator == SHELL_CASE_TEST_NEXT && i + 1 < clause_count) {
+            /* ;;& goes on to test the next clause as if nothing had matched. */
+            emitPushString(chunk, "rematch", clause_line);
+            emitBuiltinProc(chunk, "__shell_case_clause", 1, clause_line);
+        } else if (terminator == SHELL_CASE_FALL_THROUGH && i + 1 < clause_count) {
+            writeBytecodeChunk(chunk, JUMP, clause_line);
+            fall_through_jump = chunk->count;
+            emitInt32(chunk, 0xFFFFFFFF, clause_line);
+        } else {
+            writeBytecodeChunk(chunk, JUMP, clause_line);
+            int end_jump_pos = chunk->count;
+            emitInt32(chunk, 0xFFFFFFFF, clause_line);
+            if (end_jumps && end_jump_count < clause_count) {
+                end_jumps[end_jump_count++] = end_jump_pos;
+            }
         }
         uint32_t skip_offset = (uint32_t)(chunk->count - (skip_body_jump + 4));
         patchInt32(chunk, skip_body_jump, skip_offset);

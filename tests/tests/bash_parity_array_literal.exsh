@@ -1,0 +1,65 @@
+#!/usr/bin/env exsh
+# A literal's elements keep their own quoting. It was expanded as one word and then split,
+# so a=("b c" d) had three elements.
+d="${TMPDIR:-/tmp}/exsh_parity_array.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+show() { echo "$# $(printf '[%s]' "$@")"; }
+
+a=("b c" d); show "${a[@]}"
+echo "${#a[@]} ${a[0]} | ${a[1]} | $a"
+a=('b c' 'd e' f); show "${a[@]}"
+a=(b\ c d); show "${a[@]}"
+v="p q"; a=($v r); show "${a[@]}"
+a=("$v" r); show "${a[@]}"
+a=($(echo p q) r); show "${a[@]}"
+a=("$(echo p q)" r); show "${a[@]}"
+touch f1 f2
+a=(f*); show "${a[@]}"
+a=("f*"); show "${a[@]}"
+a=("b c" d); b=("${a[@]}"); show "${b[@]}"
+b=("${a[*]}"); show "${b[@]}"
+b=(${a[@]}); show "${b[@]}"
+a=(
+  one
+  "two words"   # and it's a comment
+  three
+)
+show "${a[@]}"
+a=(); echo "${#a[@]} [${a[@]}]"
+a=("" x ""); show "${a[@]}"
+a=("say \"hi\"" 'it'\''s'); show "${a[@]}"
+a=('$x' "\$y" 'a\b'); show "${a[@]}"
+a=("(x)" ')' '('); show "${a[@]}"
+a=("[x]=y" z); show "${a[@]}"
+a=([0]=x [1]="y z"); show "${a[@]}"
+
+# Elements.
+a=(x y); a[1]="p q"; a[2]=r; show "${a[@]}"
+i=1; c[i]=p; c[i+1]=q; show "${c[@]}"; echo "${#c[@]} ${c[1]} ${c[2]}"
+a=(x y z); echo "${a[i]} ${a[$i]} ${a[i+1]} ${a[$((i-1))]}"
+a=(x y); a=z; show "${a[@]}"
+a=(abc de); echo "${#a[0]} ${#a[1]}"
+a=(1 2); echo $((a[0]+a[1]))
+a=(x y z); unset 'a[1]'; show "${a[@]}"; echo "${#a[@]} ${a[2]} ${!a[@]}"
+a=(x y); unset a; echo "[${a[0]}] ${#a[@]}"
+a=([5]=x [7]=y); echo "${#a[@]} ${!a[@]} ${a[5]} ${a[7]}"
+a=([5]=x); a+=(y); echo "${!a[@]}"
+a=(x y); for i in "${a[@]}"; do echo "[$i]"; done
+
+# Slices and the rest of what works on all elements.
+a=(a b c d); echo "${a[@]:1}"; echo "${a[@]:1:2}"; echo "${a[*]:1:2}"; echo ${a[@]:2}
+a=("a b" c d); show "${a[@]:0:2}"
+a=(a b c); echo "${a[@]: -1}"
+a=(xa xb); echo "${a[@]#x}"; echo "${a[@]%a}"; echo "${a[@]/x/y}"
+a=(x y); IFS=,; echo "${a[*]}"; unset IFS
+
+# Declarations.
+f() { local a=("b c" d); show "${a[@]}"; }; f
+declare -a g=("b c" d); show "${g[@]}"
+declare -a h; h[0]=x; echo "${h[0]} ${#h[@]}"
+readonly ra=(1 2); echo "${ra[1]}"
+
+cd /
+rm -rf "$d"

@@ -1,0 +1,45 @@
+#!/usr/bin/env exsh
+# More output than a pipe holds. A substitution read its pipe only after the command ended,
+# and here documents were written before anything read them, so these hung.
+d="${TMPDIR:-/tmp}/exsh_parity_big.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+x=$(seq 1 30000); echo "${#x}"
+x=`seq 1 30000`; echo "${#x}"
+x=$(i=0; while [ $i -lt 20000 ]; do echo line$i; i=$((i+1)); done); echo "${#x}"
+y=$(echo "$(seq 1 30000)"); echo "${#y}"
+z=$(seq 1 30000 | sort -n | tail -1); echo "$z"
+n=0; for i in $(seq 1 20000); do n=$((n+1)); done; echo "$n"
+set -- $(seq 1 20000); echo "$#"
+last=${x##*$'\n'}; echo "$last"
+first=${x%%$'\n'*}; echo "$first"
+set --
+
+big=$(seq 1 30000)
+cat <<EOF | wc -l | tr -d ' '
+$big
+EOF
+cat <<< "$big" | wc -l | tr -d ' '
+read one <<< "$big"; echo "$one"
+while read l; do final=$l; done <<EOF
+$big
+EOF
+echo "$final"
+
+# The small ones and the edges of the same code.
+x=$(printf 'a\n\n\n'); echo "[$x]"
+x=$(:); echo "[$x]"
+x=$(exit 3); echo "status $?"
+x=$(echo out; echo err >&2) 2>/dev/null; echo "[$x]"
+x=$(echo ")"); echo "$x"
+x=$(echo "}"); echo "$x"
+x=$(case a in (a) echo y;; esac); echo "$x"
+x=$(echo case); echo "$x"
+x=$(echo a # not this )
+); echo "$x"
+x=$( (echo a); echo b ); echo $x
+x=$((echo a); echo b); echo $x
+
+cd /
+rm -rf "$d"

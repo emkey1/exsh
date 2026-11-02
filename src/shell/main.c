@@ -4423,6 +4423,7 @@ int exsh_main(int argc, char **argv) {
 
     shellRuntimeSetArg0(options.frontend_path);
     shellRuntimeSetInteractive(false);
+    shellRuntimeNoteIgnoredSignals();
 
     int dump_ext_builtins_flag = 0;
     int prune_cache_flag = 0;
@@ -4556,13 +4557,29 @@ int exsh_main(int argc, char **argv) {
 
     shellSyncIdentityEnvFromPasswd();
     setenv("EXSH_LAST_STATUS", "0", 1);
+#if !defined(PSCAL_TARGET_IOS)
+    {
+        /* An inherited $PWD counts only if it names where we are. */
+        const char *pwd = getenv("PWD");
+        struct stat named;
+        struct stat here;
+        char cwd[PATH_MAX];
+        bool same = pwd && pwd[0] == '/' && stat(pwd, &named) == 0 && stat(".", &here) == 0 &&
+                    named.st_dev == here.st_dev && named.st_ino == here.st_ino;
+        if (!same && getcwd(cwd, sizeof(cwd))) {
+            setenv("PWD", cwd, 1);
+        }
+    }
+#endif
     shellRuntimeInitSignals();
 
     if (path) {
         shellRuntimeSetInteractive(false);
+        errno = 0;
         char *src = shellLoadFile(path);
         if (!src) {
-            EXSH_RETURN(EXIT_FAILURE);
+            /* As a shell reports a script it could not find or could not read. */
+            EXSH_RETURN(errno == ENOENT ? 127 : (errno != 0 ? 126 : EXIT_FAILURE));
         }
         if (arg_start_index < argc) {
             gParamCount = argc - arg_start_index;

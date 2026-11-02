@@ -29,6 +29,7 @@ typedef struct {
 } ShellParser;
 
 ShellProgram *shellParseString(const char *source, ShellParser *parser);
+ShellProgram *shellParseStringAtLine(const char *source, ShellParser *parser, int first_line);
 void shellParserFree(ShellParser *parser);
 
 /* True when `source` stops in the middle of something more input could finish:

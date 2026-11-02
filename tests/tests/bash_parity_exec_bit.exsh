@@ -1,0 +1,6 @@
+#!/usr/bin/env exsh
+# A file without the execute bit does not run. Hosts only: the app reads any readable script.
+d="${TMPDIR:-/tmp}/exsh_parity_bit.$$"; mkdir -p "$d"; cd "$d"
+touch f; chmod -x f; ./f 2>/dev/null; echo $?
+printf 'echo ran\n' > g; chmod -x g; ./g 2>/dev/null; echo $?; chmod +x g; ./g; echo $?
+cd /; rm -rf "$d"

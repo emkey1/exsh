@@ -1,0 +1,27 @@
+#!/usr/bin/env exsh
+# cd follows the path as written, through a link and back.
+d="${TMPDIR:-/tmp}/exsh_parity_cdl.$$"
+mkdir -p "$d/real/sub" || exit 1
+cd -P "$d" || exit 1
+base=$(pwd -P)
+ln -s real link
+
+strip() { echo "${1#$base}"; }
+
+cd link; strip "$(pwd)"; strip "$PWD"; strip "$(pwd -P)"; strip "$(pwd -L)"
+cd sub; strip "$(pwd)"
+cd ..; strip "$(pwd)"
+cd ..; strip "$(pwd)"
+cd -P link; strip "$(pwd)"; strip "$PWD"
+cd "$base"
+cd link/sub/..; strip "$(pwd)"
+cd "$base"
+cd /; cd "$base/link"; cd - > /dev/null; pwd; strip "$OLDPWD"
+cd /usr; cd /; cd -; echo "$OLDPWD"
+cd /nonexistent 2>/dev/null; echo $?; pwd
+x=$(cd /usr; pwd); echo "$x"; pwd
+pwd -Z 2>/dev/null || echo refused
+cd "$base/link"; rm "$base/link"; cd "$base"
+
+cd /
+rm -rf "$d"

@@ -1,0 +1,17 @@
+#!/usr/bin/env exsh
+echo $'a\tb' $'\x41' $'\101' $'it\'s'
+x=$'a\nb'; echo "$x" | wc -l | tr -d ' '
+echo "${x%$'\n'*}"
+echo $'a\\b'
+echo $'\e' | tr '\033' E
+echo a$'b'c"d"'e'
+echo "$'a'"
+echo $'a\0b'
+echo "$"
+echo $"hello"
+echo $"a b" | wc -w | tr -d ' '
+printf '[%s]\n' $'a b'
+case $'a\nb' in a*b) echo match;; esac
+echo $'\q'
+echo $'\cA' | tr '\001' A
+echo 'a'$'\n''b'

@@ -1,0 +1,57 @@
+#!/usr/bin/env exsh
+# [[ ]] holds its own operators. It ended at the first && and ran what came after it, and
+# =~ was always false.
+d="${TMPDIR:-/tmp}/exsh_parity_cond.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+t() { if "$@"; then echo y; else echo "n $?"; fi; }
+
+[[ a == a && b == b ]] && echo y || echo n
+[[ a == b && b == b ]] && echo y || echo n
+[[ a == b || b == b ]] && echo y || echo n
+[[ ! a == b ]] && echo y || echo n
+[[ ( a == a || b == c ) && ! d == e ]] && echo y || echo n
+[[ a == b && c == c || d == d ]] && echo y || echo n
+touch f; [[ -f f && -e f ]] && echo y; [[ -d f ]] || echo n; [[ -z "" && -n x ]] && echo z
+[[ 2 -lt 10 ]] && echo y; [[ abc < abd ]] && echo y; [[ b > a ]] && echo y
+[[ abc == a* ]] && echo y; [[ abc == "a*" ]] || echo n; [[ abc != z* ]] && echo y
+x="a b"; [[ $x == "a b" ]] && echo y; [[ -n $x ]] && echo z
+unset x; [[ -z $x ]] && echo y; [[ $x == "" ]] && echo z
+[[ x ]] && echo y; [[ "" ]] || echo n
+x=3; [[ $x -eq 3 && x -eq 3 ]] && echo y
+x=2; [[ x+1 -eq 3 ]] && echo y
+[[ 1 -eq 1 && 2 -ne 1 && 1 -lt 2 && 2 -gt 1 && 1 -le 1 && 1 -ge 1 ]] && echo y
+[[ a == a &&
+   b == b ]] && echo multi
+if [[ a == a && b == c ]]; then echo y; else echo n; fi
+[[ $(echo a) == a && "$(echo b)" == b ]] && echo y
+[[ a == a ]] && [[ b == b ]] && echo y
+! [[ a == b ]] && echo y
+i=0; while [[ $i -lt 2 ]]; do echo $i; i=$((i+1)); done
+[[ a == a ]] > out; echo $?; ls out
+
+# What came from quotes or an expansion is an operand.
+[[ "&&" == "&&" ]] && echo y; x='!'; [[ $x == '!' ]] && echo z; [[ "(" == "(" ]] && echo w
+x=-f; [[ $x == -f ]] && echo y; [[ -n $x ]] && echo z
+touch ab; [[ a* == a* ]] && echo y; [[ ab == a? ]] && echo z
+
+# Regular expressions.
+[[ abc =~ ^a ]] && echo y || echo n
+[[ abc =~ ^b ]] && echo y || echo n
+[[ abc123 =~ ([a-z]+)([0-9]+) ]] && echo "${BASH_REMATCH[0]} ${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${#BASH_REMATCH[@]}"
+r='^a.c$'; [[ abc =~ $r ]] && echo y
+[[ abc =~ "a.c" ]] && echo y || echo n
+[[ a.c =~ "a.c" ]] && echo y || echo n
+[[ abc =~ b ]]; [[ abc =~ z ]]; echo "[${BASH_REMATCH[0]}] $?"
+[[ abc =~ z ]]; echo $?
+[[ b =~ ^(a|b)$ ]] && echo y; [[ c =~ ^(a|b)$ ]] || echo n
+[[ "a b" =~ ^(a b)$ ]] && echo y
+[[ a1 =~ [[:alpha:]][0-9] ]] && echo y
+[[ a.c =~ a\.c ]] && echo y; [[ abc =~ a\.c ]] || echo n
+
+# Under set -u an operand on the side not taken is not read.
+(set -u; [[ -z ${nosuch-} || $nosuch == a ]] && echo fine)
+
+cd /
+rm -rf "$d"

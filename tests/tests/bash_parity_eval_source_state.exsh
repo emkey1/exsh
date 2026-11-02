@@ -1,0 +1,42 @@
+#!/usr/bin/env exsh
+# eval and source run as part of the caller. They had a copy of its state, so break ended
+# the whole script, return stopped short, and options set inside were lost.
+d="${TMPDIR:-/tmp}/exsh_parity_eval.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+has() { case $- in *$1*) echo "$1 on";; *) echo "$1 off";; esac; }
+
+f() { eval 'return 4'; echo no; }; f; echo $?
+f() { eval 'echo a; return 5; echo b'; echo no; }; f; echo $?
+for i in 1 2; do eval 'break'; echo no; done; echo $i
+for i in 1 2; do eval 'continue'; echo no; done; echo $i
+for i in 1 2; do for j in a b; do eval 'break 2'; done; echo no; done; echo $i $j
+(eval 'exit 5'); echo $?
+eval 'x=1'; echo $x
+eval 'echo a; echo b'
+eval false; echo $?
+eval true; echo $?
+f() { local x=1; eval 'x=2'; echo $x; }; f; echo "[$x]"
+f() { eval 'local y=1'; echo $y; }; f; echo "[$y]"
+(eval 'set -e'; has e)
+(eval 'set -f'; has f; echo *)
+(eval 'set -u'; has u)
+eval 'a=(1 2)'; echo ${#a[@]}
+set -- p q; eval 'echo "$2"'
+eval 'set -- r s'; echo "$1"
+eval 'f() { echo fn; }'; f
+false; eval ''; echo $?
+echo a | eval 'tr a b'
+eval 'echo x | tr x y'
+
+echo 'set -e' > lib.sh; (. ./lib.sh; has e)
+echo 'x=1; return 3; x=2' > lib.sh; . ./lib.sh; echo $? $x
+printf 'v=1\nf() { echo fn2; }\n' > lib.sh; . ./lib.sh; echo $v; f
+echo 'echo "$1"' > lib.sh; . ./lib.sh hello
+echo 'for i in 1; do break; done; echo in' > lib.sh; . ./lib.sh
+echo 'break' > lib.sh; for i in 1 2; do . ./lib.sh; echo no; done; echo $i
+f() { . ./ret.sh; echo after; }; echo 'return 7' > ret.sh; f; echo $?
+
+cd /
+rm -rf "$d"

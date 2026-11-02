@@ -42,6 +42,8 @@ typedef enum {
     SHELL_TOKEN_CASE,
     SHELL_TOKEN_ESAC,
     SHELL_TOKEN_DSEMI,
+    SHELL_TOKEN_SEMI_AMP,
+    SHELL_TOKEN_DSEMI_AMP,
     SHELL_TOKEN_LT,
     SHELL_TOKEN_GT,
     SHELL_TOKEN_DGREAT,
@@ -112,6 +114,9 @@ typedef struct {
     /* Set by the parser inside a subshell, where an unquoted ')' that opened
      * nothing in its word closes the subshell instead of being a literal. */
     bool rparen_closes;
+    /* Set by the parser between [[ and ]], and after =~ for the one word it applies to. */
+    bool dbracket;
+    bool dbracket_regex;
 } ShellLexer;
 
 void shellInitLexer(ShellLexer *lexer, const char *source);

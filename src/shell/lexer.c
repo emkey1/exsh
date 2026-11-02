@@ -1,6 +1,7 @@
 #include "shell/lexer.h"
 #include "core/utils.h"
 #include "shell/quote_markers.h"
+#include "shell/word_scan.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -261,50 +262,30 @@ static ShellToken scanParameter(ShellLexer *lexer) {
     bool command_sub = false;
     bool arithmetic = false;
     if (c == '{') {
-        advanceChar(lexer); // consume '{'
-        while (true) {
-            c = peekChar(lexer);
-            if (c == EOF || c == '\n') {
-                return makeUnterminatedToken(lexer, "Unterminated parameter expansion");
-            }
-            if (c == '}') {
-                advanceChar(lexer);
-                break;
-            }
+        size_t stop = shellScanBraceParam(lexer->src, lexer->length, lexer->pos + 1, false);
+        if (stop == SHELL_SCAN_UNTERMINATED) {
+            lexer->pos = lexer->length;
+            return makeUnterminatedToken(lexer, "Unterminated parameter expansion");
+        }
+        while (lexer->pos < stop) {
             advanceChar(lexer);
         }
     } else if (c == '(') {
-        advanceChar(lexer);
-        if (peekChar(lexer) == '(') {
-            arithmetic = true;
-            advanceChar(lexer);
-            int depth = 1;
-            while (depth > 0) {
-                c = peekChar(lexer);
-                if (c == EOF) {
-                    return makeUnterminatedToken(lexer, "Unterminated arithmetic expansion");
-                }
-                if (c == '(') depth++;
-                if (c == ')') depth--;
-                advanceChar(lexer);
-            }
-            if (peekChar(lexer) == ')') {
-                advanceChar(lexer);
-            } else {
-                return makeUnterminatedToken(lexer, "Unterminated arithmetic expansion");
-            }
-        } else {
+        size_t stop = SHELL_SCAN_UNTERMINATED;
+        if (lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(') {
+            stop = shellScanArithmetic(lexer->src, lexer->length, lexer->pos + 2);
+            arithmetic = stop != SHELL_SCAN_UNTERMINATED;
+        }
+        if (!arithmetic) {
+            stop = shellScanDollarParen(lexer->src, lexer->length, lexer->pos + 1);
             command_sub = true;
-            int depth = 1;
-            while (depth > 0) {
-                c = peekChar(lexer);
-                if (c == EOF) {
-                    return makeUnterminatedToken(lexer, "Unterminated command substitution");
-                }
-                if (c == '(') depth++;
-                if (c == ')') depth--;
-                advanceChar(lexer);
-            }
+        }
+        if (stop == SHELL_SCAN_UNTERMINATED) {
+            lexer->pos = lexer->length;
+            return makeUnterminatedToken(lexer, "Unterminated command substitution");
+        }
+        while (lexer->pos < stop) {
+            advanceChar(lexer);
         }
     } else {
         /* '#' must be listed here: without it the '$' is consumed alone, the
@@ -391,6 +372,54 @@ static bool appendWordByte(char **buffer, size_t *len, size_t *cap, char byte) {
     return true;
 }
 
+/* The body of $'...', from just past the opening quote: as literal as single quotes. */
+static bool appendAnsiCQuoted(ShellLexer *lexer, char **buffer, size_t *len, size_t *cap) {
+    size_t room = lexer->length - lexer->pos + 1;
+    char *decoded = (char *)malloc(room);
+    if (!decoded) {
+        return false;
+    }
+    size_t decoded_len = 0;
+    size_t stop = shellScanAnsiC(lexer->src, lexer->length, lexer->pos, decoded, &decoded_len);
+    if (stop == SHELL_SCAN_UNTERMINATED) {
+        lexer->unterminated = true;
+        stop = lexer->length;
+    }
+    while (lexer->pos < stop) {
+        advanceChar(lexer);
+    }
+    bool ok = appendWordByte(buffer, len, cap, SHELL_QUOTE_MARK_SINGLE);
+    for (size_t i = 0; ok && i < decoded_len; ++i) {
+        if (decoded[i] == SHELL_QUOTE_MARK_SINGLE || decoded[i] == SHELL_QUOTE_MARK_DOUBLE ||
+            decoded[i] == SHELL_QUOTE_MARK_BYTE) {
+            ok = appendWordByte(buffer, len, cap, SHELL_QUOTE_MARK_BYTE);
+        }
+        ok = ok && appendWordByte(buffer, len, cap, decoded[i]);
+    }
+    free(decoded);
+    return ok && appendWordByte(buffer, len, cap, SHELL_QUOTE_MARK_SINGLE);
+}
+
+/* Inside [[ ]] words end on the operators, not on the shell's usual set. After
+ * =~ parentheses and bars are regex text, and a space inside the parentheses too. */
+static bool doubleBracketWordEnds(const ShellLexer *lexer, int c, int *regexDepth) {
+    if (lexer->dbracket_regex) {
+        if (c == '(') {
+            (*regexDepth)++;
+            return false;
+        }
+        if (c == ')' && *regexDepth > 0) {
+            (*regexDepth)--;
+            return false;
+        }
+        if (c == '|' || *regexDepth > 0) {
+            return false;
+        }
+    }
+    return c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' || c == '\n' ||
+           c == '(' || c == ')' || c == '&' || c == '|' || c == '<' || c == '>' || c == ';';
+}
+
 static ShellToken scanWord(ShellLexer *lexer) {
     bool singleQuoted = false;
     bool doubleQuoted = false;
@@ -408,8 +437,9 @@ static ShellToken scanWord(ShellLexer *lexer) {
     bool inArrayLiteral = false;
     int arrayParenDepth = 0;
     int literalParenDepth = 0;
+    int regexDepth = 0;
+    int extglobDepth = 0;
 
-    int eqSuppressDepth = 0;
     size_t firstUnquotedEq = (size_t)-1;
 
     char *buffer = NULL;
@@ -421,9 +451,49 @@ static ShellToken scanWord(ShellLexer *lexer) {
         if (c == EOF) {
             break;
         }
+        /* <(cmd) and >(cmd) are words, and the text inside stays raw until they run. */
+        if ((c == '<' || c == '>') && !singleQuoted && !doubleQuoted && !inBacktick && !lexer->dbracket &&
+            lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(') {
+            size_t stop = shellScanDollarParen(lexer->src, lexer->length, lexer->pos + 2);
+            if (stop == SHELL_SCAN_UNTERMINATED) {
+                lexer->unterminated = true;
+                stop = lexer->length;
+            }
+            while (lexer->pos < stop) {
+                if (!appendWordByte(&buffer, &bufLen, &bufCap, (char)advanceChar(lexer))) {
+                    free(buffer);
+                    return makeErrorToken(lexer, "Out of memory while scanning word");
+                }
+            }
+            hasParam = true;
+            sawUnquotedSegment = true;
+            continue;
+        }
         bool startingArrayLiteral = false;
-        if (!singleQuoted && !doubleQuoted && !inBacktick) {
-            if (!inArrayLiteral && firstUnquotedEq != (size_t)-1 && eqSuppressDepth == 0 && c == '(' &&
+        /* An extended pattern is part of the word, parentheses, bars, spaces and all.
+         * `f+()` is not one: nothing is in the parentheses. */
+        bool opensExtglob = extglobDepth == 0 && c == '(' && bufLen > 0 && !singleQuoted && !doubleQuoted &&
+                            !inBacktick && strchr("@?*+!", buffer[bufLen - 1]) && lexer->pos + 1 < lexer->length &&
+                            lexer->src[lexer->pos + 1] != ')' && !inArrayLiteral;
+        if (opensExtglob) {
+            extglobDepth = 1;
+        } else if (extglobDepth > 0 && !singleQuoted && !doubleQuoted) {
+            if (c == '(') {
+                extglobDepth++;
+            } else if (c == ')') {
+                extglobDepth--;
+            }
+        } else if (!singleQuoted && !doubleQuoted && !inBacktick && lexer->dbracket) {
+            if (doubleBracketWordEnds(lexer, c, &regexDepth)) {
+                break;
+            }
+        } else if (!singleQuoted && !doubleQuoted && !inBacktick) {
+            if (inArrayLiteral && arrayParenDepth > 0 && c == '#' && lexer->pos > 0 &&
+                strchr(" \t\r\n(", lexer->src[lexer->pos - 1])) {
+                skipCommentToNewline(lexer);
+                continue;
+            }
+            if (!inArrayLiteral && firstUnquotedEq != (size_t)-1 && c == '(' &&
                 bufLen == firstUnquotedEq + 1) {
                 startingArrayLiteral = true;
             }
@@ -439,11 +509,12 @@ static ShellToken scanWord(ShellLexer *lexer) {
             }
 
             if (!(startingArrayLiteral || (inArrayLiteral && arrayParenDepth > 0 && (c == '(' || c == ')')))) {
-                bool treat_as_operator = isOperatorDelimiter(c);
+                /* `{` and `}` are reserved only as whole words: foo{a,b} and x={a,b}. */
+                bool treat_as_operator = isOperatorDelimiter(c) && c != '{' && c != '}';
                 if (treat_as_operator && inArrayLiteral && arrayParenDepth > 0 && c == '\n') {
                     treat_as_operator = false;
                 }
-                if (treat_as_operator && isStructuralWordCandidate(c)) {
+                if (treat_as_operator && (c == '(' || c == ')')) {
                     if (allowStructuralLiterals && (lexer->rule_mask & SHELL_LEXER_RULE_1) == 0) {
                         /* `(echo s)`: the ')' is not part of the word. One the
                          * word opened itself stays in it, as in `^(ab)c$`. */
@@ -462,7 +533,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
         }
         advanceChar(lexer);
         bool escapedChar = false;
-        if (!singleQuoted && !doubleQuoted && !inBacktick && eqSuppressDepth == 0 && firstUnquotedEq != (size_t)-1) {
+        if (!singleQuoted && !doubleQuoted && !inBacktick && firstUnquotedEq != (size_t)-1) {
             if (startingArrayLiteral) {
                 inArrayLiteral = true;
                 arrayParenDepth = 1;
@@ -544,118 +615,68 @@ static ShellToken scanWord(ShellLexer *lexer) {
             }
             continue;
         } else if (c == '$' && !singleQuoted) {
-            hasParam = true;
-            if (bufLen + 2 >= bufCap) {
-                bufCap = bufCap ? bufCap * 2 : 32;
-                char *tmp = (char *)realloc(buffer, bufCap);
-                if (!tmp) {
+            int next = peekChar(lexer);
+            if (!doubleQuoted && next == '"') {
+                /* $"text" is "text": no locale to translate it for. */
+                continue;
+            }
+            if (!doubleQuoted && next == '\'') {
+                advanceChar(lexer);
+                if (!appendAnsiCQuoted(lexer, &buffer, &bufLen, &bufCap)) {
                     free(buffer);
                     return makeErrorToken(lexer, "Out of memory while scanning word");
                 }
-                buffer = tmp;
+                sawSingleQuotedSegment = true;
+                continue;
             }
-            buffer[bufLen++] = (char)c;
-            int next = peekChar(lexer);
+            hasParam = true;
+            if (!appendWordByte(&buffer, &bufLen, &bufCap, (char)c)) {
+                free(buffer);
+                return makeErrorToken(lexer, "Out of memory while scanning word");
+            }
             if (next == '{' || next == '(') {
-                if (next == '(') {
-                    int after = EOF;
-                    if (lexer->pos + 1 < lexer->length) {
-                        after = (unsigned char)lexer->src[lexer->pos + 1];
+                size_t stop = SHELL_SCAN_UNTERMINATED;
+                if (next == '{') {
+                    stop = shellScanBraceParam(lexer->src, lexer->length, lexer->pos + 1, doubleQuoted);
+                } else {
+                    if (lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(') {
+                        stop = shellScanArithmetic(lexer->src, lexer->length, lexer->pos + 2);
+                        hasArithmetic = hasArithmetic || stop != SHELL_SCAN_UNTERMINATED;
                     }
-                    if (after == '(') {
-                        hasArithmetic = true;
-                        buffer[bufLen++] = (char)advanceChar(lexer);
-                        buffer[bufLen++] = (char)advanceChar(lexer);
-                        eqSuppressDepth++;
-                        int depth = 1;
-                        while (depth > 0) {
-                            int inner = peekChar(lexer);
-                            if (inner == EOF) {
-                                break;
-                            }
-                            if (bufLen + 1 >= bufCap) {
-                                bufCap = bufCap ? bufCap * 2 : 32;
-                                char *tmp2 = (char *)realloc(buffer, bufCap);
-                                if (!tmp2) {
-                                    free(buffer);
-                                    return makeErrorToken(lexer, "Out of memory while scanning word");
-                                }
-                                buffer = tmp2;
-                            }
-                            buffer[bufLen++] = (char)advanceChar(lexer);
-                            if (inner == '(') depth++;
-                            else if (inner == ')') depth--;
-                        }
-                        if (peekChar(lexer) == ')') {
-                            if (bufLen + 1 >= bufCap) {
-                                bufCap = bufCap ? bufCap * 2 : 32;
-                                char *tmp3 = (char *)realloc(buffer, bufCap);
-                                if (!tmp3) {
-                                    free(buffer);
-                                    return makeErrorToken(lexer, "Out of memory while scanning word");
-                                }
-                                buffer = tmp3;
-                            }
-                            buffer[bufLen++] = (char)advanceChar(lexer);
-                        }
-                        eqSuppressDepth--;
-                        continue;
+                    if (stop == SHELL_SCAN_UNTERMINATED) {
+                        hasCommand = true;
+                        stop = shellScanDollarParen(lexer->src, lexer->length, lexer->pos + 1);
                     }
-                    hasCommand = true;
                 }
-                buffer[bufLen++] = (char)advanceChar(lexer);
-                eqSuppressDepth++;
-                int depth = 1;
-                while (depth > 0) {
-                    int inner = peekChar(lexer);
-                    if (inner == EOF) {
-                        break;
-                    }
-                    if (bufLen + 1 >= bufCap) {
-                        bufCap = bufCap ? bufCap * 2 : 32;
-                        char *tmp2 = (char *)realloc(buffer, bufCap);
-                        if (!tmp2) {
-                            free(buffer);
-                            return makeErrorToken(lexer, "Out of memory while scanning word");
-                        }
-                        buffer = tmp2;
-                    }
-                    buffer[bufLen++] = (char)advanceChar(lexer);
-                    if (inner == '{' || inner == '(') depth++;
-                    else if (inner == '}' || inner == ')') depth--;
+                if (stop == SHELL_SCAN_UNTERMINATED) {
+                    lexer->unterminated = true;
+                    stop = lexer->length;
                 }
-                eqSuppressDepth--;
+                while (lexer->pos < stop) {
+                    if (!appendWordByte(&buffer, &bufLen, &bufCap, (char)advanceChar(lexer))) {
+                        free(buffer);
+                        return makeErrorToken(lexer, "Out of memory while scanning word");
+                    }
+                }
                 continue;
             } else {
                 /* See the note in scanParameter: '#' belongs to the special
                  * parameter set, or `$#` degrades into a comment. */
                 if (next == '?' || next == '@' || next == '*' || next == '!' || next == '-' || next == '$' || next == '#') {
-                    if (bufLen + 1 >= bufCap) {
-                        bufCap = bufCap ? bufCap * 2 : 32;
-                        char *tmp3 = (char *)realloc(buffer, bufCap);
-                        if (!tmp3) {
-                            free(buffer);
-                            return makeErrorToken(lexer, "Out of memory while scanning word");
-                        }
-                        buffer = tmp3;
+                    if (!appendWordByte(&buffer, &bufLen, &bufCap, (char)advanceChar(lexer))) {
+                        free(buffer);
+                        return makeErrorToken(lexer, "Out of memory while scanning word");
                     }
-                    buffer[bufLen++] = (char)advanceChar(lexer);
                 } else {
                     size_t name_bytes = 0;
                     const char *name_start = lexer->src + lexer->pos;
                     size_t remaining = lexer->length - lexer->pos;
                     if (consumeShellIdentifier(name_start, remaining, &name_bytes, true)) {
                         for (size_t consumed = 0; consumed < name_bytes; ++consumed) {
-                            if (bufLen + 1 >= bufCap) {
-                                bufCap = bufCap ? bufCap * 2 : 32;
-                                char *tmp3 = (char *)realloc(buffer, bufCap);
-                                if (!tmp3) {
-                                    free(buffer);
-                                    return makeErrorToken(lexer, "Out of memory while scanning word");
-                                }
-                                buffer = tmp3;
+                            if (!appendWordByte(&buffer, &bufLen, &bufCap, (char)advanceChar(lexer))) {
+                                free(buffer);
+                                return makeErrorToken(lexer, "Out of memory while scanning word");
                             }
-                            buffer[bufLen++] = (char)advanceChar(lexer);
                         }
                     }
                 }
@@ -681,7 +702,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
             return makeErrorToken(lexer, "Out of memory while scanning word");
         }
         if (firstUnquotedEq == (size_t)-1 && c == '=' && !singleQuoted && !doubleQuoted && !inBacktick &&
-            !escapedChar && eqSuppressDepth == 0) {
+            !escapedChar) {
             firstUnquotedEq = bufLen - 1;
         }
         if (singleQuoted) {
@@ -740,7 +761,11 @@ static ShellToken scanWord(ShellLexer *lexer) {
     }
 
     if (firstUnquotedEq != (size_t)-1 && firstUnquotedEq > 0 && tok.lexeme && firstUnquotedEq < tok.length) {
-        if (isValidNameLexeme(tok.lexeme, firstUnquotedEq)) {
+        size_t nameEnd = firstUnquotedEq;
+        if (nameEnd > 1 && tok.lexeme[nameEnd - 1] == '+') {
+            nameEnd--; /* x+=2 */
+        }
+        if (isValidNameLexeme(tok.lexeme, nameEnd)) {
             tok.assignment_candidate = true;
             if (!tok.reserved_candidate) {
                 tok.type = SHELL_TOKEN_ASSIGNMENT_WORD;
@@ -770,6 +795,8 @@ void shellInitLexer(ShellLexer *lexer, const char *source) {
     lexer->rule_mask = SHELL_LEXER_RULE_1;
     lexer->unterminated = false;
     lexer->rparen_closes = false;
+    lexer->dbracket = false;
+    lexer->dbracket_regex = false;
 }
 
 void shellFreeToken(ShellToken *token) {
@@ -803,9 +830,61 @@ static ShellTokenType checkReservedWord(const char *lexeme) {
     return SHELL_TOKEN_WORD;
 }
 
+/* Between [[ and ]] newlines separate like spaces and the operators are words the
+ * builtin reads, so that && and < stop meaning what they mean outside. */
+static ShellToken scanDoubleBracketToken(ShellLexer *lexer) {
+    while (true) {
+        int c = peekChar(lexer);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' || c == '\n') {
+            advanceChar(lexer);
+        } else if (c == '\\' && lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '\n') {
+            advanceChar(lexer);
+            advanceChar(lexer);
+        } else if (c == '#') {
+            skipCommentToNewline(lexer);
+        } else {
+            break;
+        }
+    }
+    int c = peekChar(lexer);
+    if (c == EOF) {
+        return makeEOFToken(lexer);
+    }
+    bool regex = lexer->dbracket_regex;
+    if (!regex || (c != '(' && c != '|')) {
+        size_t rest = lexer->length - lexer->pos;
+        const char *at = lexer->src + lexer->pos;
+        if (rest >= 2 && (memcmp(at, "&&", 2) == 0 || memcmp(at, "||", 2) == 0)) {
+            advanceChar(lexer);
+            advanceChar(lexer);
+            return makeSimpleToken(lexer, SHELL_TOKEN_WORD, at, 2);
+        }
+        /* Whatever else ends a word has to be consumed too, or this never moves on. */
+        if (c == '(' || c == ')' || c == '<' || c == '>' || c == '&' || c == '|' || c == ';') {
+            advanceChar(lexer);
+            return makeSimpleToken(lexer, SHELL_TOKEN_WORD, at, 1);
+        }
+    }
+    ShellToken word = scanWord(lexer);
+    lexer->dbracket_regex = false;
+    if (!word.lexeme) {
+        return makeErrorToken(lexer, "Failed to allocate word");
+    }
+    return word;
+}
+
+/* `{` and `}` are operators only when they stand alone. */
+static bool braceStandsAlone(const ShellLexer *lexer) {
+    int after = lexer->pos + 1 < lexer->length ? (unsigned char)lexer->src[lexer->pos + 1] : EOF;
+    return after == EOF || isspace(after) || (isOperatorDelimiter(after) && after != '{' && after != '}');
+}
+
 ShellToken shellNextToken(ShellLexer *lexer) {
     if (!lexer) {
         return makeEOFToken(NULL);
+    }
+    if (lexer->dbracket) {
+        return scanDoubleBracketToken(lexer);
     }
 
     while (true) {
@@ -883,7 +962,15 @@ ShellToken shellNextToken(ShellLexer *lexer) {
             advanceChar(lexer);
             if (peekChar(lexer) == ';') {
                 advanceChar(lexer);
+                if (peekChar(lexer) == '&') {
+                    advanceChar(lexer);
+                    return makeSimpleToken(lexer, SHELL_TOKEN_DSEMI_AMP, ";;&", 3);
+                }
                 return makeSimpleToken(lexer, SHELL_TOKEN_DSEMI, ";;", 2);
+            }
+            if (peekChar(lexer) == '&') {
+                advanceChar(lexer);
+                return makeSimpleToken(lexer, SHELL_TOKEN_SEMI_AMP, ";&", 2);
             }
             return makeSimpleToken(lexer, SHELL_TOKEN_SEMICOLON, ";", 1);
         }
@@ -939,14 +1026,23 @@ ShellToken shellNextToken(ShellLexer *lexer) {
             return makeSimpleToken(lexer, SHELL_TOKEN_RPAREN, ")", 1);
         }
         case '{': {
+            if (!braceStandsAlone(lexer)) {
+                break;
+            }
             advanceChar(lexer);
             return makeSimpleToken(lexer, SHELL_TOKEN_LBRACE, "{", 1);
         }
         case '}': {
+            if (!braceStandsAlone(lexer)) {
+                break;
+            }
             advanceChar(lexer);
             return makeSimpleToken(lexer, SHELL_TOKEN_RBRACE, "}", 1);
         }
         case '<': {
+            if (lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(') {
+                break;
+            }
             advanceChar(lexer);
             int next = peekChar(lexer);
             if (next == '<') {
@@ -973,6 +1069,9 @@ ShellToken shellNextToken(ShellLexer *lexer) {
             return makeSimpleToken(lexer, SHELL_TOKEN_LT, "<", 1);
         }
         case '>': {
+            if (lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(') {
+                break;
+            }
             advanceChar(lexer);
             int next = peekChar(lexer);
             if (next == '>') {
@@ -998,7 +1097,8 @@ ShellToken shellNextToken(ShellLexer *lexer) {
             ShellToken param = scanParameter(lexer);
             if (param.type == SHELL_TOKEN_PARAMETER) {
                 int after = peekChar(lexer);
-                if (after != EOF && !isspace(after) && !isOperatorDelimiter(after)) {
+                if (after != EOF && !isspace(after) &&
+                    (!isOperatorDelimiter(after) || after == '{' || after == '}')) {
                     shellFreeToken(&param);
                     *lexer = rewind;
                     break;
@@ -1052,6 +1152,8 @@ const char *shellTokenTypeName(ShellTokenType type) {
         case SHELL_TOKEN_CASE: return "CASE";
         case SHELL_TOKEN_ESAC: return "ESAC";
         case SHELL_TOKEN_DSEMI: return "DSEMI";
+        case SHELL_TOKEN_SEMI_AMP: return "SEMI_AMP";
+        case SHELL_TOKEN_DSEMI_AMP: return "DSEMI_AMP";
         case SHELL_TOKEN_LT: return "LT";
         case SHELL_TOKEN_GT: return "GT";
         case SHELL_TOKEN_DGREAT: return "DGREAT";

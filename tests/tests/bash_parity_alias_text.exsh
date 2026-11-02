@@ -1,0 +1,37 @@
+#!/usr/bin/env exsh
+# Alias text was split into words, so `;`, `|` and `>` in it came out as arguments.
+d="${TMPDIR:-/tmp}/exsh_parity_alias.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+# A script has to ask for aliases.
+alias off='echo expanded'
+off 2>/dev/null; echo "off $?"
+shopt -q expand_aliases; echo "option $?"
+unalias off
+
+shopt -s expand_aliases
+
+alias q='echo a > f'
+q
+cat f
+alias q2='echo a; echo b'
+q2
+alias q3='echo a | tr a b'
+q3
+alias q4='echo x'
+q4 y z
+alias c='wc -l'
+echo a | c | tr -d ' '
+alias q5='false || echo fallback'
+q5
+alias q6='echo "$1"'
+set -- first
+q6
+alias q7='echo one;'
+q7 echo two
+alias q8='tr a b | tr b c'
+echo a | q8
+unalias q q2 q3 q4 q5 q6 q7 q8 c
+
+cd /
+rm -rf "$d"

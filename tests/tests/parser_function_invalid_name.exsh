@@ -1,6 +1,6 @@
 echo "parser-function-invalid-name:start"
 
-function 1bad() {
+function () {
   echo "parser-function-invalid-name:body"
 }
 
