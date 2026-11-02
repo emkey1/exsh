@@ -1,0 +1,44 @@
+#!/bin/sh
+# When a frontend finished, its stage flushed every stream in the process. On iOS that
+# included the streams of the other stages, which are threads. A stream keeps its lock
+# through a read or write that blocks, so this waited for a reader that was itself waiting
+# for this stage's end of the pipe, or for a writer stuck on a full pipe. It also wrote
+# another stage's buffered output to this stage's stdout.
+echo "pipeline-frontend-stage:start"
+d="${TMPDIR:-/tmp}/exsh_frontend_stage.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+printf "program X;\nbegin\n  writeln('pascal ok');\nend.\n" > x.pas
+printf "program Big;\nvar i: integer;\nbegin\n  for i := 1 to 100000 do writeln('line of big output');\nend.\n" > big.pas
+printf "program First;\nuses crt;\nbegin\n  writeln('first stage');\n  delay(2000);\nend.\n" > first.pas
+
+# Readers that use stdio, so a blocked read holds a stream's lock.
+pascal x.pas | tr -d ' '
+pascal x.pas | uniq
+pascal x.pas | awk '{print $2}'
+pascal x.pas | rev
+pascal x.pas | wc -l | tr -d ' '
+clike -v | uniq | wc -l | tr -d ' '
+rea -v | tr -d ' ' | wc -l | tr -d ' '
+
+# A writer stuck on a full pipe, while another stage flushes everything. awk rather than a
+# second frontend, because two frontends compiling at once in one process are not safe yet.
+pascal big.pas | { sleep 1; awk 'BEGIN { fflush(); print "flushed" }'; }
+
+# Buffered output of the first stage stays its own, whoever flushes.
+pascal first.pas | { sleep 1; awk 'BEGIN { fflush(); print "flushed" }'; }
+
+# A reader that has nothing to do with this command does not hold it up.
+{ sleep 6 | tr a b; } > /dev/null 2>&1 &
+s=$(date +%s)
+pascal x.pas
+e=$(date +%s)
+[ $((e - s)) -lt 5 ] && echo quick
+
+# A VM thread's output is its own to flush, and it still arrives.
+printf 'void child() {\n    writeln("child ok");\n}\n\nint t = spawn child();\njoin t;\nwriteln("main ok");\n' > thr.rea
+rea thr.rea | tr -d ' ' | sort
+
+cd /
+rm -rf "$d"
+echo "pipeline-frontend-stage:end"

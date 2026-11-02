@@ -52,6 +52,16 @@
     "expected_stdout": "pipeline-rea-head:start\npipeline-rea-head:lines:1\npipeline-rea-head:status:0"
   },
   {
+    "id": "pipeline_frontend_stage_ios",
+    "name": "A finished frontend waits only for its own output (iOS)",
+    "category": "pipeline_ios",
+    "description": "A frontend's stage must not wait on, or write out, the streams of other stages: stdio readers behind it, a writer stuck on a full pipe ahead of it, a background reader.",
+    "script": "Tests/exsh/tests/pipeline_frontend_stage_ios.exsh",
+    "expect": "runtime_ok",
+    "env": { "RUN_VPROC_TESTS": "1" },
+    "expected_stdout": "pipeline-frontend-stage:start\npascalok\npascal ok\nok\nko lacsap\n1\n1\n1\nflushed\nflushed\npascal ok\nquick\nchildok\nmainok\npipeline-frontend-stage:end"
+  },
+  {
     "id": "pipeline_empty_ios",
     "name": "Pipeline empty spool (iOS)",
     "category": "pipeline_ios",
