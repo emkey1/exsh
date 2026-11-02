@@ -13,7 +13,6 @@ case "$(uname -m)" in
 esac
 record() {
     # USER_PROCESS, pid 1, then the line, the id and the name at their offsets.
-    # Through tr, because printf here does not take octal escapes.
     printf 'BZZZCZZZpts/0' | tr BCZ '\007\001\000'
     head -c 27 /dev/zero
     printf 'ts/0%s' "$1"
