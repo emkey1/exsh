@@ -1,0 +1,53 @@
+#!/usr/bin/env exsh
+# `alias name` asks what name is, and `alias` took it for a bad assignment and stopped, so
+# it could neither print a definition nor say there was none. Every message here counts:
+# unlike bash_parity_builtin_failure, this test keeps stderr. Left out because bash 3.2 and 5
+# differ: `type` with found and missing names, `type -t` alone, `alias -p name=value`, and
+# how a name starting with - prints.
+alias; echo "none rc=$?"
+alias ll='ls -l'
+alias ll; echo "one rc=$?"
+alias missing; echo "missing rc=$?"
+alias ll missing also=yes; echo "mixed rc=$?"
+alias also; echo "defined after a miss rc=$?"
+alias zed=z; alias mid=m
+alias; echo "sorted rc=$?"
+alias -p; echo "-p rc=$?"
+alias quoted="it's 'here'"; alias quoted
+alias empty=; alias empty
+alias =y; echo "no name rc=$?"
+alias -; echo "lone dash rc=$?"
+alias --; echo "end of options rc=$?"
+alias -z; echo "bad option rc=$?"
+alias -pz; echo "bad option in a cluster rc=$?"
+alias ll | cat
+alias missing | cat; echo "stage rc=$?"
+( alias inner=i; alias inner ); alias inner; echo "subshell rc=$?"
+unalias -a
+
+type; echo "type none rc=$?"
+type missing_cmd; echo "type rc=$?"
+type -a missing_cmd; echo "type -a rc=$?"
+type -t missing_cmd; echo "type -t rc=$?"
+type -p missing_cmd; echo "type -p rc=$?"
+type -z echo; echo "type bad option rc=$?"
+type -- missing_cmd; echo "type -- rc=$?"
+
+shopt -s expand_aliases
+f() { :; }
+type -t f; echo "function rc=$?"
+type -f -t f; echo "type -f hides a function rc=$?"
+type -f f; echo "type -f rc=$?"
+alias ll='ls -l'
+type ll; echo "alias rc=$?"
+type -t ll; echo "alias -t rc=$?"
+type -f -t ll; echo "type -f keeps an alias rc=$?"
+unalias ll
+type -t echo; type -f -t echo; echo "builtin rc=$?"
+
+# A failed lookup is an ordinary failed command.
+if alias missing; then echo then-branch; else echo else-branch; fi
+type missing_cmd || echo or-branch
+( set -e; alias missing || echo guarded; echo survived ); echo "guarded rc=$?"
+( set -e; alias missing; echo not-reached ); echo "errexit alias rc=$?"
+( set -e; type missing_cmd; echo not-reached ); echo "errexit type rc=$?"

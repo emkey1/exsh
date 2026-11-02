@@ -1575,6 +1575,22 @@
             "script": "Tests/exsh/tests/bash5_trap_entry_ignored.exsh",
             "expect": "runtime_ok",
             "expected_stdout": "trap -- '' SIGUSR1\ntrap -- '' SIGUSR1\ntrap -- 'echo x' SIGUSR1"
+        },
+        {
+            "id": "bash_parity_alias_type_lookup",
+            "name": "alias and type answer a question about a name",
+            "category": "parity",
+            "description": "alias name prints it or says it is not found, and the rest of the arguments still count; options, order and quoting of a listing; type with no names, a bad option and -f. Messages compared.",
+            "script": "Tests/exsh/tests/bash_parity_alias_type_lookup.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_negated_errexit",
+            "name": "A negated pipeline is exempt from set -e",
+            "category": "parity",
+            "description": "! with stages, groups, subshells, loops and functions under set -e, and the status it leaves.",
+            "script": "Tests/exsh/tests/bash_parity_negated_errexit.exsh",
+            "expect": "match_bash"
         }
     ]
 }

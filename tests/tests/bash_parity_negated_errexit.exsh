@@ -1,0 +1,26 @@
+#!/usr/bin/env exsh
+# A pipeline after ! is exempt from set -e whatever it is and whichever way it comes out.
+# bash_parity_and_or_list has the simple forms; these are the stages and compounds.
+( set -e; ! true | cat; echo pipeline-true ); echo "rc=$?"
+( set -e; ! false | cat; echo pipeline-false ); echo "rc=$?"
+( set -e; ! false | false; echo pipeline-last-false ); echo "rc=$?"
+( set -e; ! { true; }; echo group-true ); echo "rc=$?"
+( set -e; ! { false; }; echo group-false ); echo "rc=$?"
+( set -e; ! ( true ); echo subshell-true ); echo "rc=$?"
+( set -e; ! ( false ); echo subshell-false ); echo "rc=$?"
+( set -e; ! if true; then true; fi; echo if-true ); echo "rc=$?"
+( set -e; ! for a in 1; do true; done; echo for-true ); echo "rc=$?"
+( set -e; ! echo x; echo builtin-output ); echo "rc=$?"
+( set -e; ! :; echo builtin ); echo "rc=$?"
+( set -e; ! /usr/bin/true; echo external ); echo "rc=$?"
+( set -e; f() { ! true; echo in-function; }; f; echo after-function ); echo "rc=$?"
+( set -e; f() { ! true; }; f; echo not-reached ); echo "last in function rc=$?"
+( set -e; for a in 1 2; do ! true; echo "loop $a"; done; echo after-loop ); echo "rc=$?"
+( set -e; ! true && echo not-run; echo and-list ); echo "rc=$?"
+( set -e; ! true || echo or-branch; echo or-list ); echo "rc=$?"
+( set -e; ! false && false; echo not-reached ); echo "and-list last rc=$?"
+
+# The status is still the inverted one, and the next failure still counts.
+! true; echo "status $?"
+! false; echo "status $?"
+( set -e; ! true; echo "status $?"; false; echo not-reached ); echo "next failure rc=$?"
