@@ -821,10 +821,6 @@ void shellFreeFunction(ShellFunction *function) {
     free(function);
 }
 
-static void shellProgramPropagatePipelineMetadata(ShellProgram *program,
-                                                  int pipeline_index,
-                                                  bool is_pipeline_head,
-                                                  bool is_pipeline_tail);
 
 void shellCommandPropagatePipelineMetadata(ShellCommand *command,
                                            int pipeline_index,
@@ -841,12 +837,6 @@ void shellCommandPropagatePipelineMetadata(ShellCommand *command,
     }
 
     switch (command->type) {
-        case SHELL_COMMAND_BRACE_GROUP:
-            shellProgramPropagatePipelineMetadata(command->data.brace_group.body,
-                                                  pipeline_index,
-                                                  is_pipeline_head,
-                                                  is_pipeline_tail);
-            break;
         case SHELL_COMMAND_PIPELINE: {
             ShellPipeline *pipeline = command->data.pipeline;
             if (!pipeline) {
@@ -863,23 +853,6 @@ void shellCommandPropagatePipelineMetadata(ShellCommand *command,
         }
         default:
             break;
-    }
-}
-
-static void shellProgramPropagatePipelineMetadata(ShellProgram *program,
-                                                  int pipeline_index,
-                                                  bool is_pipeline_head,
-                                                  bool is_pipeline_tail) {
-    if (!program) {
-        return;
-    }
-
-    for (size_t i = 0; i < program->commands.count; ++i) {
-        ShellCommand *member = program->commands.items[i];
-        shellCommandPropagatePipelineMetadata(member,
-                                              pipeline_index,
-                                              is_pipeline_head,
-                                              is_pipeline_tail);
     }
 }
 

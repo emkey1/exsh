@@ -1,0 +1,40 @@
+#!/usr/bin/env exsh
+# A compound command in the background runs beside the shell. It ran in the foreground,
+# so `first` came after everything the group printed.
+d="${TMPDIR:-/tmp}/exsh_parity_background.$$"
+mkdir -p "$d/top" || exit 1
+cd "$d/top" || exit 1
+
+{ sleep 0.5; echo bg; } & echo first; wait
+( sleep 0.5; echo bg ) & echo first; wait
+if true; then sleep 0.5; echo bg; fi & echo first; wait
+case x in x) sleep 0.5; echo bg;; esac & echo first; wait
+for i in 1; do sleep 0.5; echo bg; done & echo first; wait
+sleep 0.5 && echo bg & echo first; wait
+false || { sleep 0.5; echo bg; } & echo first; wait
+{ sleep 0.5; echo tail-bg; } | cat & echo first; wait
+
+# The shell and the group do not see each other's changes.
+B=1; { B=2; sleep 0.5; echo "group B=$B"; } & B=3; wait; echo "shell B=$B"
+{ cd /; pwd; } & wait; basename "$PWD"
+set -- x; { set -- y z; echo "group $# $1"; } & wait; echo "shell $# $1"
+
+# wait, $!, and status.
+{ exit 7; } & p=$!; wait "$p"; echo "wait status $?"
+( exit 8 ) & wait $!; echo "wait status $?"
+{ exit 9; } & p=$!; sleep 0.5; echo gone; wait "$p"; echo "already finished $?"
+for i in 1 2 3; do { exit "$i"; } & wait $!; echo "right away $?"; done
+false & wait $!; echo "simple command $?"
+{ exit 3; } & sleep 0.5; ( exit 4 ); echo "a finished job leaves the status alone $?"
+( set -e; false & sleep 0.5; echo "a failed job is not set -e's business" )
+sh -c '{ exit 6; } & wait $!; echo "nested shell $?"'
+{ sleep 0; } & [ -n "$!" ] && echo "has pid"; echo "started $?"; wait
+{ false; } & echo "background status $?"; wait
+
+# A pipeline inside, and output through a redirection.
+{ echo p1; echo p2; } > bg.out & wait; cat bg.out
+{ printf 'q1\nq2\n' | wc -l | tr -d ' '; } & wait
+for i in 1 2 3; do { echo "job $i" > "job$i.out"; } & done; wait; cat job1.out job2.out job3.out
+
+cd /
+rm -rf "$d"

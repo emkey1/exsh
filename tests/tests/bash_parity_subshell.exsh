@@ -1,0 +1,77 @@
+#!/usr/bin/env exsh
+# A subshell changes nothing in the shell that started it. It ran inline: `exit` ended
+# the script, and assignments and `cd` stayed after it.
+d="${TMPDIR:-/tmp}/exsh_parity_subshell.$$"
+mkdir -p "$d/top/sub" || exit 1
+cd "$d/top" || exit 1
+
+( exit 3 ); echo "after $?"
+( exit 0 ); echo "after $?"
+( exit 3; echo not-reached ); echo "rest skipped $?"
+( false ); echo "last command $?"
+( true; false; true ); echo "last command $?"
+! ( exit 3 ); echo "negated $?"
+( exit 2 ) || echo "or ran"
+( exit 0 ) && echo "and ran"
+if ( exit 1 ); then echo no; else echo "if took else"; fi
+while ( exit 1 ); do echo no; done; echo "while ended"
+f() { ( exit 4 ); echo "in f $?"; }; f
+g() { ( return 5; echo not-reached ); echo "return in subshell $?"; }; g
+h() { ( exit 6 ); return 7; }; h; echo "function went on $?"
+
+X=1; ( X=2; echo "inside X=$X" ); echo "X=$X"
+( Y=2 ); echo "Y=[${Y-unset}]"
+export E=1; ( export E=2; sh -c 'echo "child E=$E"' ); echo "E=$E"
+U=1; ( unset U; echo "inside U=[${U-unset}]" ); echo "U=$U"
+a=(1 2); ( a=(3 4 5); echo "inside ${#a[@]}" ); echo "array ${#a[@]}"
+readonly RO=1; ( echo "readonly RO=$RO" ); echo "RO=$RO"
+L=outer; l() { local L=inner; ( L=changed; echo "$L" ); echo "$L"; }; l; echo "$L"
+
+( cd sub; basename "$PWD"; basename "$(pwd)"; ls -d ../sub >/dev/null && echo relative-ok )
+basename "$PWD"; basename "$(pwd)"
+( cd / ); basename "$PWD"; basename "$(pwd)"
+
+set -- p q; ( set -- r; echo "inside $# $1" ); echo "outside $# $1"
+( shift; echo "shifted $# $1" ); echo "kept $# $1"
+pp() { ( shift; echo "in function $# $1" ); echo "$# $1"; }; pp a b c
+
+( set -f; echo "*" ); echo no-such-* | wc -w | tr -d ' '
+( set -e; false; echo not-reached ); echo "set -e in subshell $?"
+( set -e ); false; echo "set -e did not leak $?"
+( set -e; ( exit 5 ); echo not-reached ); echo "set -e keeps the status $?"
+
+( trap 'echo sub-exit' EXIT; echo body ); echo "trap ran $?"
+( trap 'echo sub-exit' EXIT; exit 9 ); echo "status kept $?"
+trap 'echo parent-exit' EXIT
+( echo no-inherited-exit-trap )
+trap - EXIT
+
+( fn() { echo defined; }; fn ); fn 2>/dev/null || echo "function stayed inside"
+( alias xx=true ); xx 2>/dev/null || echo "alias stayed inside"
+
+( umask 077; umask ); umask
+( shopt -s nullglob ); shopt -q nullglob; echo "shopt stayed inside $?"
+( f2() { echo inner; }; f2 ); f2() { echo outer; }; f2; ( f2 )
+
+( ( exit 8 ); echo "nested $?"; ( X=9 ); echo "nested X=$X" ); echo "outer $?"
+fx() { exit 4; }; ( fx; echo not-reached ); echo "exit in function $?"
+fy() { return 4; }; ( fy; echo "return in function $?" ); echo "after $?"
+top=$$; ( [ "$$" = "$top" ] && echo "same pid in a subshell" )
+( exec > exec.out; echo into-file ); cat exec.out; echo stdout-back
+( echo a; echo b ) > two.out; ( cat ) < two.out
+( read first; echo "$first" ) < two.out
+( while read v; do echo "<$v>"; done ) < two.out
+if ( cd sub ); then echo "cd worked"; fi; basename "$PWD"
+( break 2>/dev/null ); echo "break outside a loop $?"
+for j in 1 2; do ( continue ) 2>/dev/null; echo "after continue $j"; done
+c=0; while [ "$c" -lt 2 ]; do c=$((c+1)); ( c=9 ); done; echo "c=$c"
+for i in 1 2; do ( echo "i=$i"; i=9 ); echo "$i"; done
+for i in 1 2; do ( exit "$i" ); echo "loop $?"; done
+s=$( ( echo in-substitution; exit 2 ); echo "$?" ); echo "$s"
+eval '( exit 5 )'; echo "eval $?"
+printf '( exit 6 )\necho "sourced $?"\n' > src.sh; . ./src.sh
+false; ( echo "status in $?" )
+echo end-of-file
+
+cd /
+rm -rf "$d"

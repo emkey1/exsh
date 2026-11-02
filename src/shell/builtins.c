@@ -232,7 +232,8 @@ static const ShellBuiltinEntry kShellBuiltins[] = {
     {"__shell_double_bracket", "__shell_double_bracket", 1013},
     {"__shell_enter_condition", "__shell_enter_condition", 1014},
     {"__shell_leave_condition", "__shell_leave_condition", 1015},
-    {"__shell_leave_condition_preserve", "__shell_leave_condition_preserve", 1017}
+    {"__shell_leave_condition_preserve", "__shell_leave_condition_preserve", 1017},
+    {"__shell_exec_body", "__shell_exec_body", 1018}
 };
 
 static char *shellLowercase(const char *name) {

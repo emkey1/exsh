@@ -141,8 +141,13 @@ extends it with orchestration helpers implemented in
   `popd`) mirror Bash: they maintain `$PWD`, print the stack after each
   mutation, and reject unsupported flag combinations so parity tests stay
   precise.【F:src/backend_ast/shell/shell_builtins.inc†L2495-L2627】【F:Tests/exsh/tests/bash_parity_directory_stack.exsh†L1-L32】
-- Pipeline helpers (`__shell_exec`, `__shell_pipeline`, `__shell_and`,
-  `__shell_or`, `__shell_subshell`, `__shell_loop`, `__shell_if`).
+- Pipeline helpers (`__shell_exec`, `__shell_exec_body`, `__shell_pipeline`,
+  `__shell_and`, `__shell_or`, `__shell_subshell`, `__shell_loop`, `__shell_if`).
+  A subshell, and any compound command that is a pipeline stage or in the
+  background, compiles to a chunk of its own that `__shell_exec_body` starts as one
+  command. It runs apart from the shell: a forked child on a host, a thread and
+  vproc with a private environment and definitions on iOS. `__shell_subshell` only
+  opens and closes the redirections of a compound command.
 - The complete PSCAL builtin catalog (HTTP, sockets, JSON, extended math/string
   groups, optional SQLite/SDL bindings) via `registerAllBuiltins()`.
 - Command-dispatch diagnostics such as `hash`, `enable`, and `which` let

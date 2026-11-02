@@ -1115,6 +1115,30 @@
             "expect": "match_bash",
             "expected_stdout": "[x]\n[x]\n[y]\n[xy]\n[x/foo]\n[x.txt]\n[abc/foo]\n[abc.txt]\n[abcx]\n[abcabc]\n[abcxy]\n[hi/x]\n[2x]\n[2x]\n[abc/a][abc/b]\nmatched\nabc\nabc\nabc\nok\n"
         },
+    {
+      "id": "bash_parity_subshell",
+      "name": "A subshell changes nothing in its parent",
+      "category": "parity",
+      "description": "exit, variables, the directory, parameters, options, traps, functions and aliases stay inside ( ), and its status is the command's.",
+      "script": "Tests/exsh/tests/bash_parity_subshell.exsh",
+      "expect": "match_bash"
+    },
+    {
+      "id": "bash_parity_compound_pipeline",
+      "name": "A compound pipeline stage has the pipe for its whole body",
+      "category": "parity",
+      "description": "Groups, subshells, if, case and loops read and write the pipe, with far more output than a pipe holds, and keep their own variables.",
+      "script": "Tests/exsh/tests/bash_parity_compound_pipeline.exsh",
+      "expect": "match_bash"
+    },
+    {
+      "id": "bash_parity_background_group",
+      "name": "A compound command in the background runs beside the shell",
+      "category": "parity",
+      "description": "Groups, subshells, if, case, loops and AND lists run asynchronously with their own state; wait and $! work.",
+      "script": "Tests/exsh/tests/bash_parity_background_group.exsh",
+      "expect": "match_bash"
+    },
         {
             "id": "bash_parity_group_redirect",
             "name": "Redirections on compound commands match bash",

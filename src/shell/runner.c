@@ -40,7 +40,12 @@ static void shellRunnerFreeParamArray(char **values, int count) {
 }
 #endif
 
+#if defined(PSCAL_TARGET_IOS)
+/* Codegen differs here, so an iOS-flavoured host build must not load the plain one's chunks. */
+static const char *const kShellCompilerId = "shell-ios";
+#else
 static const char *const kShellCompilerId = "shell";
+#endif
 
 #if defined(PSCAL_TARGET_IOS)
 extern void pscalRuntimeDebugLog(const char *message);
