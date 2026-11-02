@@ -33,6 +33,15 @@
     "expected_stdout": "pipeline-clike-head:start\npipeline-clike-head:lines:1\npipeline-clike-head:status:0"
   },
   {
+    "id": "frontend_status_ios",
+    "name": "A frontend's failure status reaches the shell (iOS)",
+    "category": "pipeline_ios",
+    "description": "A frontend runs on a worker; its status must survive the worker finishing before the shell waits.",
+    "script": "Tests/exsh/tests/frontend_status_ios.exsh",
+    "expect": "runtime_ok",
+    "expected_stdout": "clike 1\nrea 1\nor-branch"
+  },
+  {
     "id": "pipeline_rea_head_ios",
     "name": "Frontend rea piped to head (iOS)",
     "category": "pipeline_ios",

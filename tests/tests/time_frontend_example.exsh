@@ -4,11 +4,17 @@ if [ "${RUN_IOS_TIME_TESTS:-0}" != "1" ]; then
     exit 77
 fi
 
+# Drives a CLike example from a sibling component, which a standalone exsh clone
+# does not ship (exit 77 = skip).
+if [ ! -f ../clike/examples/base/hello ]; then
+    exit 77
+fi
+
 tmp=".tmp-time-frontend-$$"
 rm -rf "$tmp"
 mkdir "$tmp" || exit 1
 
-out="$(time ./Examples/clike/base/hello 2>&1)"
+out="$(time ../clike/examples/base/hello 2>&1)"
 status=$?
 
 rm -rf "$tmp"

@@ -298,6 +298,9 @@ static int shellSpawnToolRunner(const char *tool_name, int argc, char **argv) {
             }
 #endif
             int status = table[i].entry(argc, argv);
+            /* No process exit follows to flush the frontend's buffered output. It
+             * would land after this command's redirection is gone, or never. */
+            fflush(NULL);
 #if defined(PSCAL_TARGET_IOS)
             if (cooperative_stop_scope && status == EXIT_SUCCESS) {
                 int runtime_status = shellRuntimeLastStatus();

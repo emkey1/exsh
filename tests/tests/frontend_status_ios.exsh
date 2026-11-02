@@ -1,0 +1,12 @@
+#!/bin/sh
+# A frontend runs on a worker with its own runtime context, so its status reaches the
+# shell only through wait. The worker dropped its exit as soon as it finished, and
+# the shell then read a stale status of its own: `clike missing; echo $?` printed 0.
+if [ "${RUN_VPROC_TESTS:-0}" != "1" ]; then
+    exit 77
+fi
+clike .tmp-no-such-file-$$.cl > /dev/null 2>&1
+echo "clike $?"
+rea .tmp-no-such-file-$$.rea > /dev/null 2>&1
+echo "rea $?"
+clike .tmp-no-such-file-$$.cl > /dev/null 2>&1 || echo or-branch

@@ -4,11 +4,17 @@ if [ "${RUN_IOS_FRONTEND_STDIN_TESTS:-0}" != "1" ]; then
     exit 77
 fi
 
+# Drives a Pascal example from a sibling component, which a standalone exsh clone
+# does not ship (exit 77 = skip).
+if [ ! -f ../pascal/examples/base/FindPrimes ]; then
+    exit 77
+fi
+
 tmp=".tmp-frontend-stdin-direct-$$"
 rm -rf "$tmp"
 mkdir "$tmp" || exit 1
 
-./Examples/pascal/base/FindPrimes >"$tmp/out" 2>&1
+../pascal/examples/base/FindPrimes >"$tmp/out" 2>&1
 status=$?
 
 if [ "$status" -eq 0 ]; then
