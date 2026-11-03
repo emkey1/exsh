@@ -23,6 +23,10 @@ unset x; echo "${x:-a}b}"
 unset x; show ${x:-"a b"} ${x:-a b}
 show "${x:-a b}"
 show ${x:-} "${x:-}"
+show "${x:-\
+}" "${x-}" "${x+}"
+x=1; show "${x:+}" "${x+}"
+unset x
 echo ${x:-$(echo s)}
 echo ${x:-$(echo "}")}
 echo ${x:-$((1+2))}

@@ -31,3 +31,4 @@ shopt -s extglob; d="${TMPDIR:-/tmp}/exsh_extglob.$$"; mkdir -p "$d"; cd "$d"; t
 (exit 4) & (exit 4) & sleep 0.3; wait -n; echo $?; wait -n; echo $?; wait -n; echo $?
 (exit 6) & sleep 0.2; wait; (exit 7) & wait -n; echo $?; wait -n; echo $?
 (sleep 0.2; exit 8) & wait; (exit 9) & wait -n; echo $?
+b=([5]=x); unset b; declare -A b; b[k]=v; b[j]=w; echo "${b[k]} ${b[j]}"

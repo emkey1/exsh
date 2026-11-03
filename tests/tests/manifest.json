@@ -1607,7 +1607,7 @@
             "description": "Case modification, negative subscripts, zero-padded ranges, ;& and ;;&, [[ -v ]], declare -A, declare -l and -u, ${x@Q}.",
             "script": "Tests/exsh/tests/bash5_forms.exsh",
             "expect": "runtime_ok",
-            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9"
+            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9\nv w"
         },
         {
             "id": "bash_parity_condition_list",

@@ -61,5 +61,12 @@ declare -a g=("b c" d); show "${g[@]}"
 declare -a h; h[0]=x; echo "${h[0]} ${#h[@]}"
 readonly ra=(1 2); echo "${ra[1]}"
 
+# An array with gaps keeps its arithmetic subscripts, in a subshell too, until it is replaced.
+s=([5]=x [7]=y); echo "${s[2+3]} ${s[3+4]}"
+( echo "${s[2+3]} ${s[3+4]}"; s[1+1]=z; echo "${s[2]} ${#s[@]}" )
+echo "${#s[@]}"
+s=(p q); s[1+1]=r; echo "${s[@]}"
+unset s
+
 cd /
 rm -rf "$d"

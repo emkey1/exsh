@@ -60,8 +60,9 @@ check pascal_both "$PX$nl$PV" "$P v.pas | { $P x.pas; cat; }"
 # Background jobs are what two tabs look like from the frontends' side. Their stderr goes aside
 # because a background tool announces itself there on this build; the output still has to match.
 check background "$CV$nl$PV$nl$RV" "{ $C v.clike & $P v.pas & $R v.rea & wait; } 2>/dev/null | sort"
-# One printf, one write: clike's used to go out a byte at a time and interleave mid-line.
-check background_same "$CV$nl$CV$nl$CX$nl$CX" "{ $C v.clike & $C x.clike & $C v.clike & $C x.clike & wait; } 2>/dev/null | sort"
+# One printf, one write: clike's used to go out a byte at a time and interleave mid-line. Byte
+# order, since a language's collation on Linux ignores the space and puts clike2 first.
+check background_same "$CV$nl$CV$nl$CX$nl$CX" "{ $C v.clike & $C x.clike & $C v.clike & $C x.clike & wait; } 2>/dev/null | LC_ALL=C sort"
 
 # A compile error stays in its own stage. The count of them was process-wide.
 printf 'program Bad;\nvar i: integer;\nbegin\n  i := undefinedname + 1;\nend.\n' > bad.pas
