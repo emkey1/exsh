@@ -850,6 +850,7 @@ static char *buildRedirectionMetadata(const ShellRedirection *redir) {
 }
 
 static void compileCommand(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background);
+static void compileCommandFinal(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background, bool final);
 static void compileBody(BytecodeChunk *chunk, const ShellCommand *command, bool background);
 static bool commandIsCompound(const ShellCommand *command);
 static void compileProgram(BytecodeChunk *chunk, const ShellProgram *program);
@@ -1081,11 +1082,11 @@ static void compileLogical(BytecodeChunk *chunk, const ShellLogicalList *logical
 
 /* Opens a compound command's redirections. Returns the jump that skips its body
  * when one of them fails, for compileScopeLeave to patch; -1 when there are none. */
-static int compileScopeEnter(BytecodeChunk *chunk, const ShellCommand *command) {
+static int compileScopeEnter(BytecodeChunk *chunk, const ShellCommand *command, bool final) {
     int line = command->line;
     int index = command->exec.pipeline_index;
     char meta[128];
-    snprintf(meta, sizeof(meta), "mode=enter;subshell=%d", index);
+    snprintf(meta, sizeof(meta), "mode=enter;subshell=%d%s", index, final ? ";final=1" : "");
     emitPushString(chunk, meta, line);
     size_t arg_count = 1;
     /* Serialize any attached redirections for the enter phase. */
@@ -1146,7 +1147,8 @@ static bool commandIsCompound(const ShellCommand *command) {
 /* A subshell, and any compound command that is a pipeline stage or in the background,
  * runs apart from the shell. Its body becomes a chunk of its own and __shell_exec_body
  * starts it as one command, so it takes the path of any other stage. The redirections
- * stay in the body, where they apply after the stage's pipe, as POSIX orders them. */
+ * stay in the body, where they apply after the stage's pipe, as POSIX orders them. They
+ * are final: nothing in the body runs after them, so they are not undone. */
 static void compileBody(BytecodeChunk *chunk, const ShellCommand *command, bool background) {
     if (!command) {
         return;
@@ -1165,13 +1167,13 @@ static void compileBody(BytecodeChunk *chunk, const ShellCommand *command, bool 
         compilePipeline(&compiled->chunk, command->data.pipeline, false);
     } else if (command->type == SHELL_COMMAND_SUBSHELL) {
         bool scoped = commandHasRedirections(command);
-        int skip_jump = scoped ? compileScopeEnter(&compiled->chunk, command) : -1;
+        int skip_jump = scoped ? compileScopeEnter(&compiled->chunk, command, true) : -1;
         compileProgram(&compiled->chunk, command->data.subshell.body);
         if (scoped) {
             compileScopeLeave(&compiled->chunk, skip_jump, line);
         }
     } else {
-        compileCommand(&compiled->chunk, command, false);
+        compileCommandFinal(&compiled->chunk, command, false, true);
     }
     writeBytecodeChunk(&compiled->chunk, RETURN, 0);
 
@@ -1190,8 +1192,7 @@ static void compileBody(BytecodeChunk *chunk, const ShellCommand *command, bool 
     emitBuiltinProc(chunk, "__shell_exec_body", 2, line);
 }
 
-static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background) {
-    (void)runs_in_background;
+static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool final) {
     if (!command) {
         return;
     }
@@ -1283,23 +1284,26 @@ static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool 
     if (isFor) {
         snprintf(meta,
                  sizeof(meta),
-                 "mode=for;redirs=%zu;condkind=0;condwords=0;bodykind=0;bodywords=0",
-                 redir_count);
+                 "mode=for;redirs=%zu;condkind=0;condwords=0;bodykind=0;bodywords=0%s",
+                 redir_count,
+                 final ? ";final=1" : "");
     } else if (isCStyle) {
         snprintf(meta,
                  sizeof(meta),
-                 "mode=cfor;redirs=%zu;condkind=0;condwords=0;bodykind=0;bodywords=0",
-                 redir_count);
+                 "mode=cfor;redirs=%zu;condkind=0;condwords=0;bodykind=0;bodywords=0%s",
+                 redir_count,
+                 final ? ";final=1" : "");
     } else {
         snprintf(meta,
                  sizeof(meta),
-                 "mode=%s;redirs=%zu;condkind=%d;condwords=%zu;bodykind=%d;bodywords=%zu",
+                 "mode=%s;redirs=%zu;condkind=%d;condwords=%zu;bodykind=%d;bodywords=%zu%s",
                  loop->is_until ? "until" : "while",
                  redir_count,
                  cond_kind_meta,
                  cond_words_meta,
                  body_kind_meta,
-                 body_words_meta);
+                 body_words_meta,
+                 final ? ";final=1" : "");
     }
     emitPushString(chunk, meta, line);
 
@@ -1657,6 +1661,10 @@ static void compileFunction(BytecodeChunk *chunk, const ShellFunction *function,
 }
 
 static void compileCommand(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background) {
+    compileCommandFinal(chunk, command, runs_in_background, false);
+}
+
+static void compileCommandFinal(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background, bool final) {
     if (!command) {
         return;
     }
@@ -1668,7 +1676,7 @@ static void compileCommand(BytecodeChunk *chunk, const ShellCommand *command, bo
                    command->type == SHELL_COMMAND_CASE) &&
                   commandHasRedirections(command);
     if (scoped) {
-        scope_skip_jump = compileScopeEnter(chunk, command);
+        scope_skip_jump = compileScopeEnter(chunk, command, final);
     }
     switch (command->type) {
         case SHELL_COMMAND_SIMPLE:
@@ -1706,7 +1714,7 @@ static void compileCommand(BytecodeChunk *chunk, const ShellCommand *command, bo
             compileProgram(chunk, command->data.brace_group.body);
             break;
         case SHELL_COMMAND_LOOP:
-            compileLoop(chunk, command, runs_in_background);
+            compileLoop(chunk, command, final);
             break;
         case SHELL_COMMAND_CONDITIONAL:
             compileConditional(chunk, command->data.conditional, command->line);

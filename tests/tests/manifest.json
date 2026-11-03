@@ -1167,6 +1167,14 @@
       "script": "Tests/exsh/tests/bash_parity_background_group.exsh",
       "expect": "match_bash"
     },
+    {
+      "id": "bash_parity_background_release",
+      "name": "A background job with its output redirected lets go of the caller's stdout",
+      "category": "parity",
+      "description": "A reader of the pipe sees end of file while the job runs, for groups, subshells, if, case and loops; what the body runs still goes through the redirection.",
+      "script": "Tests/exsh/tests/bash_parity_background_release.exsh",
+      "expect": "match_bash"
+    },
         {
             "id": "bash_parity_group_redirect",
             "name": "Redirections on compound commands match bash",

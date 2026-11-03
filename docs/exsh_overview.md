@@ -159,7 +159,10 @@ extends it with orchestration helpers implemented in
   background, compiles to a chunk of its own that `__shell_exec_body` starts as one
   command. It runs apart from the shell: a forked child on a host, a thread and
   vproc with a private environment and definitions on iOS. `__shell_subshell` only
-  opens and closes the redirections of a compound command.
+  opens and closes the redirections of a compound command. When that command is all
+  a body runs, nothing runs after its redirections, so no copy of what they replaced
+  is kept: a background job that sends its output elsewhere does not hold the caller's
+  stdout open.
 - The complete PSCAL builtin catalog (HTTP, sockets, JSON, extended math/string
   groups, optional SQLite/SDL bindings) via `registerAllBuiltins()`.
 - Command-dispatch diagnostics such as `hash`, `enable`, and `which` let

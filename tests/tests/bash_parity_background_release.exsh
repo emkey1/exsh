@@ -1,0 +1,71 @@
+#!/usr/bin/env exsh
+# A compound command whose output is redirected away lets go of the stdout it replaced.
+# It kept a saved copy for as long as it ran, in the child that ran it, so whoever read
+# that pipe waited for the job: a `$(...)` around the daemon idiom, a test harness.
+d="${TMPDIR:-/tmp}/exsh_parity_bg_release.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# The job runs until the reader has seen end of file. The reader cannot see it while the
+# job holds the pipe, so then the job gives up, leaves a mark, and the reader finds the
+# mark. No test depends on the time when the pipe is let go of.
+job() {
+  : > "$1.up"
+  tries=0
+  while [ ! -e "$1.seen" ] && [ "$tries" -lt 20 ]; do
+    tries=$((tries + 1))
+    sleep 0.1
+  done
+  [ -e "$1.seen" ] || : > "$1.held"
+}
+
+reader() {
+  cat > /dev/null
+  if [ -e "$1.held" ]; then echo "$1: held until the job ended"; else echo "$1: released"; fi
+  : > "$1.seen"
+}
+
+# Each subshell waits for its job to start, and then only the job can hold the pipe.
+started() {
+  until [ -e "$1.up" ]; do sleep 0.05; done
+}
+
+( { job group; } > /dev/null 2>&1 & started group ) | reader group
+( { job group_pipe | cat; } > /dev/null 2>&1 & started group_pipe ) | reader group_pipe
+( ( job subshell_pipe | cat ) > /dev/null 2>&1 & started subshell_pipe ) | reader subshell_pipe
+( if true; then job if_form; fi > /dev/null 2>&1 & started if_form ) | reader if_form
+( case x in x) job case_form;; esac > /dev/null 2>&1 & started case_form ) | reader case_form
+( for f in 1; do job for_form; done > /dev/null 2>&1 & started for_form ) | reader for_form
+( n=0; while [ "$n" -lt 1 ]; do job while_form; n=1; done > /dev/null 2>&1 & started while_form ) | reader while_form
+wait
+
+# What the body does after its redirection still goes where the redirection says.
+{ echo body; ( echo inner ); echo last; } > body.out & wait; cat body.out
+for f in 1 2; do echo "turn $f"; done > loop.out & wait; cat loop.out
+( trap 'echo exit trap' EXIT; echo body ) > trap.out & wait; cat trap.out
+( trap 'echo exit trap' EXIT; echo body ) > trap.out; cat trap.out
+( exit 3 ) > status.out & wait $!; echo "status $?"
+{ echo in-pipe; } > stage.out | cat; cat stage.out
+echo a | { cat; echo b; } > stage.out; cat stage.out; echo "the shell's stdout is back"
+
+# A redirection inside the body is undone as usual.
+{ { echo inner; } > inner.out; echo outer; } > outer.out & wait; cat inner.out outer.out
+( { echo inner; } > inner.out; echo outer ) > outer.out & wait; cat inner.out outer.out
+{ { echo inner; } > inner.out; echo to-stdout; } & wait; cat inner.out
+for f in 1 2; do { echo "$f"; } >> each.out; done > none.out & wait; cat each.out; [ -s none.out ] || echo "none.out is empty"
+
+# A failed redirection fails the job and nothing else.
+{ echo no; } 2> /dev/null < missing.in & wait $!; echo "group $?"
+( echo no ) 2> /dev/null < missing.in & wait $!; echo "subshell $?"
+for f in 1; do echo no; done 2> /dev/null < missing.in & wait $!; echo "loop $?"
+
+# Descriptors above stdio: one the shell has, one the body opens, one it closes.
+exec 7> seven.out
+{ echo to-seven >&7; echo to-eight >&8; } 8> eight.out & wait; cat seven.out eight.out
+{ echo closed >&7; } 7>&- 2> /dev/null & wait $!; echo "closed $?"
+echo still >&7; cat seven.out
+exec 7>&-
+
+cd /
+rm -rf "$d"
