@@ -1,0 +1,178 @@
+#!/usr/bin/env exsh
+# return stops a function before it reaches the end of the loops it is in. Their frames stayed
+# on the stack, and the caller's loop advanced them instead of its own: it repeated its first
+# value for good, or ended early. Every loop here is bounded by g, called from the bodies and
+# from the functions, so a build with this bug fails on its output and does not hang. show is
+# there for the same reason: if a redirection stayed in place, cat would copy a file into itself
+# until the disk filled, and a process in the background would outlive the test.
+d="${TMPDIR:-/tmp}/exsh_parity_return_loop.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+c=0
+g() { c=$((c+1)); [ $c -le 3000 ] || { echo RUNAWAY; exit 9; }; }
+show() { while read -r l; do g; echo "$l"; done < "$1"; }
+
+jw() { g; while :; do return; done; }
+ju() { g; until false; do return; done; }
+jf() { g; for y in 1 2 3; do return; done; }
+jc() { g; for ((k=0; k<5; k++)); do return; done; }
+jt() { g; m=0; while [ $m -lt 3 ]; do m=$((m+1)); return; done; }
+ja() { g; m=0; while (( m < 3 )); do m=$((m+1)); return; done; }
+
+# Each shape of loop around each shape of return.
+for j in jw ju jf jc jt ja; do
+  for x in 1 2 3; do g; $j; echo "$j for $x"; done
+  n=0; while [ $n -lt 3 ]; do g; n=$((n+1)); $j; echo "$j while $n"; done
+  n=0; while :; do g; n=$((n+1)); [ $n -gt 2 ] && break; $j; echo "$j colon $n"; done
+  n=0; until [ $n -ge 3 ]; do g; n=$((n+1)); $j; echo "$j until $n"; done
+  for ((i=0; i<3; i++)); do g; $j; echo "$j cfor $i"; done
+done
+echo "y=$y k=$k m=$m"
+
+# The status.
+js() { g; while :; do return 7; done; }
+jl() { g; while :; do false; return; done; }
+jz() { g; false; while :; do return 0; done; }
+jn() { g; while :; do for y in 1 2; do return 3; done; done; }
+for x in 1 2; do g; js; echo "status $x $?"; jl; echo "last $x $?"; jz; echo "zero $x $?"; jn; echo "nested $x $?"; done
+for x in 1; do g; js; done; echo "for ends with $?"
+n=0; while [ $n -lt 1 ]; do g; n=1; js; done; echo "while ends with $?"
+
+# Nested functions.
+k1() { g; while :; do return 2; done; }
+k2() { g; while :; do k1; echo "k1 $?"; return 3; done; echo never; }
+k3() { g; for q in 1 2; do k2; echo "k2 $?"; done; echo "k3 tail"; return 4; }
+for x in 1 2; do g; k3; echo "k3 $x $?"; done
+r() { g; [ "$1" = 0 ] && return 5; while :; do r $(($1-1)); return $(($?+1)); done; }
+for x in 1 2; do g; r 4; echo "recursion $x $?"; done
+
+# break and continue around the call.
+for a in 1 2; do for b in 1 2; do g; jw; echo "break2 $a$b"; break 2; done; echo no; done
+for a in 1 2; do for b in 1 2; do g; jw; echo "break1 $a$b"; break; done; echo "break1 tail $a"; done
+for a in 1 2; do for b in 1 2; do g; jw; echo "continue2 $a$b"; continue 2; done; echo no; done
+for a in 1 2; do for b in 1 2; do g; jw; [ $b = 1 ] && continue; echo "continue1 $a$b"; done; done
+for x in 1 2 3; do g; jw; [ $x = 2 ] && break; echo "break after $x"; done; echo "x=$x"
+for x in 1 2 3; do g; jf; continue; echo no; done; echo "x=$x"
+for x in 1 2; do break; jw; echo no; done; echo "skipped $x"
+
+# The call as a condition.
+n=0; while js; do g; n=$((n+1)); [ $n -gt 3 ] && break; echo body; done; echo "while js $n $?"
+jy() { g; for y in 1 2; do return 0; done; }
+n=0; until jy; do g; n=$((n+1)); [ $n -gt 3 ] && break; echo body; done; echo "until jy $n $?"
+n=0; while jy; do g; n=$((n+1)); [ $n -ge 2 ] && break; echo "body $n"; done; echo "while jy $n"
+if js; then echo yes; else echo no; fi; js && echo and; js || echo or; ! js; echo "not $?"
+
+# return from what sits inside the loop, and from a condition.
+jcase() { g; while :; do case a in a) return 3;; esac; echo no; done; }
+jif() { g; while :; do if :; then return 3; fi; echo no; done; }
+jgroup() { g; while :; do { return 3; }; echo no; done; }
+jcond() { g; if while :; do return 3; done; then echo then; fi; echo no; }
+jwcond() { g; while return 3; do echo no; done; echo no; }
+for j in jcase jif jgroup jcond jwcond; do for x in 1 2; do g; $j; echo "$j $x $?"; done; done
+kc() { case b in b) return 4;; esac; }
+case a in a) kc; echo "case $?";; esac; case q in q) echo q;; esac; echo "after case $?"
+for x in 1 2; do g; kc; case z in y) echo no;; esac; echo "no match $x $?"; done
+
+# Redirections stay undone, whichever way round they sit.
+jo() { g; while :; do echo inside; return 3; done > o1; echo never; }
+for x in 1 2; do g; jo; echo "output back $x $?"; done; show o1
+jg() { g; while :; do { echo hidden; return 3; } > o2; echo no; done; }
+for x in 1 2; do g; jg; echo "group back $x $?"; done; show o2
+jgo() { g; while :; do { echo hidden; return 3; } > o3; echo no; done > o4; }
+for x in 1 2; do g; jgo; echo "group in loop $x $?"; done; show o3; wc -c < o4 | tr -d ' '
+jog() { g; { while :; do echo hidden; return 3; done > o5; echo no; } > o6; echo no; }
+for x in 1 2; do g; jog; echo "loop in group $x $?"; done; show o5; wc -c < o6 | tr -d ' '
+jdeep() { g; while :; do for y in 1; do echo deep; return 2; done > o7; done > o8; }
+for x in 1 2; do g; jdeep; echo "both $x $?"; done; show o7; wc -c < o8 | tr -d ' '
+printf 'a\nb\n' > f1; printf '1\n2\n3\n' > f2
+jr() { g; while read l; do echo "got $l"; return; done < f1; }
+for x in 1 2; do g; jr; echo "input back $x"; done
+while read v; do g; jr; echo "v $v"; done < f2
+jd() { g; while :; do echo defined; return; done; } > o9
+for x in 1 2; do g; jd; echo "definition $x"; done; show o9
+for x in 1 2; do g; jo; echo "caller's $x"; done > o10; show o10
+
+# eval and source.
+je() { g; eval 'while :; do return 6; done'; echo no; }
+for x in 1 2; do g; je; echo "eval in function $x $?"; done
+for x in 1 2; do g; eval 'js; echo "eval around $?"'; echo "x $x"; done
+eval 'for x in 1 2; do g; js; echo "eval loop $x $?"; done'
+printf 'g; while :; do return 8; done\necho no\n' > s1
+printf 'g; for y in 1 2 3; do return; done\necho no\n' > s2
+for x in 1 2 3; do g; . ./s1; echo "source $x $?"; . ./s2; echo "source for $x $?"; done
+js1() { g; . ./s1; echo "in function $?"; }
+for x in 1 2; do g; js1; echo "source in function $x $?"; done
+
+# Apart from the shell: a subshell, a substitution, a background body, a pipeline stage.
+jsub() { g; ( while :; do return 2; done; echo no ); echo "subshell $?"; }
+for x in 1 2; do g; jsub; echo "x $x"; done
+for x in 1 2; do g; ( js; echo "in subshell $?" ); echo "x $x"; done
+for x in 1 2; do g; y=$(js; echo "sub $?"); echo "x $x $y"; done
+jsv() { g; y=$(while :; do return 3; done; echo no); echo "[$y] $?"; }
+for x in 1 2; do g; jsv; echo "x $x"; done
+for x in 1 2; do g; y=$(while :; do exit 3; done); echo "exit in substitution $x $?"; done
+{ for x in 1 2; do g; jw; echo "bg group $x"; done; } > b1 & wait; show b1
+for x in 1 2; do g; jw; echo "bg for $x"; done > b2 & wait; show b2
+n=0; while [ $n -lt 2 ]; do g; n=$((n+1)); jw; echo "bg while $n"; done > b3 & wait; show b3
+for x in 1 2; do g; js > b4 & wait $!; echo "bg function $x $?"; done
+for x in 1 2; do g; jw; echo "stage $x"; done | cat
+jp() { g; while :; do echo out; return 3; done; }
+for x in 1 2; do g; jp | cat; echo "function stage $x"; done
+printf 'a\nb\n' | while read l; do g; jw; echo "read $l"; done
+echo a | { for x in 1 2; do g; jw; echo "group stage $x"; done; cat; }
+jlast() { g; while read l; do echo "got $l"; return 4; done; echo no; }
+for x in 1 2; do g; echo v | jlast; echo "last stage $x"; done
+jin() { g; printf 'a\nb\n' | while read l; do return 5; done; echo "tail $?"; }
+for x in 1 2; do g; jin; echo "stage inside $x $?"; done
+jins() { g; while :; do return 5; done | cat; echo "tail ${PIPESTATUS[0]}"; }
+for x in 1 2; do g; jins; echo "stage status $x $?"; done
+
+# set -e: a failure in a condition is ignored all the way down.
+( set -e
+  for x in 1 2; do g; js || echo "handled $x"; done
+  k5() { return 1; }
+  k6() { k5; echo still; }
+  if k6; then echo yes; fi
+  k7() { while :; do return 1; done; }
+  k8() { k7; echo still loop; }
+  if k8; then echo yes; fi
+  while k7; do echo no; done
+  k8 && echo and
+  . ./s1 || echo "sourced $?"
+  echo "set -e end"
+  for x in 1 2; do g; k7; echo no; done
+  echo no
+)
+echo "set -e status $?"
+
+# Traps, and what ends the shell.
+( jt1() { trap 'echo trap' RETURN; while :; do echo inside; return 2; done > o11; }
+  jt1; echo "return trap $?"; trap - RETURN
+  show o11
+  for x in 1 2; do g; jw; echo "after return trap $x"; done
+)
+( jt2() { while :; do return 1; done; }
+  trap 'echo err' ERR
+  for x in 1 2; do g; jt2; echo "err trap $x"; done
+)
+( jx() { while :; do exit 3; done; }
+  trap 'echo bye' EXIT
+  for x in 1 2; do g; jx; echo no; done
+)
+echo "exit $?"
+jx2() { while :; do exit 4; done; }
+for x in 1 2; do g; ( jx2; echo no ); echo "exit in subshell $x $?"; done
+
+# Variables, and the stack stays level.
+jv() { local y=keep; for y in 1 2; do return; done; }
+y=outer; jv; echo "$y"
+jv2() { for y in a b c; do return; done; }
+jv2; echo "$y"
+jp2() { for y in "$@"; do return; done; }
+set -- a b; for x in 1 2; do g; jp2 p q; echo "$# $1 $y"; done
+n=0; while [ $n -lt 300 ]; do n=$((n+1)); jw; done; echo "many $n"
+n=0; for ((i=0; i<200; i++)); do jf; while :; do jw; break; done; n=$((n+1)); done; echo "many nested $n"
+jw; for x in 1 2; do echo "own frame $x"; done; n=0; while [ $n -lt 2 ]; do n=$((n+1)); echo "own frame $n"; done
+
+cd / && rm -rf "$d"
