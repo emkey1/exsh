@@ -934,6 +934,90 @@ def scenario_shell_state_outlasts_its_line(shell: PtyShell) -> tuple[bool, str]:
     return True, ""
 
 
+def scenario_wait_finds_a_job_from_an_earlier_line(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("wait_lines")
+    done = _new_marker_path("wait_lines_done")
+    listing = _new_marker_path("wait_lines_listing")
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    out = _shell_path(marker)
+    listed = _shell_path(listing)
+    _type_lines(shell, [
+        "( exit 3 ) &",
+        "wait_a=$!",
+        "( exit 4 ) &",
+        "wait_b=$!",
+        "( sleep 1; exit 7 ) &",
+        "wait_c=$!",
+        f'wait $wait_b; echo "b=$?" >> {out}',
+        f'wait $wait_a; echo "a=$?" >> {out}',
+        f'wait $wait_c; echo "c=$?" >> {out}',
+        f'wait $wait_a; echo "a_again=$?" >> {out}',
+        "sleep 30 &",
+        "wait_d=$!",
+        "kill $wait_d",
+        f'wait $wait_d; echo "killed=$?" >> {out}',
+        # A prompt has told of this one: its number has gone and its pid has not.
+        "( exit 5 ) &",
+        "wait_e=$!",
+        "true",
+        f'wait %1; echo "told_number=$?" >> {out}',
+        f'wait $wait_e; echo "told_pid=$?" >> {out}',
+        # At a prompt, a wait with no operands forgets every job.
+        "wait",
+        f'wait $wait_e; echo "forgotten=$?" >> {out}',
+        # All of those have ended, so numbers start again.
+        "sleep 30 &",
+        f"jobs > {listed}",
+        f"grep -c '^\\[1\\]' {listed} | sed s/^/number=/ >> {out}",
+        "kill %1",
+        f"touch {_shell_path(done)}",
+    ])
+    if not shell.wait_for_path(done):
+        return False, "the shell stopped taking lines"
+    got = marker.read_text().split()
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    _unlink_if_exists(listing)
+    want = ["b=4", "a=3", "c=7", "a_again=3", "killed=143", "told_number=127", "told_pid=5", "forgotten=127",
+            "number=1"]
+    if got != want:
+        return False, f"got {got}, want {want}"
+    return True, ""
+
+
+def scenario_wait_n_passes_what_a_prompt_told_of(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("wait_n_lines")
+    done = _new_marker_path("wait_n_lines_done")
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    out = _shell_path(marker)
+    _type_lines(shell, [
+        "( exit 3 ) &",
+        "true",
+        f'wait -n; echo "told=$?" >> {out}',
+        # This one ends between prompts, so nothing has told of it yet.
+        "( sleep 0.1; exit 4 ) &",
+        f'wait -n; echo "next=$?" >> {out}',
+        f"touch {_shell_path(done)}",
+    ])
+    if not shell.wait_for_path(done):
+        return False, "the shell stopped taking lines"
+    got = marker.read_text().split()
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    want = ["told=127", "next=4"]
+    if got != want:
+        return False, f"got {got}, want {want}"
+    return True, ""
+
+
 def _exit_trap_runs(shell: PtyShell, marker: Path) -> list[str]:
     shell.wait_for_path(marker)
     shell._pump(0.5)
@@ -1365,6 +1449,16 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_line_state",
         name="Traps, readonly, $!, the directory stack, arrays, getopts and jobs outlast a line",
         run=scenario_shell_state_outlasts_its_line,
+    ),
+    Scenario(
+        test_id="interactive_wait_earlier_line",
+        name="wait finds a job from an earlier line, and numbers start again",
+        run=scenario_wait_finds_a_job_from_an_earlier_line,
+    ),
+    Scenario(
+        test_id="interactive_wait_n_earlier_line",
+        name="wait -n passes by a job a prompt has told of",
+        run=scenario_wait_n_passes_what_a_prompt_told_of,
     ),
     Scenario(
         test_id="interactive_trap_later_line",

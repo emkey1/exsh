@@ -4155,6 +4155,9 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         pscalRuntimeClearInterruptFlag();
         shellRuntimeEnsureStandardFds();
         shellRuntimeRestoreForeground();
+        if (pscalRuntimeStdinIsInteractive()) {
+            shellRuntimeJobsBeforePrompt();
+        }
         char *prompt_storage = shellResolveInteractivePrompt();
         const char *prompt = prompt_storage ? prompt_storage : "exsh$ ";
         char *line = NULL;

@@ -1,0 +1,94 @@
+#!/usr/bin/env exsh
+# wait finds any job this shell started, however long ago it ended, in any order and as often as
+# it is asked. A number is a pid and %n a job. What a subshell's shell started is not its to wait
+# for, and wait with no operands gives 0 and forgets every job but an ended one $! names. Bash 3.2
+# has no wait -n, so that is in bash5_forms.
+exec 2> /dev/null
+
+# In any order, ended before or during the wait.
+( exit 3 ) & a=$!; ( exit 4 ) & b=$!; sleep 0.3; wait $a; echo "first of two $?"; wait $b; echo "second of two $?"
+( exit 3 ) & a=$!; ( exit 4 ) & b=$!; sleep 0.3; wait $b; echo "second first $?"; wait $a; echo "first second $?"
+( sleep 0.3; exit 7 ) & a=$!; ( exit 8 ) & b=$!; wait $a; echo "slow $?"; wait $b; echo "quick $?"
+( exit 8 ) & a=$!; ( sleep 0.5; exit 7 ) & b=$!; sleep 0.2; wait $a; echo "ended $?"; wait $b; echo "running $?"; wait $a; echo "ended again $?"
+n=0
+while [ "$n" -lt 5 ]; do
+    ( exit 3 ) & a=$!; ( exit 4 ) & b=$!; wait $a; echo "at once a $?"; wait $b; echo "at once b $?"
+    n=$((n + 1))
+done
+
+# As often as it is asked.
+( exit 5 ) & p=$!; wait $p; echo "once $?"; wait $p; echo "twice $?"; wait $p; echo "three times $?"
+( exit 6 ) & p=$!; sleep 0.2; wait $p; echo "ended once $?"; wait $p; echo "ended twice $?"
+
+# Killed.
+( sleep 2 ) & a=$!; ( sleep 2 ) & b=$!; sleep 0.1; kill $a $b; wait $a; echo "killed a $?"; wait $b; echo "killed b $?"; wait $a; echo "killed a again $?"
+
+# Many, and a status from long ago.
+for i in 1 2 3 4 5 6 7 8; do ( exit $i ) & eval "p$i=\$!"; done; sleep 0.5
+for i in 8 1 5 2 7 3 6 4; do eval "wait \$p$i"; echo "of many $i $?"; done
+n=0; while [ $n -lt 40 ]; do ( exit 2 ) & eval "q$n=\$!"; n=$((n + 1)); done; sleep 0.8
+s=0; n=0; while [ $n -lt 40 ]; do eval "wait \$q$n"; s=$((s + $?)); n=$((n + 1)); done; echo "sum $s"
+( exit 3 ) & a=$!; sleep 0.2; ( exit 4 ) & b=$!; sleep 0.2; ( exit 5 ) & c=$!; sleep 0.2; true; true
+wait $a; echo "long ago a $?"; wait $b; echo "long ago b $?"; wait $c; echo "long ago c $?"
+
+# Several operands give the last one's status.
+( exit 3 ) & a=$!; ( exit 4 ) & b=$!; sleep 0.2; wait $a $b; echo "a then b $?"; wait $b $a; echo "b then a $?"
+wait 99999 $a; echo "last known $?"; wait $a 99999; echo "last unknown $?"
+
+# With no operands.
+( sleep 0.2; exit 3 ) & a=$!; wait; echo "all $?"; wait $a; echo "waited for, forgotten $?"
+( exit 3 ) & a=$!; sleep 0.2; wait; echo "all ended $?"; wait $a; echo "ended, kept $?"
+( exit 3 ) & a=$!; ( exit 4 ) & b=$!; sleep 0.2; wait; echo "both ended $?"; wait $a; echo "not the last $?"; wait $b; echo "the last $?"
+( exit 3 ) & a=$!; ( sleep 0.3; exit 4 ) & b=$!; sleep 0.1; wait; echo "last running $?"; wait $a; echo "ended, forgotten $?"; wait $b; echo "ran, forgotten $?"
+
+# What is not a job.
+wait 99999; echo "unknown pid $?"
+wait %7; echo "unknown job $?"
+wait foo; echo "not a pid $?"
+wait %foo; echo "not a job $?"
+( sleep 0.2; exit 3 ) & wait 1; echo "1 is a pid $?"; wait; echo "left $?"
+
+# Job numbers.
+( exit 3 ) & ( exit 4 ) & sleep 0.2; wait %2; echo "job 2 $?"; wait %1; echo "job 1 $?"
+( sleep 0.2; exit 3 ) & ( sleep 0.2; exit 4 ) & wait %1; echo "running 1 $?"; wait %2; echo "running 2 $?"; wait %1; echo "gone $?"
+( exit 3 ) & a=$!; wait $a; echo "by pid $?"; wait %1; echo "then by number $?"; wait %1; echo "then gone $?"; wait $a; echo "pid still $?"
+( sleep 0.1; exit 3 ) & a=$!; wait %1; echo "by number $?"; wait $a; echo "then by pid $?"
+( exit 3 ) &
+a=$!
+sleep 0.2
+( exit 4 ) &
+b=$!
+sleep 0.2
+wait %1; echo "first number $?"; wait %2; echo "second number $?"; wait $a; echo "first pid $?"; wait $b; echo "second pid $?"
+( exit 3 ) & sleep 0.1; ( exit 4 ) & sleep 0.1; jobs > /dev/null; ( exit 5 ) & sleep 0.1; wait %1; echo "after jobs 1 $?"; wait %2; echo "after jobs 2 $?"
+( exit 3 ) & a=$!; sleep 0.2; jobs > /dev/null; wait $a; echo "jobs keeps the pid $?"
+
+# disown: bash answers 0 at once, and the number has gone.
+( sleep 0.1; exit 3 ) & p=$!; disown; wait $p; echo "disowned $?"; wait %1; echo "disowned number $?"
+( sleep 0.1; exit 3 ) & p=$!; disown; sleep 0.3; wait $p; echo "disowned, ended $?"; wait
+
+# A subshell has its own jobs and numbers.
+( exit 3 ) & a=$!; sleep 0.2; ( wait $a; echo "not the subshell's $?"; wait %1; echo "not its number $?" ); wait $a; echo "the shell's $?"
+( ( exit 3 ) & a=$!; ( exit 4 ) & b=$!; sleep 0.2; wait $a; echo "its own a $?"; wait $b; echo "its own b $?"; wait $a; echo "its own a again $?" ); echo "subshell $?"
+( ( exit 3 ) & ( sleep 0.1; exit 4 ) & sleep 0.3; wait %2; echo "its job 2 $?"; wait %1; echo "its job 1 $?" )
+( ( exit 3 ) & ( sleep 0.1; exit 4 ) & sleep 0.3; wait %2; echo "in the background 2 $?"; wait %1; echo "in the background 1 $?" ) & wait
+x=$( ( exit 3 ) & a=$!; ( exit 4 ) & b=$!; sleep 0.2; wait $a; echo "substitution a $?"; wait $b; echo "substitution b $?" ); echo "$x"
+( exit 3 ) & a=$!; sleep 0.2; { wait $a; echo "not the stage's $?"; } | cat; wait $a; echo "still the shell's $?"
+
+# So does a shell run as a command, whatever its caller has running. Its jobs are still running when
+# it asks: where sh is bash in POSIX mode, as on macOS, the number of one that has ended is gone.
+( sleep 1; exit 9 ) & c=$!
+sh -c '( sleep 0.2; exit 3 ) & ( sleep 0.5; exit 4 ) & wait %1; echo "its own first $?"; wait %2; echo "its own second $?"; wait %3; echo "no third $?"'
+sh -c "wait $c; echo \"not the command's \$?\""
+wait %1; echo "the caller's number $?"; wait $c; echo "the caller's pid $?"
+
+# Started in a function, a simple command, and what a pipeline gives.
+f() { ( exit 3 ) & a=$!; ( exit 4 ) & b=$!; }; f; sleep 0.2; wait $a; echo "from a function a $?"; wait $b; echo "from a function b $?"
+false & p=$!; true & q=$!; sleep 0.2; wait $p; echo "false $?"; wait $q; echo "true $?"; wait $p; echo "false again $?"
+( exit 1 ) | ( exit 9 ) & p=$!; sleep 0.2; wait $p; echo "pipeline $?"; wait $p; echo "pipeline again $?"
+( sleep 0.2; exit 1 ) | ( exit 9 ) & p=$!; wait $p; echo "last stage ended first $?"
+( sleep 0.3; exit 1 ) | ( exit 9 ) & p=$!; sleep 0.1; wait $p; echo "last stage gone already $?"; wait
+
+# wait gives its own status, and a job ending gives none.
+( exit 3 ) & a=$!; sleep 0.2; false; echo "before $?"; wait $a; echo "wait $?"; echo "after $?"
+( exit 3 ) & a=$!; sleep 0.2; kill $a; echo "kill an ended job $?"; wait $a; echo "still known $?"
