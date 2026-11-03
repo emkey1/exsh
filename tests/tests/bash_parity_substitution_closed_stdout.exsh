@@ -1,0 +1,20 @@
+#!/usr/bin/env exsh
+# A command substitution around closed descriptors. pipe() gets the lowest free numbers, so a
+# closed stdout used to be the pipe, and the copy saved of it a copy of the pipe: nothing was
+# captured, and with stdin closed too the reader waited for ever on what it had put back.
+exec 8>&1 7>&2 9<&0
+
+exec >&-; x=$(echo hi); exec >&8; echo "out [$x]"
+exec <&- >&-; x=$(echo hi); exec >&8 <&9; echo "in out [$x]"
+exec <&-; x=$(echo hi); exec <&9; echo "in [$x]"
+exec 2>&-; x=$(echo hi); exec 2>&7; echo "err [$x]"
+exec >&- 2>&-; x=$(echo hi); exec >&8 2>&7; echo "out err [$x]"
+exec <&- >&- 2>&-; x=$(echo hi); exec >&8 2>&7 <&9; echo "all [$x]"
+exec <&- 2>&-; x=$(echo hi); exec 2>&7 <&9; echo "in err [$x]"
+
+exec >&-; x=$(y=$(echo in); echo "$y out"); exec >&8; echo "nested [$x]"
+exec >&-; x=$(true); exec >&8; echo "nothing [$x]"
+exec >&-; x=$(sleep 0.2 & echo hi); exec >&8; echo "job [$x]"
+
+exec 8>&- 7>&- 9<&-
+x=$(echo open again); echo "[$x]"

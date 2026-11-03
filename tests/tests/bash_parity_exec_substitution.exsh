@@ -1,0 +1,87 @@
+#!/usr/bin/env exsh
+# exec in a command substitution ends the substitution, as if it were a subshell. The shell
+# runs a substitution in its own process, so exec used to replace the whole script. What is
+# named here also runs on the iOS-flavoured build: bash_parity_exec_program_substitution has the rest.
+d="${TMPDIR:-/tmp}/exsh_parity_exec_sub.$$"
+mkdir -p "$d" || exit 1
+
+# A command, and nothing after it runs.
+x=$(exec echo hi); echo "[$x] rc=$?"
+x=$(exec false); echo "[$x] rc=$?"
+x=$(exec true); echo "[$x] rc=$?"
+x=$(exec echo one; echo two); echo "[$x]"
+x=`exec echo tick`; echo "[$x]"
+echo "[$(exec echo in a word)]"
+x=$(command exec echo via-command; echo no); echo "[$x]"
+x=$(builtin exec echo via-builtin; echo no); echo "[$x]"
+
+# From wherever it is in there.
+f() { exec echo from-f; echo no; }
+x=$(f); echo "[$x]"
+x=$(f; echo no); echo "[$x]"
+x=$(y=$(exec echo inner); echo "[$y]"); echo "outer $x"
+x=$({ exec echo in-group; echo no; }; echo no2); echo "[$x]"
+x=$(if true; then exec echo in-if; fi; echo no); echo "[$x]"
+x=$(for i in 1 2; do exec echo "body $i"; done; echo no); echo "[$x]"
+x=$(n=0; while [ "$n" -lt 2 ]; do n=$((n+1)); exec echo "while $n"; done; echo no); echo "[$x]"
+x=$(case a in (a) exec echo in-case;; esac; echo no); echo "[$x]"
+x=$(true && exec echo in-and; echo no); echo "[$x]"
+x=$(false || exec echo in-or; echo no); echo "[$x]"
+for i in 1 2 3; do x=$(exec echo "loop $i"); echo "$x"; done
+
+# Its options.
+export B=1; x=$(exec -c sh -c 'echo "[$B]"'); echo "[$x] rc=$?"; unset B
+x=$(A=1 exec -c sh -c 'echo "[$A]"'); echo "[$x]"
+x=$(exec -- sh -c 'echo dashes'; echo no); echo "[$x]"
+x=$(exec -z sh 2>/dev/null; echo "after a bad option $?"); echo "[$x]"
+x=$(exec -c; echo "no program"); echo "[$x]"
+x=$(exec -c 5>&1; echo a >&5; echo b); echo "[$x]"
+
+# Apart from the shell: stages and subshells do what they did.
+x=$(exec echo piped | cat); echo "[$x]"
+x=$(echo piped | exec cat); echo "[$x]"
+x=$( (exec echo in-subshell; echo no); echo after-subshell ); echo "[$x]"
+
+# Its redirections are for the command.
+x=$(exec echo to-file > "$d/o"); echo "[$x] [$(cat "$d/o")]"
+x=$(exec cat <<< here-string); echo "[$x]"
+x=$(exec cat <<EOF
+here-doc
+EOF
+); echo "[$x]"
+x=$(exec cat < "$d/o"); echo "[$x]"
+
+# What a subshell would take with it stays behind.
+y=1; x=$(y=2; exec echo "$y"); echo "[$x] $y"
+start=$PWD; x=$(cd "$d"; exec echo "${PWD##*/}"); [ "$PWD" = "$start" ] && echo "cwd kept"
+
+# A command that cannot run ends it too, with or without execfail.
+x=$(exec nosuchcommand 2>/dev/null; echo not-reached); echo "[$x] rc=$?"
+shopt -s execfail
+x=$(exec nosuchcommand 2>/dev/null; echo not-reached); echo "[$x] rc=$?"
+shopt -u execfail
+
+# Only redirections: they end with the substitution.
+exec 3> "$d/o3"
+x=$(exec 3> "$d/o4"; echo in >&3); echo out >&3
+exec 3>&-
+echo "o3 [$(cat "$d/o3")] o4 [$(cat "$d/o4")]"
+x=$(exec 5>&1; echo a >&5; echo b); echo "[$x]"
+echo probe 2>/dev/null >&5; echo "5 rc=$?"
+x=$(exec 6>&1 7>&1 8>&1; echo c); echo "[$x]"
+echo probe 2>/dev/null >&7; echo "7 rc=$?"
+x=$(exec 6>&1; exec 6>&-; echo closed); echo "[$x]"
+x=$(exec > /dev/null; echo gone); echo "[$x]"
+x=$(exec > "$d/o5"; echo in-file); echo "[$x] [$(cat "$d/o5")]"
+x=$(exec 2>&1; echo with-stderr); echo "[$x]"
+echo to-stderr-still >&2
+x=$(y=$(exec 5>&1; echo inner >&5); echo "[$y]"; echo probe 2>/dev/null >&5; echo "rc=$?"); echo "$x"
+exec 5> "$d/o6"; x=$(y=$(exec 5>&1; echo a >&5); echo b >&5; echo "$y"); echo outer >&5; exec 5>&-
+echo "[$x] [$(cat "$d/o6")]"
+
+# Numbers the shell might have used for itself.
+w=$(exec 3> /dev/null; exec 4> /dev/null; exec 5> /dev/null; exec 6> /dev/null; echo low); echo "[$w]"
+w=$(echo with-redirects 3> /dev/null 4> /dev/null 5> /dev/null); echo "[$w]"
+echo still-visible
+
+rm -rf "$d"

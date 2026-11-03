@@ -1,0 +1,60 @@
+#!/usr/bin/env exsh
+# A command substitution reads to end of file, not to the end of the command: what the
+# command left running can still write. The reader used to stop soon after the command, and
+# a job writing later hit a closed pipe. As under bash, a job holding the pipe is waited for,
+# and one that sent its output elsewhere is not.
+
+# What a job writes after the command has ended.
+z=$( { sleep 0.2; echo late; } & echo early ); echo "[$z]"
+z=$( ( sleep 0.2; echo late ) & echo early ); echo "[$z]"
+f() { sleep 0.2; echo from-f; }
+z=$(f & echo early); echo "[$z]"
+z=$(for i in 1 2; do ( sleep "0.$i"; echo "l$i" ) & done; echo early); echo "[$z]"
+z=$(echo piped | { sleep 0.2; cat; } & echo early); echo "[$z]"
+z=$( { sleep 0.2; echo late; } & exit 3 ); echo "[$z] rc=$?"
+z=$( { sleep 0.2; echo late; } & false ); echo "[$z] rc=$?"
+z=$(exec 3>&1; { sleep 0.2; echo late >&3; } & echo early); echo "[$z]"
+z=$(y=$( { sleep 0.2; echo inner-late; } & echo inner ); echo "$y"; echo outer); echo "[$z]"
+echo "[$( { sleep 0.2; echo in-a-word; } & echo early )]"
+
+# The status is the command's, whenever the job ends.
+z=$( { sleep 0.2; exit 9; } & exit 4 ); echo "rc=$?"
+
+# A job holding the pipe is waited for.
+s=$(date +%s); z=$(sleep 2 &); e=$(date +%s)
+[ "$((e-s))" -ge 1 ] && echo "[$z] waited" || echo "[$z] did not wait"
+
+# One that sent its output elsewhere is not. Nothing here must keep the pipe open for it.
+quick() {
+    e=$(date +%s)
+    [ "$((e-s))" -lt 3 ] && echo "$1 quick [$z]" || echo "$1 waited [$z]"
+}
+s=$(date +%s); z=$(sleep 5 > /dev/null 2>&1 & echo early); quick simple
+s=$(date +%s); z=$( { sleep 5; } > /dev/null 2>&1 & echo early); quick group
+s=$(date +%s); z=$( ( sleep 5 ) > /dev/null 2>&1 & echo early); quick subshell
+s=$(date +%s); z=$(y=$(sleep 5 > /dev/null 2>&1 & echo in); echo "$y"); quick nested
+s=$(date +%s); z=$(exec > /dev/null; { sleep 5; } & echo gone); quick exec_away
+
+# The jobs in there are none of the shell's afterwards.
+z=$(sleep 0.1 & echo bg); echo "[$z] [$!]"
+jobs
+wait; echo "wait rc=$?"
+z=$(sleep 0.1 & p=$!; wait "$p"; echo "inner rc=$?"); echo "[$z]"
+z=$(sleep 5 > /dev/null 2>&1 & p=$!; kill "$p"; wait "$p" 2>/dev/null; echo "killed rc=$?"); echo "[$z]"
+
+# Everything else still ends as it should.
+z=$(echo plain); echo "[$z]"
+z=$(echo a | cat | cat); echo "[$z]"
+z=$(cat <<EOF
+doc
+EOF
+); echo "[$z]"
+z=$(exec 3>&1 4>&1; echo fds); echo "[$z]"
+z=$(echo a 3>&1); echo "[$z]"
+g() { echo in-g; } 3>&1
+z=$(g); echo "[$z]"
+z=$({ echo group; } 3>&1); echo "[$z]"
+z=$(cat <(echo process-sub)); echo "[$z]"
+z=$(echo written > >(cat); sleep 0.1); echo "[$z]"
+for i in 1 2 3; do z=$(echo "again $i"); echo "$z"; done
+n=0; while [ "$n" -lt 50 ]; do z=$(echo "$n"); n=$((n+1)); done; echo "[$z]"

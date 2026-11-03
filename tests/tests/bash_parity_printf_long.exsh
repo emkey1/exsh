@@ -1,0 +1,43 @@
+#!/usr/bin/env exsh
+# No conversion of printf has a limit on its length. Each one used to stop at 255
+# characters of output: %s first, then the numbers and %c, which went through a fixed buffer.
+# Sizes come from ${#x}, with no pipeline, so this also runs on the iOS-flavoured build.
+show() {
+    echo "$1 ${#2} [${2: -3}]"
+}
+
+x=$(printf '%300d|' 7); show d "$x"
+x=$(printf '%-300d|' 7); show left "$x"
+x=$(printf '%300i|' 7); show i "$x"
+x=$(printf '%.300d|' 7); show precision "$x"
+x=$(printf '%300u|' 7); show u "$x"
+x=$(printf '%300o|' 8); show o "$x"
+x=$(printf '%300x|' 255); show x "$x"
+x=$(printf '%300X|' 255); show X "$x"
+x=$(printf '%300.2f|' 1.5); show f "$x"
+x=$(printf '%.300f|' 1.5); show long_fraction "$x"
+x=$(printf '%300e|' 1.5); show e "$x"
+x=$(printf '%300g|' 1.5); show g "$x"
+x=$(printf '%300c|' a); show c "$x"
+x=$(printf '%-300c|' a); show c_left "$x"
+x=$(printf '%300s|' a); show s "$x"
+x=$(printf '%300b|' 'a\tb'); show b "$x"
+x=$(printf '%300q|' abc); show q "$x"
+x=$(printf '%*d|' 400 7); show star "$x"
+x=$(printf '%.*f|' 300 1.5); show star_precision "$x"
+x=$(printf '%*.*f|' 400 300 1.5); show both_stars "$x"
+x=$(printf '%2000d|' 7); show bigger "$x"
+x=$(printf '%070000d|' 7); show past_a_pipe "$x"
+
+# A long argument, and a long list of short ones.
+long=$(seq 1 3000)
+x=$(printf '%s\n' "$long"); show s_argument "$x"
+x=$(printf '%d %s\n' 12345 "$long"); show after_a_number "$x"
+x=$(printf '%b' "$long"); show b_argument "$x"
+printf -v v '%s' "$long"; show minus_v "$v"
+printf -v v '%300d|' 7; show minus_v_number "$v"
+x=$(printf '%s,' $long); show repeated "$x"
+x=$(printf '%5d|' $long); show repeated_numbers "$x"
+
+# What is short stays as it was.
+printf '[%5d][%-5d][%05d][%+d][%x][%o][%.2f][%c][%5s][%-5s]\n' 42 42 42 42 255 8 1.5 a b c

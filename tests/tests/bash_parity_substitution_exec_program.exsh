@@ -1,0 +1,69 @@
+#!/usr/bin/env exsh
+# exec in a command substitution with a real program. Host only: nothing on the iOS-flavoured
+# build finds these paths. bash_parity_exec_substitution has the forms that run there too.
+x=$(exec /bin/echo hi); echo "[$x] rc=$?"
+echo after
+x=$(exec /bin/echo one; echo two); echo "[$x]"
+x=$(exec sh -c 'echo out; exit 7'); echo "[$x] rc=$?"
+x=$(FOO=bar exec sh -c 'echo "$FOO"'); echo "[$x] [${FOO:-unset}]"
+x=$(exec sh -c 'echo err >&2; echo out' 2>&1); echo "[$x]"
+x=$(exec sh -c 'kill -TERM $$'; echo no); echo "[$x] rc=$?"
+f() { exec /bin/echo from-f; echo no; }
+x=$(f); echo "[$x]"
+y=1; x=$(y=2; exec sh -c 'echo "${y:-unset}"'); echo "[$x] $y"
+x=$(exec 3>&1; sh -c 'echo through-3 >&3'); echo "[$x]"
+x=$(exec /nonexistent/cmd 2>/dev/null; echo not-reached); echo "[$x]"
+
+# What the options call it.
+x=$(exec -a shown sh -c 'echo "$0"'); echo "[$x]"
+# Not sh for -l: as a login shell it reads the host's profile.
+x=$(exec -l awk 'BEGIN { print ARGV[0] }'); echo "[$x]"
+x=$(exec -l /usr/bin/awk 'BEGIN { print ARGV[0] }'); echo "[$x]"
+x=$(exec -l -a shown awk 'BEGIN { print ARGV[0] }'); echo "[$x]"
+(exec -l /usr/bin/awk 'BEGIN { print ARGV[0] }')
+x=$(exec -c /usr/bin/env); echo "[$x]"
+x=$(exec -c -a shown /bin/sh -c 'echo "$0 [$HOME]"'); echo "[$x]"
+x=$(exec -a shown /nonexistent/cmd 2>/dev/null; echo not-reached); echo "[$x]"
+x=$(exec -a shown sh -c 'echo "$0"' | cat); echo "[$x]"
+echo "name after [$(echo kept)]"
+
+# What it leaves running: the substitution waits for end of file, as it does for any job.
+x=$( { sleep 0.2; echo late; } & exec /bin/echo early ); echo "[$x]"
+x=$( sh -c '(sleep 0.2; echo late) & echo early' ); echo "[$x]"
+x=$( sh -c 'sleep 0.2; echo late' & exec /bin/echo early ); echo "[$x]"
+
+x=$(exec >&-; echo gone 2>/dev/null); echo "[$x]"
+
+# A job with its output elsewhere lets go of the pipe. On iOS this form still holds it until
+# the job ends, in the copy the last stage saves for its own redirection.
+s=$(date +%s); z=$(sleep 5 2>&1 | cat > /dev/null & echo early); e=$(date +%s)
+[ "$((e-s))" -lt 3 ] && echo "pipeline quick [$z]" || echo "pipeline waited [$z]"
+
+# A failed exec names the real reason and does not read the program as a script. E2BIG went
+# that way: `exsh: ELF: No such file or directory`, and a script ran after all. The programs
+# have names of their own, or the shell would find a builtin or an applet by the last part.
+d="${TMPDIR:-/tmp}/exsh_parity_exec_ext.$$"
+mkdir -p "$d" || exit 1
+cp /bin/ls "$d/prog"
+printf '#!/bin/sh\necho ran\n' > "$d/script"
+chmod +x "$d/prog" "$d/script"
+big=$(printf '%2000000s' x)
+"$d/prog" "$big" 2>/dev/null; echo "program rc=$?"
+"$d/script" "$big" 2>/dev/null; echo "script rc=$?"
+for f in prog script; do
+    msg=$("$d/$f" "$big" 2>&1)
+    case "$msg" in
+        *ran*|*"ot found"*|*"No such file"*|*ELF*|*"unexpected"*) echo "$f read as a script" ;;
+        *"too long"*) echo "$f too long" ;;
+        *) echo "$f something else" ;;
+    esac
+done
+x=$(exec "$d/prog" "$big" 2>/dev/null); echo "in a substitution [$x]"
+unset big msg
+
+# What exec cannot run because it has no #! line is a script, the one case for reading it.
+printf 'echo from-a-script "$1"\n' > "$d/s"
+chmod +x "$d/s"
+"$d/s" arg; echo "no #! line rc=$?"
+x=$("$d/s" sub); echo "[$x] rc=$?"
+rm -rf "$d"

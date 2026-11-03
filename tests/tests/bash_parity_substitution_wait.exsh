@@ -1,0 +1,20 @@
+#!/usr/bin/env exsh
+# A job that ends while a command substitution runs stays its shell's to wait for. The
+# substitution's copy of the job table reaped it: on iOS the shell's `wait` then never returned,
+# and on a host it lost the job's status.
+true & x=$(echo one); wait; echo "[$x] $?"
+true & y=$(true); wait; echo "[$y] $?"
+true & p=$!; x=$(echo two); wait "$p"; echo "[$x] $?"
+{ sleep 0.1; (exit 3); } & p=$!; x=$(sleep 0.3; echo three); wait "$p"; echo "[$x] $?"
+sleep 0.1 & x=$(sleep 0.3; echo four); wait; echo "[$x] $?"
+true & x=$(y=$(true); echo five); wait; echo "[$x] $?"
+true & x=$(sleep 0.1 & echo six); wait; echo "[$x] $?"
+
+# In there nothing waits for the shell's jobs, and they stay the shell's.
+sleep 0.2 & x=$(wait 2>/dev/null; echo "in $?"); echo "[$x]"; wait; echo "out $?"
+sleep 0.2 & p=$!; x=$(wait "$p" 2>/dev/null; echo in); echo "[$x]"; wait "$p"; echo "out $?"
+sleep 0.2 & x=$(eval wait 2>/dev/null; echo in); echo "[$x]"; wait; echo "out $?"
+
+# A job that has already ended can be found in there, and the shell can still ask.
+( exit 3 ) & p=$!; sleep 0.1; x=$(wait "$p" 2>/dev/null; echo "in $?"); echo "[$x]"; wait "$p"; echo "out $?"
+( exit 4 ) & p=$!; sleep 0.1; x=$(wait 2>/dev/null; echo "in $?"); echo "[$x]"; wait "$p"; echo "out $?"

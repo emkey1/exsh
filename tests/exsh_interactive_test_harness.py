@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import pty
 import re
 import selectors
 import signal
 import subprocess
+import termios
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,9 +47,10 @@ class Result:
 
 
 class PtyShell:
-    def __init__(self, executable: Path, timeout: float):
+    def __init__(self, executable: Path, timeout: float, controlling_terminal: bool = False):
         self.executable = executable
         self.timeout = timeout
+        self.controlling_terminal = controlling_terminal
         self.master_fd: Optional[int] = None
         self.proc: Optional[subprocess.Popen[bytes]] = None
         self.selector: Optional[selectors.BaseSelector] = None
@@ -70,6 +73,7 @@ class PtyShell:
             env=env,
             close_fds=True,
             start_new_session=True,
+            preexec_fn=(lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0)) if self.controlling_terminal else None,
         )
         os.close(slave_fd)
         os.set_blocking(master_fd, False)
@@ -1325,6 +1329,55 @@ def scenario_redirect_and_subshell_at_prompt(shell: PtyShell) -> tuple[bool, str
     return True, "&> and a subshell work at the prompt"
 
 
+def scenario_substitution_at_prompt(shell: PtyShell) -> tuple[bool, str]:
+    """A substitution reads to end of file, and a subshell has no job control.
+
+    A background command that read the terminal stopped there holding the substitution's
+    pipe, and the shell waited for it for good. The job's number is not part of the output.
+    """
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    for command, expected in (
+        ('x=$(sleep 0.1 & echo bg); echo "[$x]__NEXT1__"', "[bg]__NEXT1__"),
+        ('x=$( { sleep 0.2; echo late; } & echo early); echo "[$x]__NEXT2__"', "[early\nlate]__NEXT2__"),
+        ('x=$(cat & echo early); echo "[$x]__NEXT3__"', "[early]__NEXT3__"),
+        ('x=$({ cat; } & echo early); echo "[$x]__NEXT4__"', "[early]__NEXT4__"),
+        ('x=$(exec echo in-exec; echo no); echo "[$x]__NEXT5__"', "[in-exec]__NEXT5__"),
+    ):
+        shell._pump(0.30)
+        shell.send_line(command)
+        if not shell.wait_for_substring(expected, timeout=4.0):
+            return False, f"{command} did not show {expected!r}"
+    return True, "substitutions at the prompt end and capture what they should"
+
+
+def scenario_ctrl_c_ends_substitution_wait(shell: PtyShell) -> tuple[bool, str]:
+    """A substitution waits for a job holding its pipe, but an interrupt ends the wait.
+
+    Only a controlling terminal turns the byte into a signal, and the shells of the other
+    scenarios have none.
+    """
+    terminal = PtyShell(shell.executable, shell.timeout, controlling_terminal=True)
+    try:
+        ok, reason = _wait_for_prompt(terminal)
+        if not ok:
+            return False, reason
+        marker = _new_marker_path("ctrlc-substitution")
+        _unlink_if_exists(marker)
+        terminal.send_line("x=$(sleep 30 &); echo __NOT_REACHED__")
+        terminal._pump(1.0)
+        terminal.send(b"\x03")
+        terminal._pump(0.50)
+        terminal.send_line(f"touch {_shell_path(marker)}")
+        if not terminal.wait_for_path(marker, timeout=3.0):
+            return False, "Ctrl-C did not end the wait for the job"
+        _unlink_if_exists(marker)
+        return True, "Ctrl-C ended the wait for the job"
+    finally:
+        terminal.close()
+
+
 def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
     """A genuine syntax error still reports at once; only unfinished input waits."""
     ok, reason = _wait_for_prompt(shell)
@@ -1369,6 +1422,16 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_syntax_error_no_hang",
         name="Genuine syntax error reports without waiting",
         run=scenario_syntax_error_does_not_hang,
+    ),
+    Scenario(
+        test_id="interactive_substitution_at_prompt",
+        name="A substitution at the prompt reads to end of file and prints no job number",
+        run=scenario_substitution_at_prompt,
+    ),
+    Scenario(
+        test_id="interactive_ctrl_c_substitution_wait",
+        name="Ctrl-C ends a substitution's wait for a job holding its pipe",
+        run=scenario_ctrl_c_ends_substitution_wait,
     ),
     Scenario(
         test_id="interactive_ctrl_c_prompt",

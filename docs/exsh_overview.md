@@ -159,6 +159,15 @@ extends it with orchestration helpers implemented in
   and `env` run a program as a call, and `exec -a` and `-l` do not change its name.
   A `CHLD` trap does not run there, because every applet has a vproc of its own, and
   `kill -TERM $$` with no trap leaves the shell running.
+- A command substitution runs in the shell's own process, so that
+  `tid=$(builtin ThreadSpawnBuiltin ...)` leaves the thread where the script can wait for
+  it. Otherwise it behaves as a subshell: `exec cmd` in one runs the command and ends only
+  the substitution, `exec 3> f` in one lasts until it ends, and its background jobs are not
+  the shell's afterwards. It reads to end of file, so it waits for a job that still holds
+  its output, as bash does, and an interrupt ends that wait. Still different: an `EXIT`
+  trap set in a substitution does not run, and a signal sent to the shell runs its trap
+  inside the substitution. On iOS `x=$(a | b > f &)` also waits for the job, whose last
+  stage keeps a copy of the pipe.
 - Shell control builtins (`cd`, `pwd`, `exit`, `alias`, `export`, `setenv`,
   `unset`, `unsetenv`) and an interactive `help` builtin for listing and
   describing available commands. The directory-stack helpers (`dirs`, `pushd`,

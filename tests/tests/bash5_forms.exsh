@@ -47,3 +47,5 @@ f() { local v=1; unset v; declare -p v; echo "rc=$?"; }; f
 # 3.2 expands this one before the prefix before it.
 A=1 B=${A:-d} sh -c 'echo "$B"'; unset A
 declare -A sa; f() { local sa=1; declare -p sa; env | grep -c '^sa='; }; f; sa[k]=v; echo "${sa[k]}"
+(exit 3) & sleep 0.1; x=$(wait -n 2>/dev/null; echo "in $?"); echo "[$x]"; wait -n; echo "out $?"
+sleep 0.2 & x=$(sleep 0 & wait -n; echo "in $?"); echo "[$x]"; wait; echo "out $?"

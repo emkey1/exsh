@@ -1704,7 +1704,7 @@
             "description": "Case modification, negative subscripts, zero-padded ranges, ;& and ;;&, [[ -v ]], declare -A, declare -l and -u, ${x@Q}.",
             "script": "Tests/exsh/tests/bash5_forms.exsh",
             "expect": "runtime_ok",
-            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9\n3\n127\n4\n127\n3\nv w\none\ntwo\n3\ndeclare -i n=\"3\"\ndeclare -- v=\"1\"\ndeclare -x pe\ndeclare -- gv=\"l\"\ndeclare -- gv=\"g\"\ndeclare -- lv\ndeclare -- lv\ndeclare -x lx=\"1\"\ndeclare -- a=\"1\"\ndeclare -- b=\"x y\"\n[unset] [e] [0]\ndeclare -- v\nrc=0\n1\ndeclare -- sa=\"1\"\n0\nv"
+            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9\n3\n127\n4\n127\n3\nv w\none\ntwo\n3\ndeclare -i n=\"3\"\ndeclare -- v=\"1\"\ndeclare -x pe\ndeclare -- gv=\"l\"\ndeclare -- gv=\"g\"\ndeclare -- lv\ndeclare -- lv\ndeclare -x lx=\"1\"\ndeclare -- a=\"1\"\ndeclare -- b=\"x y\"\n[unset] [e] [0]\ndeclare -- v\nrc=0\n1\ndeclare -- sa=\"1\"\n0\nv\n[in 3]\nout 3\n[in 0]\nout 0"
         },
         {
             "id": "bash_parity_condition_list",
@@ -1940,6 +1940,54 @@
             "category": "parity",
             "description": "It makes the file, keeps what is there, shares one offset between reads and writes, defaults to standard input, and does not wait for a writer on a FIFO.",
             "script": "Tests/exsh/tests/bash_parity_read_write_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_printf_long",
+            "name": "printf has no limit on the length of a conversion",
+            "category": "parity",
+            "description": "Numbers, %c, %s, %b and %q wider than 255 characters, widths from arguments, long arguments, printf -v, and the short forms unchanged.",
+            "script": "Tests/exsh/tests/bash_parity_printf_long.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_substitution",
+            "name": "exec in a command substitution ends the substitution",
+            "category": "parity",
+            "description": "exec with a command from anywhere in a substitution runs it and ends there; exec with only redirections lasts until the substitution ends; the shell keeps its own descriptors, variables and directory.",
+            "script": "Tests/exsh/tests/bash_parity_exec_substitution.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_substitution_exec_program",
+            "name": "exec of a real program in a command substitution, and a failed exec",
+            "category": "parity",
+            "description": "exec of a program in a substitution with status, signals, the environment and jobs left behind; E2BIG reports the reason instead of reading the program as a script; a file with no #! line still runs as a script. Host only.",
+            "script": "Tests/exsh/tests/bash_parity_substitution_exec_program.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_substitution_eof",
+            "name": "A command substitution reads to end of file",
+            "category": "parity",
+            "description": "Output of a job left running reaches the substitution, a job holding the pipe is waited for, one with its output elsewhere is not, and the jobs in there are none of the shell's afterwards.",
+            "script": "Tests/exsh/tests/bash_parity_substitution_eof.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_substitution_closed_stdout",
+            "name": "A command substitution around closed descriptors",
+            "category": "parity",
+            "description": "With stdout, stdin or stderr closed the substitution still captures and ends.",
+            "script": "Tests/exsh/tests/bash_parity_substitution_closed_stdout.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_substitution_wait",
+            "name": "A job that ends during a command substitution",
+            "category": "parity",
+            "description": "It stays the shell's: `wait` returns, with the job's status when asked for it by pid.",
+            "script": "Tests/exsh/tests/bash_parity_substitution_wait.exsh",
             "expect": "match_bash"
         }
     ]
