@@ -1215,6 +1215,14 @@
       "script": "Tests/exsh/tests/bash_parity_background_release.exsh",
       "expect": "match_bash"
     },
+    {
+      "id": "bash_parity_background_starter",
+      "name": "A background job outlives what started it, with what that had at the &",
+      "category": "parity",
+      "description": "Jobs started by a subshell, eval, source or a function that ends at once keep stdout, descriptors above stdio, $! and wait; what the starter does after the & does not reach them.",
+      "script": "Tests/exsh/tests/bash_parity_background_starter.exsh",
+      "expect": "match_bash"
+    },
         {
             "id": "bash_parity_group_redirect",
             "name": "Redirections on compound commands match bash",

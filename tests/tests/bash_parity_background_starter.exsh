@@ -1,0 +1,124 @@
+#!/usr/bin/env exsh
+# A job goes on after whatever started it has ended, with what that had at the `&`. A fork
+# gives bash this for nothing. In one process the job's thread used to set itself up from its
+# starter's vproc, which may have been destroyed by then: a crash, and in the app that ends
+# every tab.
+d="${TMPDIR:-/tmp}/exsh_parity_bg_starter.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+rounds="1 2 3 4 5 6 7 8 9 10"
+
+# It was a race, so each form runs many times. The reader ends when the job does, because the
+# job holds the pipe, and the job's output reaches `tr` only through the stdout it inherited.
+count() {
+  n=0
+  for r in $rounds; do
+    [ "$("$1" | tr a-z A-Z)" = JOB ] && n=$((n + 1))
+  done
+  echo "$1: $n"
+}
+
+echo '{ echo job; } &' > job.sh
+group_in_subshell() { ( { echo job; } & ); }
+plain_in_subshell() { ( echo job & ); }
+subshell_in_subshell() { ( ( echo job ) & ); }
+loop_in_subshell() { ( for i in 1; do echo job; done & ); }
+pipeline_in_subshell() { ( echo job | cat & ); }
+eval_group() { eval "{ echo job; } &"; }
+eval_in_subshell() { ( eval "{ echo job; } &" ); }
+eval_then_more() { ( eval "{ echo job; } &"; : ); }
+source_group() { . ./job.sh; }
+started_by_function() { inner() { { echo job; } & }; inner; }
+
+count group_in_subshell
+count plain_in_subshell
+count subshell_in_subshell
+count loop_in_subshell
+count pipeline_in_subshell
+count eval_group
+count eval_in_subshell
+count eval_then_more
+count source_group
+count started_by_function
+
+# The same with nothing around them.
+for r in $rounds; do ( { echo direct; } & ) | tr a-z A-Z; done | grep -c DIRECT
+for r in $rounds; do ( eval "{ echo direct; } &" ) | tr a-z A-Z; done | grep -c DIRECT
+for r in $rounds; do eval "{ :; } &"; done; wait; echo "eval, nothing to read: $?"
+
+# $! and wait reach the job.
+eval "{ exit 3; } &"; wait $!; echo "eval: wait $?"
+( { exit 4; } & wait $!; echo "subshell: wait $?" )
+( eval "{ exit 5; } &"; wait $!; echo "eval in a subshell: wait $?" ) | cat
+f() { { exit 6; } & }; f; wait $!; echo "function: wait $?"
+echo '{ exit 7; } &' > status.sh; . ./status.sh; wait $!; echo "source: wait $?"
+( f() { { exit 8; } & }; f; wait $!; echo "function in a subshell: wait $?" )
+( . ./status.sh; wait $!; echo "source in a subshell: wait $?" )
+( eval "{ sleep 0.1; exit 9; } &"; wait $!; echo "still running, eval in a subshell: wait $?" )
+# In a subshell $! is the job and not the subshell, whose group the job is in.
+( { sleep 5; } > /dev/null 2>&1 & kill $!; echo "subshell: kill reached the job" ) 2> /dev/null
+( { sleep 0.1; exit 9; } & wait $!; echo "still running, subshell: wait $?" )
+
+# Descriptors above stdio reach the job.
+exec 3> three.out
+( { echo group >&3; } & ) | cat
+( eval "{ echo eval >&3; } &" ) | cat
+exec 3>&-
+cat three.out
+
+# With nothing to wait on, the file shows when the job has run.
+settle() {
+  tries=0
+  until [ -s "$1" ] || [ "$tries" -ge 100 ]; do
+    tries=$((tries + 1))
+    sleep 0.05
+  done
+}
+exec 3> alone.out
+( { echo alone >&3; } & )
+exec 3>&-
+settle alone.out
+cat alone.out
+
+# The job has what the starter had at the `&`. What it does next is its own.
+exec 4> four.out
+( { sleep 0.1; echo kept >&4; } & exec 4>&- ) | cat
+exec 4>&-
+cat four.out
+( { sleep 0.1; echo stdout-kept; } & exec > /dev/null ) | tr a-z A-Z
+mkdir sub
+( { sleep 0.1; echo here > where.out; } & cd sub ) | cat
+cat where.out
+
+# A simple job's own redirections. It lets go of the stdout it replaced, as a compound one does.
+echo from-file > in.txt
+( cat < in.txt > copied.txt & wait ); cat copied.txt
+both() { echo out; echo err >&2; }
+( both > both.txt 2>&1 & wait ); cat both.txt
+( echo more >> both.txt & wait ); cat both.txt
+( cat 2> /dev/null < missing.in & wait $!; echo "missing input: $?" )
+
+job() {
+  : > "$1.up"
+  tries=0
+  while [ ! -e "$1.seen" ] && [ "$tries" -lt 20 ]; do
+    tries=$((tries + 1))
+    sleep 0.1
+  done
+  [ -e "$1.seen" ] || : > "$1.held"
+}
+reader() {
+  cat > /dev/null
+  if [ -e "$1.held" ]; then echo "$1: held until the job ended"; else echo "$1: released"; fi
+  : > "$1.seen"
+}
+started() {
+  until [ -e "$1.up" ]; do sleep 0.05; done
+}
+( job simple > /dev/null 2>&1 & started simple ) | reader simple
+wait
+
+cd /
+rm -rf "$d"
