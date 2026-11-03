@@ -705,6 +705,89 @@ def scenario_read_d_ends_at_its_delimiter(shell: PtyShell) -> tuple[bool, str]:
     return True, ""
 
 
+def _type_lines(shell: PtyShell, lines: list[str]) -> None:
+    for line in lines:
+        shell.send_line(line)
+        shell._pump(0.3)
+
+
+def scenario_status_on_the_next_line(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("status_next_line")
+    done = _new_marker_path("status_next_line_done")
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    out = _shell_path(marker)
+    _type_lines(shell, [
+        "false",
+        f'echo "false=$?" >> {out}',
+        "sh -c 'exit 3'",
+        f'echo "sh=$?" >> {out}',
+        f'echo "worked=$?" >> {out}',
+        "(exit 7)",
+        "# a comment leaves it alone",
+        f'echo "comment=$?" >> {out}',
+        f"touch {_shell_path(done)}",
+    ])
+    if not shell.wait_for_path(done):
+        return False, "the shell stopped taking lines"
+    got = marker.read_text().split()
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    want = ["false=1", "sh=3", "worked=0", "comment=7"]
+    if got != want:
+        return False, f"got {got}, want {want}"
+    return True, ""
+
+
+def scenario_status_after_the_interrupt_key(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("status_interrupt")
+    _unlink_if_exists(marker)
+    shell.send_line("cat")
+    shell._pump(0.5)
+    shell.send(b"\x03")
+    shell._pump(0.5)
+    shell.send_line(f'echo "$?" > {_shell_path(marker)}')
+    if not shell.wait_for_path(marker):
+        return False, "the key did not end cat"
+    got = marker.read_text().strip()
+    _unlink_if_exists(marker)
+    if got != "130":
+        return False, f"$? is {got}, want 130"
+    return True, ""
+
+
+def scenario_err_trap_runs_once_for_a_line(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("err_trap_once")
+    done = _new_marker_path("err_trap_once_done")
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    _type_lines(shell, [
+        f"trap 'echo ran >> {_shell_path(marker)}' ERR",
+        "false",
+        ": a line after it",
+        ": and another",
+        "trap - ERR",
+        f"touch {_shell_path(done)}",
+    ])
+    if not shell.wait_for_path(done):
+        return False, "the shell stopped taking lines"
+    got = marker.read_text().split() if marker.exists() else []
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    if got != ["ran"]:
+        return False, f"the trap ran {len(got)} times, want once"
+    return True, ""
+
+
 def scenario_ctrl_c_at_prompt_keeps_shell_alive(shell: PtyShell) -> tuple[bool, str]:
     ok, reason = _wait_for_prompt(shell)
     if not ok:
@@ -1023,6 +1106,21 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_ctrl_z_shebang_frontend_fg",
         name="Ctrl-Z/fg resumes shebang frontend task",
         run=scenario_ctrl_z_fg_resumes_shebang_frontend,
+    ),
+    Scenario(
+        test_id="interactive_status_next_line",
+        name="$? on the next line is the last line's",
+        run=scenario_status_on_the_next_line,
+    ),
+    Scenario(
+        test_id="interactive_status_interrupt",
+        name="$? after the interrupt key ended a command",
+        run=scenario_status_after_the_interrupt_key,
+    ),
+    Scenario(
+        test_id="interactive_err_trap_once",
+        name="An ERR trap runs once for a line that failed",
+        run=scenario_err_trap_runs_once_for_a_line,
     ),
     Scenario(
         test_id="interactive_read_silent",

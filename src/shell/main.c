@@ -4310,6 +4310,7 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         }
 #endif
         last_status = shellRunSource(expanded_tilde, "<stdin>", &exec_opts, &exit_requested);
+        shellRuntimeSetPromptStatus(last_status);
 #if defined(PSCAL_TARGET_IOS)
         if (runtime_isig_disabled) {
             (void)shellTcsetattr(STDIN_FILENO, TCSANOW, &runtime_original_termios);
