@@ -96,9 +96,15 @@ each entry it removes or keeps.
 
 The exsh front end honours the standard process environment:
 
-- Builtins such as `export`, `setenv`, and `unset` mutate the host environment
-  for the current process. External utilities like `printenv` observe those changes
-  immediately because `exsh` runs everything in-process.
+- What a program sees is what bash would pass it: variables that came in from the
+  environment or were exported, plus a `NAME=value` prefix on the command, which also
+  reaches what a function, `eval`, `.` or `command` starts. Other variables, arrays and
+  locals that are not exported stay in the shell, whatever their size. A local exports on
+  its own and takes on the export of the name it hides. On iOS, where nothing execs, each
+  program gets a private copy of that environment instead: applets, frontends, a nested
+  `sh` and a script run as a command all read that, what they set stays there, and a
+  thread they start reads it too. Code that reads the process environment directly (Go
+  tools, `VPROC_SHIM_DISABLED` sources) still sees every variable of the session's shell.
 - `EXSH_LAST_STATUS` mirrors the most recent exit status observed by the
   runtime and is updated after every builtin or pipeline execution.
 - Caching relies on `$HOME` to locate the cache directory and `$PATH` to resolve
@@ -141,12 +147,13 @@ extends it with orchestration helpers implemented in
   `set -aCefuvx`. Aliases expand at a prompt, and in a script only after
   `shopt -s expand_aliases`. The `bash_parity_*` tests compare the two directly. Still
   different: `select`, `compgen`/`complete`/`compopt`, `suspend`, `declare -n`,
-  `printf '%(fmt)T'`, `for in in in` and `exit abc`. `set -o posix` does not make a
+  `printf '%(fmt)T'`, `for in in in` and `exit abc`. `set` alone lists nothing, a script
+  with no `#!` goes to the system's `sh` on a host where bash would read it itself, and
+  `A=1 B=$A cmd` expands `$A` before `A` is set. `set -o posix` does not make a
   failing special builtin end the script, `set -v` is accepted but prints nothing,
   `set -x` does not show compound commands, a `DEBUG` trap runs only for top-level
   commands, and `[[ ]]` expands all of its operands first. On iOS, where nothing
-  execs, an applet sees variables that were not exported, `./f` runs without the
-  execute bit, and `cd` resolves links at once.
+  execs, `./f` runs without the execute bit and `cd` resolves links at once.
 - Shell control builtins (`cd`, `pwd`, `exit`, `alias`, `export`, `setenv`,
   `unset`, `unsetenv`) and an interactive `help` builtin for listing and
   describing available commands. The directory-stack helpers (`dirs`, `pushd`,

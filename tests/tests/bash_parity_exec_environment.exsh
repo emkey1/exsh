@@ -1,0 +1,31 @@
+#!/usr/bin/env exsh
+# exec passes what any other command gets. It builds that in the shell itself, so one that
+# fails has to leave everything as it was. A host's test: on iOS nothing execs.
+v=1
+export w=2
+a=(x y)
+(exec sh -c 'echo "subshell [$v] [$w] [$a]"')
+(p=3 exec sh -c 'echo "prefix [$p]"')
+(p=3 exec env | grep '^p=')
+p=3 exec sh -c 'echo "in a stage [$p]"' | cat
+(x=$(seq 1 30000); exec seq 1 1)
+f() { local -x l=4; (exec sh -c 'echo "local [$l]"'); }; f
+
+shopt -s execfail
+exec /nonexistent/program 2>/dev/null
+echo "after [$v] [$w] [${a[1]}]"
+env | grep -c '^v='
+env | grep '^w='
+sh -c 'echo "still [$v] [$w]"'
+p=3 exec /nonexistent/program 2>/dev/null
+echo "[$p]"
+shopt -u execfail
+
+d="${TMPDIR:-/tmp}/exsh_parity_exec_env.$$"
+mkdir -p "$d" || exit 1
+printf '#!/bin/sh\necho "found [$v] [$PATH]"\n' > "$d/exec_env_tool"
+chmod +x "$d/exec_env_tool"
+(unset PATH; PATH=$d:/usr/bin:/bin; exec exec_env_tool | sed 's/:.*//; s/\[.*\] \[.*/[...]/')
+(PATH=/nonexistent; exec nosuchprogram 2>/dev/null; echo unreachable)
+echo "$?"
+rm -rf "$d"

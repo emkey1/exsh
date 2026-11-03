@@ -4571,6 +4571,7 @@ int exsh_main(int argc, char **argv) {
         }
     }
 #endif
+    shellRuntimeInitExports();
     shellRuntimeInitSignals();
 
     if (path) {

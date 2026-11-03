@@ -1,0 +1,90 @@
+#!/usr/bin/env exsh
+# What a shell is given stays exported, however it changes. Each sh -c is a new shell.
+export IN=1
+sh -c 'echo "came in [$IN]"; env | grep "^IN="'
+sh -c 'IN=2; sh -c "echo changed [\$IN]"; env | grep "^IN="'
+sh -c 'IN=$((IN+1)); sh -c "echo changed [\$IN]"'
+sh -c 'export -n IN; sh -c "echo not exported [\$IN]"; echo "[$IN]"; env | grep -c "^IN="'
+sh -c 'unset IN; sh -c "echo unset [\$IN]"; IN=3; sh -c "echo new again [\$IN]"; env | grep -c "^IN="'
+sh -c 'export -n IN; export IN; sh -c "echo exported again [\$IN]"'
+sh -c 'NEW=1; sh -c "echo new here [\$NEW]"; export NEW; sh -c "echo exported [\$NEW]"'
+sh -c 'declare +x IN; env | grep -c "^IN="; declare -x IN; env | grep "^IN="'
+sh -c 'readonly IN; env | grep "^IN="'
+echo "here it is still [$IN]"
+env | grep '^IN='
+
+# Nothing a child does comes back.
+sh -c 'export BACK=1'; echo "[$BACK]"
+sh -c 'IN=9; export -n IN'; env | grep '^IN='
+sh -c 'unset IN'; env | grep '^IN='
+export -n IN; sh -c 'echo "[$IN]"'; unset IN
+
+# What export, declare and unset say about a name.
+A=1; export -p | grep -c ' A='; declare -p A
+export A; export -p | grep ' A='; declare -p A
+declare +x A; export -p | grep -c ' A='; declare -p A
+declare -x A=2; export -p | grep ' A='; declare -p A
+unset A; export -p | grep -c ' A='; declare -p A 2>/dev/null; echo "$?"
+export B; export -p | grep ' B'; env | grep -c '^B'
+B=1; export -p | grep ' B='; env | grep '^B='
+export -n B; export -p | grep -c ' B='; env | grep -c '^B='; echo "[$B]"
+unset B
+export -n C; env | grep -c '^C'; echo "[$C]"; C=1; env | grep -c '^C='; unset C
+export -n D; export D; D=1; env | grep '^D='; unset D
+export -n E=1; env | grep -c '^E='; echo "[$E]"; unset E
+F=1; export -n F; env | grep -c '^F='; export F; env | grep '^F='; unset F
+export G=1 H I; H=2; env | grep -E '^[GHI]' | sort; unset G H I
+readonly J=1; export J; env | grep '^J='
+export K=1; readonly K; env | grep '^K='; (K=2) 2>/dev/null; env | grep '^K='
+
+# Every way of assigning stays in the shell unless it was exported.
+read L <<< 1; env | grep -c '^L='; export L; read L <<< 2; env | grep '^L='; unset L
+printf -v M 1; env | grep -c '^M='; export M; printf -v M 2; env | grep '^M='; unset M
+for N in 1; do env | grep -c '^N='; done; export N; for N in 2; do env | grep '^N='; done; unset N
+: ${O:=1}; env | grep -c '^O='; unset O
+((P=1)); env | grep -c '^P='; export P; ((P=2)); env | grep '^P='; unset P
+Q=1; Q+=2; env | grep -c '^Q='; export Q; Q+=3; env | grep '^Q='; unset Q
+getopts a R -a; env | grep -c '^R='; unset R
+declare S=1; env | grep -c '^S='; typeset T=1; env | grep -c '^T='; readonly U=1; env | grep -c '^U='
+declare -i V=1; env | grep -c '^V='; export V; V=1+1; env | grep '^V='; unset V
+W=1; f() { W=2; X=3; }; f; env | grep -c '^[WX]='; unset W X
+
+# set -a, for as long as it is on.
+set -a
+a=1; env | grep '^a='
+read b <<< 2; env | grep '^b='
+printf -v c 3; env | grep '^c='
+for d in 4; do :; done; env | grep '^d='
+set +a
+e=5; env | grep -c '^e='
+a=6; env | grep '^a='
+unset a b c d e
+
+# Arrays are not passed on, however they got there.
+y1=(1 2); env | grep -c '^y1='
+y2[1]=2; env | grep -c '^y2='
+declare -a y3; y3[0]=1; env | grep -c '^y3='
+export y4=1; y4=(1 2); env | grep -c '^y4='
+y5=(1 2); y5[2]=3; env | grep -c '^y5='
+y6=(1 2); y6=3 env | grep '^y6='
+
+# The directory variables, once they are not what a new shell made them.
+cd /; env | grep -c '^OLDPWD='; env | grep -c '^PWD=/$'
+unset OLDPWD; cd /; env | grep -c '^OLDPWD='; echo "[$OLDPWD]"
+unset PWD; cd /; env | grep -c '^PWD='; echo "[$PWD]"
+export PWD OLDPWD; cd /; env | grep -c '^PWD=/$'; env | grep -c '^OLDPWD=/$'
+
+# A PATH that is not exported finds programs, and goes no further.
+d=export_inherit_d.$$
+cd "${TMPDIR:-/tmp}" || exit 1
+mkdir -p "$d"
+printf '#!/bin/sh\necho "found [$PATH]"\n' > "$d/export_inherit_tool"
+chmod +x "$d/export_inherit_tool"
+saved=$PATH
+unset PATH
+PATH=$PWD/$d:$saved
+export_inherit_tool | sed 's/\[.*\]/[...]/'
+PATH=$saved
+export PATH
+PATH=$PWD/$d export_inherit_tool | sed 's/\[.*\]/[...]/'
+rm -rf "$d"

@@ -1,0 +1,70 @@
+#!/usr/bin/env exsh
+# X=1 cmd reaches what cmd starts, for that command only, whatever cmd is. A prefix on a
+# function or a builtin used to stop at the shell.
+p=1 sh -c 'echo "program [$p]"'; echo "after [$p]"
+p=1 env | grep '^p='; echo "after [$p]"
+p=1 q=2 env | grep -E '^[pq]=' | sort; echo "after [$p] [$q]"
+
+# A stage's prefix is that stage's.
+p=1 sh -c 'echo "first [$p]"' | cat
+echo in | p=1 sh -c 'cat; echo "last [$p]"'
+p=1 sh -c 'echo "a [$p] [$q]"' | q=2 sh -c 'cat; echo "b [$p] [$q]"'
+q=2 sh -c 'echo "a [$p] [$q]"' | p=1 sh -c 'cat; echo "b [$p] [$q]"'
+p=1 sh -c 'echo "one [$p]"' | sh -c 'cat; echo "two [$p]"' | sh -c 'cat; echo "three [$p]"'
+sh -c 'echo "one [$p]"' | p=1 sh -c 'cat; echo "two [$p]"' | sh -c 'cat; echo "three [$p]"'
+echo "after [$p]"
+p=1 env | grep -c '^p='
+env | p=1 grep -c '^p='
+y=$(p=1 sh -c 'echo "sub [$p]"'); echo "$y [$p]"
+
+# Started and left behind.
+p=1 sh -c 'echo "background [$p]"' &
+wait
+echo "after [$p]"
+
+# Over a variable that is already there, exported or not, and what it was afterwards.
+v=1; v=2 sh -c 'echo "plain [$v]"'; echo "[$v]"; sh -c 'echo "still plain [$v]"'
+export w=1; w=2 sh -c 'echo "exported [$w]"'; echo "[$w]"; sh -c 'echo "still exported [$w]"'
+export n; n=2 true; echo "[$n]"; n=3; sh -c 'echo "exported with no value [$n]"'; unset n
+
+# Through a function, to whatever it starts.
+show() { sh -c 'echo "show [$p]"'; }
+show
+p=1 show
+show
+f() { echo "in f [$p]"; env | grep '^p='; }
+p=1 f
+echo "after [$p]"
+g() { p=2; sh -c 'echo "g set it [$p]"'; }
+p=1 g
+echo "after [$p]"
+h() { show; }
+p=1 h
+outer() { local l=1; l=2 inner; echo "local [$l]"; }
+inner() { sh -c 'echo "inner [$l]"'; }
+outer
+
+# Builtins that run commands.
+p=1 eval 'sh -c "echo eval [\$p]"'; echo "after [$p]"
+p=1 eval 'env | grep "^p="'
+printf 'env | grep "^p="\nsh -c "echo source [\\$p]"\n' > export_prefix_src.$$
+p=1 . ./export_prefix_src.$$; echo "after [$p]"
+rm -f export_prefix_src.$$
+p=1 command sh -c 'echo "command [$p]"'; echo "after [$p]"
+p=1 command env | grep '^p='
+
+# Except where the command is about that very name.
+v2=1 export v2; echo "[$v2]"; env | grep '^v2='
+v3=1 export v4; echo "[$v3]"; env | grep -c '^v3='; unset v4
+v5=1 declare -x v5; echo "[$v5]"; env | grep '^v5='
+v6=1 declare v6; echo "[$v6]"; env | grep -c '^v6='
+fl() { v8=1 local v8; echo "[$v8]"; env | grep -c '^v8='; }; fl; echo "[$v8]"
+fe() { v9=1 export v9; echo "[$v9]"; }; fe; echo "[$v9]"; env | grep '^v9='
+PATH=$PATH export PATH; env | grep -c '^PATH='
+v10=1 export v10 | cat; echo "[$v10]"
+v11=1 export v11 & wait; echo "[$v11]"
+
+# A prefix does not outlive what it was for.
+p=1 :; echo "colon [$p]"
+p=1 true; sh -c 'echo "true [$p]"'
+PATH=$PATH sh -c 'echo "path kept"'

@@ -24,6 +24,8 @@ typedef struct ShellRunOptions {
     bool suppress_warnings;
     /* eval and source: the source runs as part of the caller, not with a copy of its state. */
     bool share_runtime_context;
+    /* In its own context all the same, with the function's locals to read. */
+    bool inherit_locals;
     /* eval, $(...) and <(...): the text's lines count on from the command holding it. */
     int first_line;
     const char *frontend_path;

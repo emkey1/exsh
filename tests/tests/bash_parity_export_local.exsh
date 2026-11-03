@@ -1,0 +1,63 @@
+#!/usr/bin/env exsh
+# A local exports on its own, and the global of that name keeps its value and its state.
+# Exporting one used to write it over the global, for good.
+t1() { local v=1; sh -c 'echo "not exported [$v]"'; }; t1
+t2() { local v=1; export v; sh -c 'echo "exported [$v]"'; }; t2; sh -c 'echo "gone [$v]"'; echo "[$v]"
+v=g; t3() { local v=1; export v; sh -c 'echo "exported [$v]"'; }; t3; sh -c 'echo "global not exported [$v]"'; echo "[$v]"; unset v
+export v=g; t4() { local v=1; sh -c 'echo "exports as the global did [$v]"'; }; t4; sh -c 'echo "[$v]"'; echo "[$v]"; unset v
+export v=g; t5() { local v; v=1; sh -c 'echo "has a value now [$v]"'; }; t5; echo "[$v]"; unset v
+export v=g; t6() { local v=l; export -n v; sh -c 'echo "the global shows [$v]"'; echo "[$v]"; }; t6; sh -c 'echo "[$v]"'; echo "[$v]"; unset v
+export v=g; t7() { local v=l; unset v; sh -c 'echo "after unset [$v]"'; }; t7; sh -c 'echo "[$v]"'; unset v
+t8() { local -x v=1; env | grep '^v='; }; t8; env | grep -c '^v='; echo "[$v]"
+t9() { declare -x v=1; env | grep '^v='; }; t9; env | grep -c '^v='; echo "[$v]"
+t10() { typeset -x v=1; env | grep '^v='; }; t10; env | grep -c '^v='
+t11() { local v=1; declare -x v; env | grep '^v='; declare +x v; env | grep -c '^v='; echo "[$v]"; }; t11
+t12() { declare -x v; v=1; env | grep '^v='; }; t12; env | grep -c '^v='
+t13() { local -x v; v=1; env | grep '^v='; }; t13; env | grep -c '^v='
+t14() { local v=1; export -n v; sh -c 'echo "[$v]"'; }; t14
+t15() { export v=1; }; t15; env | grep '^v='; unset v
+t16() { export v=1; local v=2; sh -c 'echo "local after export [$v]"'; }; t16; sh -c 'echo "[$v]"'; echo "[$v]"; unset v
+
+# Calls inside see it, with the innermost one that exports winning.
+outer() { local -x v=1; inner; }
+inner() { env | grep '^v='; }
+outer
+outer2() { local -x v=1; inner2; env | grep '^v='; }
+inner2() { local v=2; env | grep '^v='; }
+outer2
+outer3() { local -x v=1; inner3; env | grep '^v='; }
+inner3() { local +x v=2; env | grep '^v='; }
+outer3
+
+# Everything apart from the shell sees it too.
+s1() { local -x v=1; (env | grep '^v='); }; s1
+s2() { local -x v=1; env | grep '^v=' | cat; }; s2
+s3() { local -x v=1; y=$(env | grep '^v='); echo "$y"; }; s3
+s4() { local v=1; y=$(env | grep -c '^v='); echo "$y"; }; s4
+s5() { local v=1; y=$(echo "[$v]"); echo "$y"; }; s5
+s6() { local v=1; (echo "[$v]"); }; s6
+s7() { local v=1; { echo "[$v]"; } | cat; }; s7
+s8() { local v=1; y=$(v=2; echo "[$v]"); echo "$y [$v]"; }; s8
+s9() { local v=1; (v=2; echo "[$v]"); echo "[$v]"; }; s9
+s10() { local -x v=1; (v=2; sh -c 'echo "[$v]"'); sh -c 'echo "[$v]"'; }; s10
+s11() { local -x v=1; sh -c 'echo "background [$v]"' & wait; }; s11
+s12() { local -x v=1; { sh -c 'echo "group [$v]"'; } & wait; }; s12
+s13() { local v=1; export v; export -p | grep ' v='; }; s13
+s14() { local -x v=1; declare -p v; }; s14
+export v=g; s15() { declare -p v; local v=1; declare -p v; }; s15; unset v
+
+# set -a covers a local.
+set -a
+a1() { local v=1; env | grep '^v='; }; a1
+set +a
+a2() { local v=1; env | grep -c '^v='; }; a2
+
+# A local PATH finds the program, and is not passed on unless it was already exported.
+cd "${TMPDIR:-/tmp}" || exit 1
+d=export_local_d.$$
+mkdir -p "$d"
+printf '#!/bin/sh\necho found\n' > "$d/export_local_tool"
+chmod +x "$d/export_local_tool"
+p1() { local PATH="$PWD/$d:$PATH"; export_local_tool; }; p1
+export_local_tool 2>/dev/null; echo "$?"
+rm -rf "$d"

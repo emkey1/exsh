@@ -1,0 +1,70 @@
+#!/usr/bin/env exsh
+# A script run as a command starts over: it sees what is exported and nothing else, and
+# what it does stays with it.
+d="${TMPDIR:-/tmp}/exsh_parity_export_script.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+PATH=$d:$PATH
+
+cat > plain <<'SCRIPT'
+echo "plain [$v] [$w] [$p]"
+env | grep -c '^v='
+env | grep '^w='
+v=changed
+w=changed
+export s=set
+SCRIPT
+cat > shebang <<'SCRIPT'
+#!/bin/sh
+echo "shebang [$v] [$w] [$p]"
+env | grep -c '^v='
+env | grep '^w='
+v=changed
+w=changed
+export s=set
+SCRIPT
+chmod +x plain shebang
+
+v=1
+export w=2
+for script in ./plain ./shebang plain shebang; do
+    "$script"
+    echo "after $script [$v] [$w] [$s]"
+    env | grep '^w='
+    env | grep -c '^v='
+    env | grep -c '^s='
+    p=3 "$script"
+    echo "after p=3 $script [$p]"
+    "$script" | cat
+    p=3 "$script" | cat
+    echo x | p=3 "$script"
+    y=$("$script"); echo "$y"
+    y=$(p=3 "$script"); echo "$y"
+    ("$script")
+    "$script" &
+    wait
+    p=3 "$script" &
+    wait
+    { "$script"; } | cat
+done
+
+# What the shell keeps to itself stays there: a script does not start from this one.
+cat > state <<'SCRIPT'
+echo "state [$local_v] [$arr] [$ro]"
+ro=2
+echo "writable [$ro]"
+SCRIPT
+chmod +x state
+a() { local local_v=1; ./state; }
+a
+arr=(1 2)
+./state
+readonly ro=1
+./state
+export -n w
+./state > /dev/null
+./plain | grep -v '^[01]$'
+export w
+sh -c './plain' | grep -c 'w=2'
+
+cd / && rm -rf "$d"

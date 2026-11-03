@@ -1,0 +1,57 @@
+#!/usr/bin/env exsh
+# A subshell, a compound stage and a substitution see every variable, and what they start
+# sees only what is exported. Nothing they change comes back.
+v=1
+export w=1
+a=(x y)
+(echo "subshell [$v] [$w] [${a[1]}]")
+{ echo "stage [$v] [$w] [${a[1]}]"; } | cat
+echo in | { cat; echo "last stage [$v] [$w] [${a[1]}]"; }
+y=$(echo "substitution [$v] [$w] [${a[1]}]"); echo "$y"
+{ echo "background [$v] [$w] [${a[1]}]"; } &
+wait
+f() { echo "function stage [$v] [$w] [${a[1]}]"; }; f | cat
+echo in | while read l; do echo "$l loop [$v] [$w]"; done
+
+(sh -c 'echo "from subshell [$v] [$w] [${a}]"')
+{ sh -c 'echo "from stage [$v] [$w] [${a}]"'; } | cat
+y=$(sh -c 'echo "from substitution [$v] [$w] [${a}]"'); echo "$y"
+sh -c 'echo "as background [$v] [$w] [${a}]"' &
+wait
+(sh -c 'echo "from background subshell [$v] [$w]"') &
+wait
+(env | grep -E '^[vwa]=' | sort)
+{ env | grep -E '^[vwa]=' | sort; } | cat
+y=$(env | grep -E '^[vwa]=' | sort); echo "$y"
+
+# Their changes are their own.
+(v=2; w=2; sh -c 'echo "changed [$v] [$w]"'); echo "[$v] [$w]"; sh -c 'echo "[$v] [$w]"'
+(export v; sh -c 'echo "exported in there [$v]"'); sh -c 'echo "not out here [$v]"'; env | grep -c '^v='
+(export -n w; sh -c 'echo "not exported in there [$w]"'); sh -c 'echo "exported out here [$w]"'
+(unset v w; echo "[$v] [$w]"; sh -c 'echo "[$v] [$w]"'); echo "[$v] [$w]"
+(n1=1; export n2=2; sh -c 'echo "new [$n1] [$n2]"'); echo "[$n1] [$n2]"; env | grep -c '^n[12]='
+{ export v; sh -c 'echo "exported in a stage [$v]"'; } | cat; env | grep -c '^v='
+{ export -n w; sh -c 'echo "not exported in a stage [$w]"'; } | cat; env | grep -c '^w='
+{ unset w; sh -c 'echo "unset in a stage [$w]"'; } | cat; env | grep -c '^w='
+{ v=2; w=2; } | cat; echo "[$v] [$w]"
+y=$(export v; sh -c 'echo "exported in a substitution [$v]"'); echo "$y"; env | grep -c '^v='
+y=$(export -n w; sh -c 'echo "not exported in a substitution [$w]"'); echo "$y"; env | grep -c '^w='
+y=$(unset w; sh -c 'echo "unset in a substitution [$w]"'); echo "$y"; env | grep -c '^w='
+y=$(v=2; w=2; sh -c 'echo "changed in a substitution [$v] [$w]"'); echo "$y [$v] [$w]"
+y=$(n3=1; export n4=2; sh -c 'echo "new in a substitution [$n3] [$n4]"'); echo "$y [$n3] [$n4]"; env | grep -c '^n[34]='
+y=$(y2=$(export v; env | grep -c '^v='); echo "$y2"; env | grep -c '^v='); echo "$y"
+{ export v; } &
+wait
+env | grep -c '^v='
+( export v ) &
+wait
+env | grep -c '^v='
+
+# Inside one, a new assignment takes the state of what was there.
+export e=1
+(e=2; env | grep '^e=')
+{ e=2; env | grep '^e='; } | cat
+y=$(e=2; env | grep '^e='); echo "$y"
+y=$(z=2; env | grep -c '^z='); echo "$y"
+(e2=1; env | grep -c '^e2=')
+{ e3=1; env | grep -c '^e3='; } | cat

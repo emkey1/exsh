@@ -1,15 +1,11 @@
 #!/usr/bin/env exsh
 # A command substitution can capture far more than a pipe holds. The shell used to read the
 # pipe only after the command ended, so a command that filled it never ended.
-#
-# Each big value is unset before the next command runs: exsh passes every variable to what
-# it starts, and a big one fails the exec with E2BIG (a single 128K string on Linux).
 d="${TMPDIR:-/tmp}/exsh_parity_big_sub.$$"
 mkdir -p "$d" || exit 1
 
 size() {
     echo "$1 ${#a}"
-    unset a
 }
 
 # Commands the shell starts, and writes it makes itself.
@@ -31,7 +27,6 @@ case "$x" in
 30000") echo "first and last lines" ;;
     *) echo "first and last lines differ" ;;
 esac
-unset x y
 
 # Every kind of command inside.
 a=$(seq 1 30000 | cat); size pipeline
@@ -86,6 +81,6 @@ a=$(sleep 1 & echo bg); echo "[$a]"
 
 # Many in a row: nothing piles up.
 n=0; while [ "$n" -lt 300 ]; do v=$(echo "$n"); n=$((n+1)); done; echo "$v"
-n=0; s=0; while [ "$n" -lt 20 ]; do a=$(seq 1 30000); s=$((s+${#a})); unset a; n=$((n+1)); done; echo "$s"
+n=0; s=0; while [ "$n" -lt 20 ]; do a=$(seq 1 30000); s=$((s+${#a})); n=$((n+1)); done; echo "$s"
 
 cd / && rm -rf "$d"

@@ -1674,6 +1674,62 @@
                 "POSIXLY_CORRECT": "1"
             },
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_export_prefix",
+            "name": "A prefix reaches what its command starts",
+            "category": "parity",
+            "description": "X=1 cmd for that command only: programs, stages, functions, eval, source, command, exec.",
+            "script": "Tests/exsh/tests/bash_parity_export_prefix.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_export_local",
+            "name": "Locals export on their own",
+            "category": "parity",
+            "description": "export, declare -x and local -x on a local, shadowing a global, in subshells and substitutions.",
+            "script": "Tests/exsh/tests/bash_parity_export_local.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_export_inherit",
+            "name": "What a shell was given stays exported",
+            "category": "parity",
+            "description": "Inherited variables, export -n, export -p, declare -p, every way of assigning, set -a, arrays, PWD, PATH.",
+            "script": "Tests/exsh/tests/bash_parity_export_inherit.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_export_subshell",
+            "name": "Subshells see all, what they start sees exports",
+            "category": "parity",
+            "description": "Subshells, compound stages and substitutions: visibility, and no change coming back.",
+            "script": "Tests/exsh/tests/bash_parity_export_subshell.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_export_script",
+            "name": "A script run as a command starts over",
+            "category": "parity",
+            "description": "With and without #!, by path and by PATH search, in every position.",
+            "script": "Tests/exsh/tests/bash_parity_export_script.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_export_big",
+            "name": "A big variable breaks no exec",
+            "category": "parity",
+            "description": "x=$(seq 1 30000) then starting commands in every way.",
+            "script": "Tests/exsh/tests/bash_parity_export_big.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_environment",
+            "name": "exec passes what a program gets",
+            "category": "parity",
+            "description": "Prefixes, exports and locals through exec, and a failed exec leaving the shell as it was.",
+            "script": "Tests/exsh/tests/bash_parity_exec_environment.exsh",
+            "expect": "match_bash"
         }
     ]
 }

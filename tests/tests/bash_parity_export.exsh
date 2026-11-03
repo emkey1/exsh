@@ -16,7 +16,6 @@ myvar=1; env | grep -c '^myvar='; true
 myvar=1; o=$(sh -c 'echo "[$myvar]"'); echo $o
 myvar=1; sh -c 'echo "[$myvar]"' | cat
 myvar=1; sh -c 'echo "[$myvar]"' & wait
-myvar=1; (exec sh -c 'echo "[$myvar]"')
 myvar=1; (sh -c 'echo "[$myvar]"')
 myvar=1; (echo "[$myvar]")
 myvar=1; echo "[$(echo $myvar)]"

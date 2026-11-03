@@ -760,6 +760,10 @@ int shellRunSource(const char *source,
             fprintf(stderr, "shell: failed to allocate shell runtime context.\n");
             goto cleanup;
         }
+        if (options->inherit_locals) {
+            /* The top frame is the substitution's own marker. */
+            shellRuntimeContextInheritLocals(vm_shell_ctx, 1);
+        }
         vm->frontendContext = vm_shell_ctx;
     }
     previous_thread_owner = gShellThreadOwnerVm;

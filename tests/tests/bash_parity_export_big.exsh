@@ -1,0 +1,63 @@
+#!/usr/bin/env exsh
+# A big value in a variable is no one else's business. Passed to what the shell starts, it
+# failed every exec with E2BIG: a single string over 128K on Linux, 1 MB in all on macOS.
+x=$(seq 1 30000)
+echo "${#x}"
+seq 1 1
+seq 1 1 | cat
+cat < /dev/null | seq 1 1
+(seq 1 1)
+{ seq 1 1; }
+{ seq 1 1; } | cat
+y=$(seq 1 1); echo "$y"
+seq 1 1 &
+wait
+(seq 1 1) &
+wait
+Y=1 seq 1 1
+Y=1 sh -c 'echo "${#x} [$Y]"'
+command seq 1 1
+eval 'seq 1 1'
+f() { seq 1 1; }
+f
+f | cat
+sh -c 'echo "${#x}"'
+env | grep -c '^x='
+printf 'echo "script ${#x}"\n' > export_big_script.$$
+chmod +x export_big_script.$$
+./export_big_script.$$
+rm -f export_big_script.$$
+
+# The other ways a value gets there.
+readonly r="$x"
+seq 1 1
+declare d="$x"
+seq 1 1
+g() { local l="$x"; seq 1 1; local k=$(seq 1 30000); seq 1 1; }
+g
+a=($x)
+echo "${#a[@]}"
+seq 1 1
+env | grep -c '^a='
+read q w <<< "$(seq 1 30000 | tr '\n' ' ')"
+echo "$q ${#w}" | sed 's/ [0-9]*$/ many/'
+seq 1 1
+for z in "$x"; do seq 1 1; done
+z=$x$x$x$x$x$x$x$x$x$x
+echo "${#z}"
+seq 1 1
+: "${b:=$x}"
+seq 1 1
+c=$x; c+=$x
+seq 1 1
+
+# Many of them: more than exec could carry together.
+v1=$x; v2=$x; v3=$x; v4=$x; v5=$x; v6=$x; v7=$x; v8=$x
+seq 1 1
+y=$(seq 1 1; sh -c 'echo "${#v1}"'); echo "$y"
+
+# No longer exported, it stops being a problem. Unset, too.
+export s=1; s=$x; export -n s
+seq 1 1
+export t=1; t=$x; unset t
+seq 1 1
