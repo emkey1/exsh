@@ -1,0 +1,25 @@
+#!/bin/sh
+# Each background command has its own $! and its own status. In a group or subshell they share a
+# process group, and $! was that group's, so every one of them looked like the first.
+{
+    sleep 1 & a=$!
+    sleep 1 & b=$!
+    [ "$a" = "$b" ] && echo same || echo distinct
+    wait
+    echo group done
+} | cat
+(
+    (exit 3) & a=$!
+    (exit 4) & b=$!
+    wait "$a"; echo "first $?"
+    wait "$b"; echo "second $?"
+)
+# $! of a pipeline is its last process, in a subshell and at the top.
+(
+    (exit 6) | (exit 7) & p=$!
+    wait "$p"; echo "subshell pipeline $?"
+)
+(exit 8) | (exit 9) & p=$!
+wait "$p"; echo "pipeline $?"
+x=$(sleep 1 & echo "substitution $(( $! > 0 ))"; wait)
+echo "$x"

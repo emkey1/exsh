@@ -1208,6 +1208,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_background_pids",
+      "name": "Each background command has its own $! and status",
+      "category": "parity",
+      "description": "In a group or subshell, where background commands share a process group, $! still names the command, and for a pipeline its last process.",
+      "script": "Tests/exsh/tests/bash_parity_background_pids.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_background_release",
       "name": "A background job with its output redirected lets go of the caller's stdout",
       "category": "parity",

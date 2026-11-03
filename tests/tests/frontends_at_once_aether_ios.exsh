@@ -37,7 +37,7 @@ check aether_both "$AX$nl$AV" "$A v.aether | { $A x.aether; cat; }"
 check rea_aether "$AX$nl$RV" "$R v.rea | { $A x.aether; cat; }"
 check aether_rea "$RV$nl$AV" "$A v.aether | { $R v.rea; cat; }"
 check pascal_aether "$AX$nl$PV" "$P v.pas | { $A x.aether; cat; }"
-check background "$AV$nl$PV$nl$RV" "{ $A v.aether & $P v.pas & $R v.rea & wait; } 2>/dev/null | sort"
+check background "$AV$nl$PV$nl$RV" "{ $A v.aether & $P v.pas & $R v.rea & wait; } 2>&1 | sort"
 
 # Strings count from 0 here and from 1 in Pascal, whichever ran last.
 cat > rt.aether <<'EOF_RT'
