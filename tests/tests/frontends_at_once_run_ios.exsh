@@ -1,0 +1,136 @@
+#!/bin/sh
+# On iOS a pipeline's stages and a terminal's tabs are threads of one process. What a run decides
+# and its VM reads was process-wide too: a stage printed in the other's style, took the other's
+# --deny, or called through the other's interface table. Compile state: frontends_at_once_ios.
+echo "frontends-at-once-run:start"
+d="${TMPDIR:-/tmp}/exsh_frontends_at_once_run.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+check() {
+    name=$1; want=$2; shift 2
+    got=$(eval "$*" 2>&1)
+    if [ "$got" = "$want" ]; then
+        echo "$name ok"
+    else
+        echo "$name: $got"
+    fi
+}
+nl='
+'
+P="pascal --no-cache"; R="rea --no-cache"
+
+# A run's conventions stay its own while another runs: TRUE or true, spacing in write.
+cat > rt.pas <<'EOF_RT'
+program Rt;
+var k, bad: integer; s: string; b: boolean;
+begin
+  s := 'abc'; b := true; bad := 0;
+  for k := 1 to 200000 do
+    if s[1] <> 'a' then bad := bad + 1;
+  writeln('pascal-rt ', bad, ' ', b);
+  writeln('A', 'B', 1);
+end.
+EOF_RT
+cat > rt.rea <<'EOF_RT'
+int bad = 0;
+str s = "abc";
+int k = 0;
+while (k < 200000) {
+  if (s[1] != "a") { bad = bad + 1; }
+  k = k + 1;
+}
+writeln("rea-rt ", bad, " ", true);
+writeln("A", "B", 1);
+EOF_RT
+RTP="pascal-rt 0 TRUE${nl}AB1"; RTR="rea-rt 0 true${nl}A B 1"
+check run_styles "$RTR$nl$RTP" "$P rt.pas | { $R rt.rea; cat; }"
+check run_styles2 "$RTP$nl$RTR" "$R rt.rea | { $P rt.pas; cat; }"
+
+# A VM worker takes its run's conventions, not the default for a new thread.
+cat > th.pas <<'EOF_RT'
+program Th;
+var t: integer; ok: boolean;
+procedure Worker;
+begin
+  ok := true;
+  writeln('pascal-worker ', ok);
+end;
+begin
+  ok := false;
+  t := spawn Worker;
+  join t;
+  writeln('pascal-main ', ok);
+end.
+EOF_RT
+check worker_style "pascal-worker TRUE${nl}pascal-main TRUE$nl$RTR" "$R rt.rea | { $P th.pas; cat; }"
+
+# Two programs, one class and interface name, different methods: an interface's method table
+# holds bytecode addresses, and the second program got the first one's, in turn as well as at once.
+cat > if1.pas <<'EOF_RT'
+program If1;
+type
+  ILog = interface
+    procedure Say(const m: string);
+  end;
+  TLog = record
+    P: string;
+    procedure Say(const m: string);
+  end;
+procedure TLog.Say(const m: string);
+begin
+  writeln('one:', P, m);
+end;
+var l: TLog; s: ILog;
+begin
+  l.P := 'p'; s := l; s.Say('m');
+end.
+EOF_RT
+cat > if2.pas <<'EOF_RT'
+program If2;
+type
+  ILog = interface
+    procedure Other(const m: string);
+    procedure Say(const m: string);
+  end;
+  TLog = record
+    Q: string;
+    procedure Other(const m: string);
+    procedure Say(const m: string);
+  end;
+procedure Unrelated(n: integer);
+begin
+  writeln('unrelated ', n);
+end;
+procedure TLog.Other(const m: string);
+begin
+  writeln('two-other:', Q, m);
+end;
+procedure TLog.Say(const m: string);
+begin
+  writeln('two:', Q, m);
+end;
+var l: TLog; s: ILog;
+begin
+  l.Q := 'q'; s := l; s.Say('m'); s.Other('n');
+end.
+EOF_RT
+check iface_turns "one:pm${nl}two:qm${nl}two-other:qn" "$P if1.pas; $P if2.pas"
+check iface_pipe "two:qm${nl}two-other:qn${nl}one:pm" "$P if1.pas | { $P if2.pas; cat; }"
+
+# --deny belongs to the run that asked for it, and stays when another run ends.
+cat > n.pas <<'EOF_RT'
+program N;
+var sess: integer;
+begin
+  sess := HttpSession();
+  if sess >= 0 then writeln('session ok');
+end.
+EOF_RT
+check deny_not_shared "session ok" "$P --deny net rt.pas >/dev/null 2>&1 | $P n.pas"
+denied=$($P --deny net n.pas 2>&1 | { $P rt.pas >/dev/null; cat; } | grep -c "denied by --deny")
+[ "$denied" -ge 1 ] && echo "deny_kept ok" || echo "deny_kept: not denied"
+
+cd /
+rm -rf "$d"
+echo "frontends-at-once-run:end"

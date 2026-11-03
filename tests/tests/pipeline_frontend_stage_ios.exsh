@@ -11,6 +11,7 @@ cd "$d" || exit 1
 printf "program X;\nbegin\n  writeln('pascal ok');\nend.\n" > x.pas
 printf "program Big;\nvar i: integer;\nbegin\n  for i := 1 to 100000 do writeln('line of big output');\nend.\n" > big.pas
 printf "program First;\nuses crt;\nbegin\n  writeln('first stage');\n  delay(2000);\nend.\n" > first.pas
+printf 'int main() {\n    printf("clike ok\\n");\n    return 0;\n}\n' > x.clike
 
 # Readers that use stdio, so a blocked read holds a stream's lock.
 pascal x.pas | tr -d ' '
@@ -21,11 +22,14 @@ pascal x.pas | wc -l | tr -d ' '
 clike -v | uniq | wc -l | tr -d ' '
 rea -v | tr -d ' ' | wc -l | tr -d ' '
 
-# A writer stuck on a full pipe, while another stage flushes everything. awk rather than a
-# second frontend, because two frontends compiling at once in one process are not safe yet.
+# A writer stuck on a full pipe, while another stage flushes everything: a frontend does that
+# as it finishes, and so does awk's fflush().
+pascal big.pas | { sleep 1; pascal x.pas; }
+pascal big.pas | { sleep 1; clike x.clike; }
 pascal big.pas | { sleep 1; awk 'BEGIN { fflush(); print "flushed" }'; }
 
 # Buffered output of the first stage stays its own, whoever flushes.
+pascal first.pas | { sleep 1; pascal x.pas; }
 pascal first.pas | { sleep 1; awk 'BEGIN { fflush(); print "flushed" }'; }
 
 # A reader that has nothing to do with this command does not hold it up.

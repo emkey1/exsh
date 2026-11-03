@@ -59,7 +59,37 @@
     "script": "Tests/exsh/tests/pipeline_frontend_stage_ios.exsh",
     "expect": "runtime_ok",
     "env": { "RUN_VPROC_TESTS": "1" },
-    "expected_stdout": "pipeline-frontend-stage:start\npascalok\npascal ok\nok\nko lacsap\n1\n1\n1\nflushed\nflushed\npascal ok\nquick\nchildok\nmainok\npipeline-frontend-stage:end"
+    "expected_stdout": "pipeline-frontend-stage:start\npascalok\npascal ok\nok\nko lacsap\n1\n1\n1\npascal ok\nclike ok\nflushed\npascal ok\nflushed\npascal ok\nquick\nchildok\nmainok\npipeline-frontend-stage:end"
+  },
+  {
+    "id": "frontends_at_once_ios",
+    "name": "Frontends compiling at once in one process (iOS)",
+    "category": "pipeline_ios",
+    "description": "Pipeline stages and terminal tabs are threads of one process on iOS: each run's compile state stays its own, also on a compile error, and one source has one cache entry with two writers.",
+    "script": "Tests/exsh/tests/frontends_at_once_ios.exsh",
+    "expect": "runtime_ok",
+    "env": { "RUN_VPROC_TESTS": "1" },
+    "expected_stdout": "frontends-at-once:start\nclike_clike ok\nrea_rea ok\npascal_pascal ok\nclike_pascal ok\npascal_clike ok\nrea_clike ok\npascal_rea ok\nclike_both ok\nrea_both ok\npascal_both ok\nbackground ok\nbackground_same ok\nbad_pascal ok\ncache_writers ok\nfrontends-at-once:end"
+  },
+  {
+    "id": "frontends_at_once_run_ios",
+    "name": "Frontends running at once in one process (iOS)",
+    "category": "pipeline_ios",
+    "description": "A run's output style, a VM worker's conventions, its interface tables and its --deny stay its own while another runs.",
+    "script": "Tests/exsh/tests/frontends_at_once_run_ios.exsh",
+    "expect": "runtime_ok",
+    "env": { "RUN_VPROC_TESTS": "1" },
+    "expected_stdout": "frontends-at-once-run:start\nrun_styles ok\nrun_styles2 ok\nworker_style ok\niface_turns ok\niface_pipe ok\ndeny_not_shared ok\ndeny_kept ok\nfrontends-at-once-run:end"
+  },
+  {
+    "id": "frontends_at_once_aether_ios",
+    "name": "Aether beside other frontends in one process (iOS)",
+    "category": "pipeline_ios",
+    "description": "Aether shares Rea's engine and installs hooks into it: neither reaches the other's stage, and its 0-based strings stay its own.",
+    "script": "Tests/exsh/tests/frontends_at_once_aether_ios.exsh",
+    "expect": "runtime_ok",
+    "env": { "RUN_VPROC_TESTS": "1" },
+    "expected_stdout": "frontends-at-once-aether:start\naether_aether ok\naether_both ok\nrea_aether ok\naether_rea ok\npascal_aether ok\nbackground ok\nrun_styles ok\nrun_styles2 ok\nfrontends-at-once-aether:end"
   },
   {
     "id": "pipeline_empty_ios",

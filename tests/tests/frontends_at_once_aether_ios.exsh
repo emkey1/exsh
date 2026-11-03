@@ -1,0 +1,70 @@
+#!/bin/sh
+# As frontends_at_once_ios, for Aether: it shares Rea's engine and installs hooks into it, so
+# `rea a | aether b` parsed one stage with the other's parser. Its strings also count from 0.
+aether -v > /dev/null 2>&1 || exit 77
+echo "frontends-at-once-aether:start"
+d="${TMPDIR:-/tmp}/exsh_frontends_at_once_aether.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+pad=""
+n=1
+while [ "$n" -le 40 ]; do pad="$pad p$n"; n=$((n + 1)); done
+{ for f in $pad; do printf 'fn %s(a: Int) -> Int { let q: Int = a + 1; ret q; }\n' "$f"; done
+  printf 'fn main() -> Void {\n    let i: Int = p3(2);\n    let s = "abc";\n    let b = true;\n    fx { println("aether ", i, " ", s[1], " ", b); }\n}\n'; } > v.aether
+{ for f in $pad; do printf 'fn %s(a: Int) -> Int { let q: Int = a + 2; ret q; }\n' "$f"; done
+  printf 'fn main() -> Void {\n    let i: Int = p4(2);\n    let s = "xyz";\n    fx { println("aether2 ", i, " ", s[0], " ", false); }\n}\n'; } > x.aether
+{ for f in $pad; do printf 'int %s(int a) { int q = a + 1; return q; }\n' "$f"; done
+  printf 'int i = 3;\nwriteln("rea ", p3(2), " ", i, " ", true);\n'; } > v.rea
+printf 'program V;\nvar i: integer; b: boolean;\nbegin\n  i := 3; b := true;\n  writeln(chr(112), i, b);\nend.\n' > v.pas
+
+check() {
+    name=$1; want=$2; shift 2
+    got=$(eval "$*" 2>&1)
+    if [ "$got" = "$want" ]; then
+        echo "$name ok"
+    else
+        echo "$name: $got"
+    fi
+}
+nl='
+'
+A="aether --no-cache"; R="rea --no-cache"; P="pascal --no-cache"
+AV="aether 3 b true"; AX="aether2 4 x false"; RV="rea 3 3 true"; PV="p3TRUE"
+
+check aether_aether "$AX" "$A v.aether | $A x.aether"
+check aether_both "$AX$nl$AV" "$A v.aether | { $A x.aether; cat; }"
+check rea_aether "$AX$nl$RV" "$R v.rea | { $A x.aether; cat; }"
+check aether_rea "$RV$nl$AV" "$A v.aether | { $R v.rea; cat; }"
+check pascal_aether "$AX$nl$PV" "$P v.pas | { $A x.aether; cat; }"
+check background "$AV$nl$PV$nl$RV" "{ $A v.aether & $P v.pas & $R v.rea & wait; } 2>/dev/null | sort"
+
+# Strings count from 0 here and from 1 in Pascal, whichever ran last.
+cat > rt.aether <<'EOF_RT'
+fn main() -> Void {
+    let s = "abc";
+    let bad: Int = 0;
+    let k: Int = 0;
+    while k < 200000 {
+        if s[0] != "a" { bad = bad + 1; }
+        k = k + 1;
+    }
+    fx { println("aether-rt ", bad, " ", true); }
+}
+EOF_RT
+cat > rt.pas <<'EOF_RT'
+program Rt;
+var k, bad: integer; s: string; b: boolean;
+begin
+  s := 'abc'; b := true; bad := 0;
+  for k := 1 to 200000 do
+    if s[1] <> 'a' then bad := bad + 1;
+  writeln('pascal-rt ', bad, ' ', b);
+end.
+EOF_RT
+check run_styles "pascal-rt 0 TRUE${nl}aether-rt 0 true" "$A rt.aether | { $P rt.pas; cat; }"
+check run_styles2 "aether-rt 0 true${nl}pascal-rt 0 TRUE" "$P rt.pas | { $A rt.aether; cat; }"
+
+cd /
+rm -rf "$d"
+echo "frontends-at-once-aether:end"
