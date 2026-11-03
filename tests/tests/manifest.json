@@ -1609,6 +1609,33 @@
             "description": "! with stages, groups, subshells, loops and functions under set -e, and the status it leaves.",
             "script": "Tests/exsh/tests/bash_parity_negated_errexit.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_alias_option_lookup",
+            "name": "type and command -v see an alias only while aliases expand",
+            "category": "parity",
+            "description": "A script starts with aliases off and posix mode turns them on. What type, type -t, -a, -p, -P and command -v, -V report in each state, in subshells, stages and substitutions. Messages compared.",
+            "script": "Tests/exsh/tests/bash_parity_alias_option_lookup.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_type_path_lookup",
+            "name": "type and command -v on files on PATH",
+            "category": "parity",
+            "description": "type -t, -p, -P and command -v on names that are files, with an alias of the same name off and on, and -P searching only PATH. Host only.",
+            "script": "Tests/exsh/tests/bash_parity_type_path_lookup.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_posixly_correct_aliases",
+            "name": "POSIXLY_CORRECT in the environment turns aliases on",
+            "category": "parity",
+            "description": "A shell started in posix mode expands aliases from the first line, and stops when it leaves posix mode.",
+            "script": "Tests/exsh/tests/bash_parity_posixly_correct_aliases.exsh",
+            "env": {
+                "POSIXLY_CORRECT": "1"
+            },
+            "expect": "match_bash"
         }
     ]
 }

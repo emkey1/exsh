@@ -1,0 +1,86 @@
+#!/usr/bin/env exsh
+# type and command -v say what would run, so an alias counts only while aliases expand. A
+# script starts with them off, and posix mode turns them on. Every message here counts. Left
+# out because bash 3.2 and 5 differ: `type -p` with found and missing names, `set +o posix`
+# outside posix mode and `set -o posix` inside it. Files on PATH are in
+# bash_parity_type_path_lookup, because this one also runs on the iOS-flavoured build, where
+# those names are applets and an absolute path lands under $HOME.
+alias q='echo hi'
+alias true=false
+alias shift=:
+alias quoted="it's"
+alias -- -x=y
+f() { :; }
+
+report() {
+    echo "--- $1"
+    type q; echo "type rc=$?"
+    type -t q; echo "-t rc=$?"
+    type -a q; echo "-a rc=$?"
+    type -f q; echo "-f rc=$?"
+    command -v q; echo "command -v rc=$?"
+    command -V q; echo "command -V rc=$?"
+    alias q; echo "alias rc=$?"
+    command -v quoted; echo "quoted rc=$?"
+    command -v -- -x; echo "dash name rc=$?"
+    type true; echo "over a builtin rc=$?"
+    type -t true; echo "over a builtin -t rc=$?"
+    command -v true; echo "over a builtin -v rc=$?"
+    command -V true; echo "over a builtin -V rc=$?"
+    type -a shift; echo "-a over a builtin rc=$?"
+    type -a -t shift; echo "-a -t over a builtin rc=$?"
+    type -p true; echo "-p builtin rc=$?"
+    type -p q; echo "-p alias rc=$?"
+    type -P q; echo "-P alias rc=$?"
+    type -a -p q; echo "-a -p alias rc=$?"
+    type -a -P q; echo "-a -P alias rc=$?"
+    type -p f; echo "-p function rc=$?"
+    type -P f; echo "-P function rc=$?"
+    type -p if; echo "-p keyword rc=$?"
+    type -P if; echo "-P keyword rc=$?"
+    type -p missing_cmd; echo "-p missing rc=$?"
+    type -P missing_cmd; echo "-P missing rc=$?"
+}
+
+report "a script starts with them off"
+shopt -s expand_aliases
+report on
+( shopt -u expand_aliases; report "off in a subshell" )
+report "still on after the subshell"
+shopt -u expand_aliases
+report "off again"
+
+( type q ) 2>&1 | cat
+x=$(command -v q); echo "substitution off [$x] rc=$?"
+type -t q | cat; echo "stage off"
+shopt -s expand_aliases
+x=$(command -v q); echo "substitution on [$x] rc=$?"
+x=$(type -t q); echo "substitution on -t [$x] rc=$?"
+type -t q | cat; echo "stage on"
+shopt -u expand_aliases
+
+echo "--- posix mode"
+st() { shopt -q expand_aliases; echo "$1 $?"; }
+st "a script starts with them off:"
+set -o posix
+st "posix turns them on:"
+type -t q; echo "posix -t rc=$?"
+command -v q; echo "posix -v rc=$?"
+set +o posix
+st "leaving posix turns them off:"
+type -t q; echo "left posix -t rc=$?"
+shopt -s expand_aliases
+set -o posix
+set +o posix
+st "even after shopt -s:"
+( set -o posix; st "in a subshell:" ); st "after the subshell:"
+set -o posix
+( st "a subshell in posix:"; set +o posix; st "a subshell that left:" )
+st "its parent is still in posix:"
+set +o posix
+
+set -o posix
+alias ran='echo ran-the-alias'
+ran
+set +o posix
+ran 2>/dev/null; echo "after posix rc=$?"

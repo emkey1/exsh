@@ -1,0 +1,35 @@
+#!/usr/bin/env exsh
+# What type and command -v say about files on PATH, with an alias of the same name off and on.
+# -p names the file that would run and -P looks only for a file. Host only: on the iOS-flavoured
+# build these names are applets and an absolute path lands under $HOME. Left out because bash
+# lists /bin and /usr/bin twice where they are one directory, and exsh once: `type -a` on a file.
+PATH=/usr/bin:/bin
+alias true=false
+alias ls='ls -l'
+
+report() {
+    echo "--- $1"
+    type -t ls; echo "over a file -t rc=$?"
+    command -v ls; echo "over a file -v rc=$?"
+    type -P true; echo "-P builtin rc=$?"
+    type -p ls; echo "-p file rc=$?"
+    type -P ls; echo "-P file rc=$?"
+}
+
+report "aliases off"
+shopt -s expand_aliases
+report "aliases on"
+shopt -u expand_aliases
+
+echo "--- -P searches PATH"
+d="${TMPDIR:-/tmp}/exsh_type_path.$$"
+mkdir -p "$d"
+printf '#!/bin/sh\n' > "$d/only_here"
+chmod +x "$d/only_here"
+saved=$PATH
+PATH=$d
+out=$(type -P only_here); echo "-P found [${out##*/}] rc=$?"
+out=$(type -p only_here); echo "-p found [${out##*/}] rc=$?"
+type -P ls; echo "-P outside PATH rc=$?"
+PATH=$saved
+rm -rf "$d"

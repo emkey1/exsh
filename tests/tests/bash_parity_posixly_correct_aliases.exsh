@@ -1,0 +1,12 @@
+#!/usr/bin/env exsh
+# Started with POSIXLY_CORRECT in the environment, a shell is in posix mode from the first
+# line, so aliases expand without shopt.
+shopt -q expand_aliases; echo "on from the start $?"
+alias q='echo hi'
+type -t q; echo "-t rc=$?"
+command -v q; echo "-v rc=$?"
+alias ran='echo ran-the-alias'
+ran
+set +o posix
+shopt -q expand_aliases; echo "leaving posix $?"
+type -t q; echo "left -t rc=$?"
