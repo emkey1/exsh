@@ -92,6 +92,16 @@
     "expected_stdout": "frontends-at-once-aether:start\naether_aether ok\naether_both ok\nrea_aether ok\naether_rea ok\npascal_aether ok\nbackground ok\nrun_styles ok\nrun_styles2 ok\nfrontends-at-once-aether:end"
   },
   {
+    "id": "vm_files_follow_cd_ios",
+    "name": "A program's file builtins follow cd (iOS)",
+    "category": "pipeline_ios",
+    "description": "After cd, each frontend's read, write, append, rename and erase reach the current directory's copy, not the one in the directory the process started in.",
+    "script": "Tests/exsh/tests/vm_files_follow_cd_ios.exsh",
+    "expect": "runtime_ok",
+    "env": { "RUN_VPROC_TESTS": "1" },
+    "expected_stdout": "vm-files-follow-cd:start\npascal read in-a\nexists TRUE FALSE\nclike read in-a\nrea read in-a\naether read in-a\nabs true\na/vm.ae: aether \na/vm.fo: fopen \na/vm.in: in-a \na/vm.ms: in-a \na/vm.out: wrote in-a appended \na/vm.re: rea \na/vm.ren2: ren-a \nb/vm.del: del-b \nb/vm.in: in-b \nb/vm.ren: ren-b \nvm.del: del-. \nvm.in: in-. \nvm.ren: ren-. \nvm-files-follow-cd:end"
+  },
+  {
     "id": "pipeline_empty_ios",
     "name": "Pipeline empty spool (iOS)",
     "category": "pipeline_ios",

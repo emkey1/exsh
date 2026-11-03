@@ -1,0 +1,76 @@
+#!/bin/sh
+# On iOS cd moves the vproc's directory, not the process's, and a program's own file calls
+# used the process's, with no error. Each directory has its own copy of each name, so the
+# output tells which were read, written, appended to, renamed and erased.
+echo "vm-files-follow-cd:start"
+d="${TMPDIR:-/tmp}/exsh_vm_files_cd.$$"
+rm -rf "$d"
+mkdir -p "$d/a" "$d/b" || exit 1
+cd "$d" || exit 1
+for t in a b .; do
+  printf "in-$t\n" > $t/vm.in
+  printf "ren-$t\n" > $t/vm.ren
+  printf "del-$t\n" > $t/vm.del
+done
+cat > io.pas <<'EOF'
+program Io;
+var f: text; s: string;
+begin
+  assign(f, 'vm.in'); reset(f); readln(f, s); close(f);
+  writeln('pascal read ', s);
+  assign(f, 'vm.out'); rewrite(f); writeln(f, 'wrote ', s); close(f);
+  assign(f, 'vm.out'); append(f); writeln(f, 'appended'); close(f);
+  writeln('exists ', fileexists('vm.in'), ' ', fileexists(''));
+  assign(f, 'vm.ren'); rename(f, 'vm.ren2');
+  assign(f, 'vm.del'); erase(f);
+end.
+EOF
+cat > io.clike <<'EOF'
+int main() {
+    text f;
+    str s;
+    str mode;
+    mstream ms;
+    assign(f, "vm.in"); reset(f); readln(f, s); close(f);
+    printf("clike read %s\n", s);
+    mode = "wb";
+    f = fopen("vm.fo", mode);
+    fprintf(f, "fopen\n");
+    fclose(f);
+    ms = mstreamcreate();
+    mstreamloadfromfile(&ms, "vm.in");
+    mstreamsavetofile(&ms, "vm.ms");
+    mstreamfree(&ms);
+    return 0;
+}
+EOF
+cat > io.rea <<'EOF'
+class Main {}
+text f;
+str s;
+assign(f, "vm.in"); reset(f); readln(f, s); close(f);
+writeln("rea read ", s);
+assign(f, "vm.re"); rewrite(f); writeln(f, "rea"); close(f);
+EOF
+cat > io.aether <<'EOF'
+fn main() -> Void {
+    fx {
+        println("aether read ", read_lines("vm.in")[0]);
+        write_file("vm.ae", "aether\n");
+        println("abs ", file_exists(get_current_dir() + "/vm.ae"));
+    }
+    ret;
+}
+EOF
+cd a || exit 1
+pascal --no-cache ../io.pas
+clike --no-cache ../io.clike
+rea --no-cache ../io.rea
+aether --no-cache ../io.aether
+cd ..
+for f in a/vm.* b/vm.* vm.*; do
+  echo "$f: $(cat "$f" | tr '\n' ' ')"
+done
+cd ..
+rm -rf "$d"
+echo "vm-files-follow-cd:end"
