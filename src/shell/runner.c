@@ -794,7 +794,8 @@ int shellRunSource(const char *source,
     if (result == INTERPRET_RUNTIME_ERROR && exit_flag) {
         result = INTERPRET_OK;
     }
-    should_run_exit_trap = shellRuntimeIsOutermostScript() &&
+    /* A line at the prompt is not the end of a script: the prompt runs it when it ends. */
+    should_run_exit_trap = !options->keep_line_state && shellRuntimeIsOutermostScript() &&
                            (!shellRuntimeIsInteractive() || exit_flag);
     exit_code = (result == INTERPRET_OK) ? last_status : EXIT_FAILURE;
     {
@@ -852,6 +853,9 @@ cleanup:
     if (vm_context_swapped) {
         shellRestoreCurrentVm(previous_vm_for_context);
         vm_context_swapped = false;
+    }
+    if (vm_shell_ctx && options->keep_line_state) {
+        shellRuntimeKeepLineState(vm_shell_ctx);
     }
     if (assigned_thread_owner) {
         gShellThreadOwnerVm = previous_thread_owner;

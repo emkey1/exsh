@@ -26,6 +26,8 @@ typedef struct ShellRunOptions {
     bool share_runtime_context;
     /* In its own context all the same, with the function's locals to read. */
     bool inherit_locals;
+    /* A line at the prompt or the startup file: what it sets outlasts its context. */
+    bool keep_line_state;
     /* eval, $(...) and <(...): the text's lines count on from the command holding it. */
     int first_line;
     const char *frontend_path;

@@ -990,6 +990,7 @@ static bool shellRunStartupConfig(const ShellRunOptions *base_options, int *out_
         rc_options.suppress_warnings = true;
     }
     rc_options.no_cache = 1;
+    rc_options.keep_line_state = true;
     rc_options.quiet = base_options ? base_options->quiet : true;
 
     const char *restore_path = (base_options && base_options->frontend_path)
@@ -3378,7 +3379,10 @@ static char *readInteractiveLine(const char *prompt,
             shellWriteStdoutStr("^C\n");
 #if defined(PSCAL_TARGET_IOS)
             /* Never raise host SIGINT on iOS; it can hit app threads. */
-            shellRuntimeSetLastStatus(128 + SIGINT);
+            shellRuntimeSetPromptStatus(128 + SIGINT);
+            /* The key ends here. Left raised, it would stop the next command. */
+            pscalRuntimeConsumeSigint();
+            pscalRuntimeClearInterruptFlag();
 #endif
             if (out_interrupted) {
                 interrupted = true;
@@ -3403,7 +3407,7 @@ static char *readInteractiveLine(const char *prompt,
             alt_dot_active = false;
             alt_dot_offset = 0;
             shellWriteStdoutStr("^Z\n");
-            shellRuntimeSetLastStatus(128 + SIGTSTP);
+            shellRuntimeSetPromptStatus(128 + SIGTSTP);
             length = 0;
             cursor = 0;
             buffer[0] = '\0';
@@ -4132,6 +4136,7 @@ static int runInteractiveSession(const ShellRunOptions *options) {
     exec_opts.no_cache = 1;
     exec_opts.quiet = options->quiet;
     exec_opts.exit_on_signal = false;
+    exec_opts.keep_line_state = true;
 
     int last_status = shellRuntimeLastStatus();
     bool tty = pscalRuntimeStdinIsInteractive();
@@ -4266,7 +4271,7 @@ static int runInteractiveSession(const ShellRunOptions *options) {
             /* Ctrl-C at the secondary prompt throws the half-built command
              * away, as it does at the primary one. */
             free(line);
-            shellRuntimeSetLastStatus(128 + SIGINT);
+            shellRuntimeSetPromptStatus(128 + SIGINT);
             last_status = 128 + SIGINT;
             continue;
         }
@@ -4323,6 +4328,7 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         }
     }
 
+    shellRuntimeRunExitTrap();
     return last_status;
 }
 

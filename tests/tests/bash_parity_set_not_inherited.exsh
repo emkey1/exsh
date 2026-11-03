@@ -1,0 +1,38 @@
+#!/usr/bin/env exsh
+# A shell run as a command starts without the caller's set options. On iOS it runs
+# inside the caller, in a copy of its state, and kept them.
+d="${TMPDIR:-/tmp}/exsh_parity_set_nested.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+touch a1
+
+set -f; sh -c 'echo a*'; set +f
+echo old > f
+set -C; sh -c 'echo new > f'; set +C; cat f
+set -u; sh -c 'echo "[$not_set_anywhere]"'; set +u
+set -o pipefail; sh -c 'false | true; echo "pipefail $?"'; set +o pipefail
+( set -e; sh -c 'false; echo went on' )
+( set -x; sh -c 'echo inner' 2> e ) 2> /dev/null
+wc -l < e | tr -d ' '
+
+# And the caller still has them afterwards.
+set -f; sh -c ':'; echo a*; set +f
+
+# Nor does it get the caller's traps, or run them, or the caller's $!.
+trap 'echo caller exit trap' EXIT
+sh -c 'echo no exit trap here'
+trap - EXIT
+trap 'echo caller usr2' USR2
+sh -c 'trap | wc -l | tr -d " "'
+trap - USR2
+sleep 0 & sh -c 'echo "[$!]"'
+wait
+
+# Nor the caller's jobs, which stay the caller's to wait for.
+( sleep 0; exit 7 ) &
+sh -c 'jobs | wc -l | tr -d " "; wait; echo waited'
+wait $!
+echo "caller's job $?"
+
+cd /
+rm -rf "${d:?}"

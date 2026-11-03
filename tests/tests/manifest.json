@@ -1756,6 +1756,14 @@
             "description": "Prefixes, exports and locals through exec, and a failed exec leaving the shell as it was.",
             "script": "Tests/exsh/tests/bash_parity_exec_environment.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_set_not_inherited",
+            "name": "A shell run as a command starts without the caller's options and traps",
+            "category": "parity",
+            "description": "-f, -C, -u, -e, -x, pipefail, traps and $! stay with the shell that set them.",
+            "script": "Tests/exsh/tests/bash_parity_set_not_inherited.exsh",
+            "expect": "match_bash"
         }
     ]
 }

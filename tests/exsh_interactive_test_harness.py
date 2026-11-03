@@ -707,7 +707,11 @@ def scenario_read_d_ends_at_its_delimiter(shell: PtyShell) -> tuple[bool, str]:
 
 def _type_lines(shell: PtyShell, lines: list[str]) -> None:
     for line in lines:
-        shell.send_line(line)
+        try:
+            shell.send_line(line)
+        except OSError:
+            # The shell has ended, as set -e can mean it to.
+            return
         shell._pump(0.3)
 
 
@@ -742,23 +746,253 @@ def scenario_status_on_the_next_line(shell: PtyShell) -> tuple[bool, str]:
     return True, ""
 
 
-def scenario_status_after_the_interrupt_key(shell: PtyShell) -> tuple[bool, str]:
+def scenario_set_options_outlast_their_line(shell: PtyShell) -> tuple[bool, str]:
     ok, reason = _wait_for_prompt(shell)
     if not ok:
         return False, reason
-    marker = _new_marker_path("status_interrupt")
+    marker = _new_marker_path("set_options")
+    existing = _new_marker_path("set_options_existing")
+    done = _new_marker_path("set_options_done")
+    for path in (marker, existing, done):
+        _unlink_if_exists(path)
+    out = _shell_path(marker)
+    kept = _shell_path(existing)
+    _type_lines(shell, [
+        "set -o pipefail",
+        f'false | true; echo "pipefail=$?" >> {out}',
+        "set +o pipefail",
+        f'false | true; echo "pipefail_off=$?" >> {out}',
+        "set -f",
+        f'x=$(echo /*); echo "noglob=$x" >> {out}',
+        "set +f",
+        f'case $(echo /*) in "/*") echo glob=off >> {out};; *) echo glob=on >> {out};; esac',
+        "set -u",
+        'echo "$not_set_anywhere"',
+        f"echo nounset_left_the_prompt >> {out}",
+        "set +u",
+        f"echo old > {kept}",
+        "set -C",
+        f"echo new > {kept}",
+        "set +C",
+        f"sed s/^/noclobber=/ {kept} >> {out}",
+        "set +B",
+        f"echo {{a,b}} | sed s/^/brace=/ >> {out}",
+        "set -B",
+        "set -a",
+        "exported_by_set_a=1",
+        f"sh -c 'echo allexport=$exported_by_set_a' >> {out}",
+        "set +a",
+        "set -x",
+        "echo traced-word > /dev/null",
+        "set +x",
+        "set -o posix",
+        f"set -o | grep posix | tr -d ' \\t' | sed s/^/option_/ >> {out}",
+        "set +o posix",
+        "set -e",
+        f"case $- in *e*) echo errexit=on >> {out};; esac",
+        "set +e",
+        f"case $- in *e*) echo errexit=stayed >> {out};; esac",
+        f"touch {_shell_path(done)}",
+    ])
+    if not shell.wait_for_path(done):
+        return False, "the shell stopped taking lines"
+    got = marker.read_text().split()
+    for path in (marker, existing, done):
+        _unlink_if_exists(path)
+    want = [
+        "pipefail=1", "pipefail_off=0", "noglob=/*", "glob=on", "nounset_left_the_prompt",
+        "noclobber=old", "brace={a,b}", "allexport=1", "option_posixon", "errexit=on",
+    ]
+    if got != want:
+        return False, f"got {got}, want {want}"
+    if "unbound variable" not in shell.output:
+        return False, "set -u did not hold on the next line"
+    if "+ echo traced-word" not in shell.output:
+        return False, "set -x did not hold on the next line"
+    return True, ""
+
+
+def scenario_set_e_ends_the_shell_on_a_later_line(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("set_e_ends")
     _unlink_if_exists(marker)
-    shell.send_line("cat")
-    shell._pump(0.5)
+    out = _shell_path(marker)
+    _type_lines(shell, [
+        "set -e",
+        f"echo before >> {out}",
+        f"false; echo same_line >> {out}",
+        f"echo next_line >> {out}",
+    ])
+    shell._pump(1.0)
+    got = marker.read_text().split() if marker.exists() else []
+    _unlink_if_exists(marker)
+    if got != ["before"]:
+        return False, f"got {got}, want the shell to end at the failure"
+    return True, ""
+
+
+def scenario_trap_runs_on_a_later_line(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("trap_later_line")
+    _unlink_if_exists(marker)
+    _type_lines(shell, [
+        f"trap 'echo ran >> {_shell_path(marker)}' USR2",
+        "kill -USR2 $$",
+        ": a line for the trap to run before",
+    ])
+    shell._pump(1.0)
+    got = marker.read_text().split() if marker.exists() else []
+    _unlink_if_exists(marker)
+    if got != ["ran"]:
+        return False, f"got {got}, want the trap to run once"
+    return True, ""
+
+
+def scenario_set_e_survives_ctrl_c_at_the_prompt(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("set_e_ctrl_c")
+    _unlink_if_exists(marker)
+    _type_lines(shell, ["set -e"])
+    shell.send(b"half")
+    shell._pump(0.2)
     shell.send(b"\x03")
-    shell._pump(0.5)
-    shell.send_line(f'echo "$?" > {_shell_path(marker)}')
+    shell._pump(0.3)
+    shell.send_line(f"touch {_shell_path(marker)}")
     if not shell.wait_for_path(marker):
-        return False, "the key did not end cat"
-    got = marker.read_text().strip()
+        return False, "Ctrl-C at the prompt ended the shell, or kept the line, under set -e"
     _unlink_if_exists(marker)
-    if got != "130":
-        return False, f"$? is {got}, want 130"
+    return True, ""
+
+
+def scenario_shell_state_outlasts_its_line(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("line_state")
+    done = _new_marker_path("line_state_done")
+    listing = _new_marker_path("line_state_listing")
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    out = _shell_path(marker)
+    listed = _shell_path(listing)
+    _type_lines(shell, [
+        "trap : USR2",
+        f"trap > {listed}",
+        f"grep -c USR2 {listed} | sed s/^/trap_listed=/ >> {out}",
+        "trap - USR2",
+        f"trap > {listed}",
+        f"grep -c USR2 {listed} | sed s/^/trap_removed=/ >> {out}",
+        "readonly line_state_ro=1",
+        "line_state_ro=2",
+        f'echo "readonly=$line_state_ro" >> {out}',
+        "sleep 0 &",
+        "bg_pid=$!",
+        f'[ -n "$bg_pid" ] && echo bg_pid=set >> {out}',
+        "pushd . > /dev/null",
+        f"dirs > {listed}",
+        f"wc -w < {listed} | tr -d ' ' | sed s/^/dirs=/ >> {out}",
+        "popd > /dev/null",
+        "line_arr=(a b c)",
+        "line_arr+=(d)",
+        f'echo "array=${{#line_arr[@]}}" >> {out}',
+        "unset 'line_arr[0]'",
+        f'echo "array_unset=${{#line_arr[@]}}" >> {out}',
+        "declare -A line_map",
+        "line_map[k]=v",
+        "line_map[j]=w",
+        f'echo "assoc=${{#line_map[@]}}" >> {out}',
+        "set -- -ab",
+        "OPTIND=1",
+        "getopts ab line_opt",
+        "getopts ab line_opt",
+        f'echo "getopts=$line_opt" >> {out}',
+        "set --",
+        "sleep 30 &",
+        f"jobs > {listed}",
+        f"grep -c sleep {listed} | sed s/^/jobs=/ >> {out}",
+        "kill %1",
+        f"touch {_shell_path(done)}",
+    ])
+    if not shell.wait_for_path(done):
+        return False, "the shell stopped taking lines"
+    got = marker.read_text().split()
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    _unlink_if_exists(listing)
+    want = [
+        "trap_listed=1", "trap_removed=0", "readonly=1", "bg_pid=set", "dirs=2",
+        "array=4", "array_unset=3", "assoc=2", "getopts=b", "jobs=1",
+    ]
+    if got != want:
+        return False, f"got {got}, want {want}"
+    return True, ""
+
+
+def _exit_trap_runs(shell: PtyShell, marker: Path) -> list[str]:
+    shell.wait_for_path(marker)
+    shell._pump(0.5)
+    got = marker.read_text().split() if marker.exists() else []
+    _unlink_if_exists(marker)
+    return got
+
+
+def scenario_exit_trap_runs_once_at_end_of_input(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("exit_trap_eof")
+    _unlink_if_exists(marker)
+    _type_lines(shell, [f"trap 'echo ran >> {_shell_path(marker)}' EXIT", ": a line after it"])
+    shell.send(b"\x04")
+    got = _exit_trap_runs(shell, marker)
+    if got != ["ran"]:
+        return False, f"the trap ran {len(got)} times, want once"
+    return True, ""
+
+
+def scenario_exit_trap_runs_once_on_exit(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("exit_trap_exit")
+    _unlink_if_exists(marker)
+    _type_lines(shell, [f"trap 'echo ran >> {_shell_path(marker)}' EXIT", ": a line after it", "exit"])
+    got = _exit_trap_runs(shell, marker)
+    if got != ["ran"]:
+        return False, f"the trap ran {len(got)} times, want once"
+    return True, ""
+
+
+def scenario_a_bang_can_be_the_shell_s_own(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("bang_syntax")
+    done = _new_marker_path("bang_syntax_done")
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    out = _shell_path(marker)
+    _type_lines(shell, [
+        f'sleep 0 & x=$!; [ -n "$x" ] && echo bg=set >> {out}',
+        f'declare -A bang_map; bang_map[k]=v; echo "keys=${{!bang_map[@]}}" >> {out}',
+        f'bang_ref=bang_target; bang_target=v; echo "indirect=${{!bang_ref}}" >> {out}',
+        f"case a in [!b]) echo bracket=yes >> {out};; esac",
+        f"touch {_shell_path(done)}",
+    ])
+    if not shell.wait_for_path(done):
+        return False, "the shell stopped taking lines"
+    got = marker.read_text().split() if marker.exists() else []
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    want = ["bg=set", "keys=k", "indirect=v", "bracket=yes"]
+    if got != want:
+        return False, f"got {got}, want {want}"
     return True, ""
 
 
@@ -772,7 +1006,7 @@ def scenario_err_trap_runs_once_for_a_line(shell: PtyShell) -> tuple[bool, str]:
     _unlink_if_exists(done)
     _type_lines(shell, [
         f"trap 'echo ran >> {_shell_path(marker)}' ERR",
-        "false",
+        "false; : another command",
         ": a line after it",
         ": and another",
         "trap - ERR",
@@ -1113,13 +1347,48 @@ SCENARIOS: List[Scenario] = [
         run=scenario_status_on_the_next_line,
     ),
     Scenario(
-        test_id="interactive_status_interrupt",
-        name="$? after the interrupt key ended a command",
-        run=scenario_status_after_the_interrupt_key,
+        test_id="interactive_set_options",
+        name="set options outlast the line they were given on",
+        run=scenario_set_options_outlast_their_line,
+    ),
+    Scenario(
+        test_id="interactive_set_e_ends",
+        name="set -e ends the shell when a later line fails with another command after it",
+        run=scenario_set_e_ends_the_shell_on_a_later_line,
+    ),
+    Scenario(
+        test_id="interactive_set_e_ctrl_c",
+        name="set -e and Ctrl-C at the prompt leave the shell",
+        run=scenario_set_e_survives_ctrl_c_at_the_prompt,
+    ),
+    Scenario(
+        test_id="interactive_line_state",
+        name="Traps, readonly, $!, the directory stack, arrays, getopts and jobs outlast a line",
+        run=scenario_shell_state_outlasts_its_line,
+    ),
+    Scenario(
+        test_id="interactive_trap_later_line",
+        name="A trap from an earlier line runs when its signal comes",
+        run=scenario_trap_runs_on_a_later_line,
+    ),
+    Scenario(
+        test_id="interactive_exit_trap_eof",
+        name="An EXIT trap from an earlier line runs once at Ctrl-D",
+        run=scenario_exit_trap_runs_once_at_end_of_input,
+    ),
+    Scenario(
+        test_id="interactive_exit_trap_exit",
+        name="An EXIT trap from an earlier line runs once on exit",
+        run=scenario_exit_trap_runs_once_on_exit,
+    ),
+    Scenario(
+        test_id="interactive_bang_syntax",
+        name="$!, ${!name} and [!...] are not history references",
+        run=scenario_a_bang_can_be_the_shell_s_own,
     ),
     Scenario(
         test_id="interactive_err_trap_once",
-        name="An ERR trap runs once for a line that failed",
+        name="An ERR trap from an earlier line runs once, not again on the next",
         run=scenario_err_trap_runs_once_for_a_line,
     ),
     Scenario(
