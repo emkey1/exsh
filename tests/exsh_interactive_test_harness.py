@@ -658,6 +658,53 @@ def scenario_ctrl_z_stops_watch_top_and_restores_prompt(shell: PtyShell) -> tupl
     return True, "Ctrl-Z stops watch -n 3 top and restores shell prompt"
 
 
+def scenario_read_silent_does_not_echo(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("read_silent")
+    shell.send_line(f'read -s v; printf "%s" "$v" > {_shell_path(marker)}')
+    shell._pump(0.5)
+    shell.send_line("hidden-word")
+    if not shell.wait_for_path(marker):
+        return False, "read -s did not finish on Return"
+    if marker.read_text() != "hidden-word":
+        return False, f"read -s got {marker.read_text()!r}"
+    if "hidden-word" in shell.output:
+        return False, "read -s echoed what was typed"
+    return True, ""
+
+
+def scenario_read_n_needs_no_return(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("read_n")
+    shell.send_line(f'read -n 2 v; printf "%s" "$v" > {_shell_path(marker)}')
+    shell._pump(0.5)
+    shell.send(b"ab")
+    if not shell.wait_for_path(marker):
+        return False, "read -n 2 waited for more than two keys"
+    if marker.read_text() != "ab":
+        return False, f"read -n 2 got {marker.read_text()!r}"
+    return True, ""
+
+
+def scenario_read_d_ends_at_its_delimiter(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("read_d")
+    shell.send_line(f'read -d x v; printf "%s" "$v" > {_shell_path(marker)}')
+    shell._pump(0.5)
+    shell.send(b"abx")
+    if not shell.wait_for_path(marker):
+        return False, "read -d x waited for a Return"
+    if marker.read_text() != "ab":
+        return False, f"read -d x got {marker.read_text()!r}"
+    return True, ""
+
+
 def scenario_ctrl_c_at_prompt_keeps_shell_alive(shell: PtyShell) -> tuple[bool, str]:
     ok, reason = _wait_for_prompt(shell)
     if not ok:
@@ -976,6 +1023,21 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_ctrl_z_shebang_frontend_fg",
         name="Ctrl-Z/fg resumes shebang frontend task",
         run=scenario_ctrl_z_fg_resumes_shebang_frontend,
+    ),
+    Scenario(
+        test_id="interactive_read_silent",
+        name="read -s does not echo what is typed",
+        run=scenario_read_silent_does_not_echo,
+    ),
+    Scenario(
+        test_id="interactive_read_n",
+        name="read -n needs no Return",
+        run=scenario_read_n_needs_no_return,
+    ),
+    Scenario(
+        test_id="interactive_read_d",
+        name="read -d ends at its delimiter with no Return",
+        run=scenario_read_d_ends_at_its_delimiter,
     ),
 ]
 
