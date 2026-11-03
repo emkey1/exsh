@@ -1,0 +1,46 @@
+#!/usr/bin/env exsh
+# exec runs what bash would find as a file, and that is the end of the shell. In the iOS app
+# nothing execs, so there it has to be the same by other means.
+export B=2; C=3
+(exec printf 'hi\n'); echo "rc=$?"
+(exec printf 'to file\n' > exec_program.$$); cat exec_program.$$
+printf 'from file\n' > exec_program.$$
+(exec cat < exec_program.$$); echo "rc=$?"
+rm -f exec_program.$$
+(exec sh -c 'echo "[$B][$C]"; exit 3'); echo "rc=$?"
+(A=1 exec printenv A); echo "rc=$?"
+(exec true); echo "rc=$?"
+(exec false); echo "rc=$?"
+(exec sh -c 'exit 3'); echo "rc=$?"
+exec_in_function() { exec printf 'in a function\n'; echo not reached; }
+(exec_in_function; echo not reached); echo "rc=$?"
+
+# What it will not run.
+(exec nosuchprogram_x 2>/dev/null); echo "rc=$?"
+f() { echo fn; }; (exec f 2>/dev/null); echo "rc=$?"
+(shopt -s execfail; exec nosuchprogram_x 2>/dev/null; echo "still $?"); echo "rc=$?"
+
+# Files.
+printf '#!/bin/sh\necho script "$@"\n' > exec_program_s.$$; chmod +x exec_program_s.$$
+(exec ./exec_program_s.$$ a b); echo "rc=$?"
+printf 'echo plain\n' > exec_program_s.$$
+(exec ./exec_program_s.$$); echo "rc=$?"
+rm -f exec_program_s.$$
+mkdir -p exec_program_d.$$; printf '#!/bin/sh\necho found\n' > exec_program_d.$$/exec_program_t; chmod +x exec_program_d.$$/exec_program_t
+(PATH="$PWD/exec_program_d.$$:$PATH"; exec exec_program_t); echo "rc=$?"
+rm -f exec_program_d.$$/exec_program_t; rmdir exec_program_d.$$
+
+# In a pipeline, only that stage ends.
+exec printf 'piped\n' | cat; echo after
+(exec printf 'background\n') & wait; echo "rc=$?"
+
+# Its options.
+(exec -c sh -c 'echo "[$B]"'); echo "rc=$?"
+(A=1 exec -c sh -c 'echo "[$A]"'); echo "rc=$?"
+(exec -- sh -c 'echo dashes'); echo "rc=$?"
+(exec -z sh 2>/dev/null; echo "after a bad option $?"); echo "rc=$?"
+
+# The end: no EXIT trap.
+trap 'echo bye' EXIT
+exec sh -c 'echo last; exit 6'
+echo not reached

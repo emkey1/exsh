@@ -1,0 +1,58 @@
+#!/usr/bin/env exsh
+# How read deals out a line. IFS whitespace at the end of the last name's text goes; so does a
+# delimiter, if that text is one field and what ends it. With no name, $REPLY has it all.
+read q <<< "a b "; echo "[$q]"
+read q <<< "a b   "; echo "[$q]"
+read q <<< "   a b"; echo "[$q]"
+read p q <<< "1 2 3  "; echo "[$p][$q]"
+read p q <<< "1 "; echo "[$p][$q]"
+read p q <<< "1 2 "; echo "[$p][$q]"
+read p q r <<< " 1  2  3  4  "; echo "[$p][$q][$r]"
+read q <<< $'a\tb\t'; echo "[$q]"
+read q <<< "   "; echo "[$q]"
+read p q <<< "   "; echo "[$p][$q]"
+
+# A delimiter that is not whitespace.
+IFS=: read q <<< "a:b:"; echo "[$q]"
+IFS=: read p q <<< "1:2:"; echo "[$p][$q]"
+IFS=: read p q <<< "1:2:3:"; echo "[$p][$q]"
+IFS=: read p q <<< "1:2::"; echo "[$p][$q]"
+IFS=: read q <<< " a b "; echo "[$q]"
+IFS=: read a b c <<< "1:2:3:4:"; echo "[$a][$b][$c]"
+IFS=x read p q <<< "1x2x"; echo "[$p][$q]"
+IFS=x read q <<< "1x2x"; echo "[$q]"
+IFS=x read q <<< "1x"; echo "[$q]"
+IFS=$'\n' read q <<< "a b "; echo "[$q]"
+
+# Both kinds at once: whitespace around one delimiter is part of it.
+IFS=' :' read p q <<< "1 : 2 : "; echo "[$p][$q]"
+IFS=' :' read p q <<< "1 : 2 : 3 : "; echo "[$p][$q]"
+IFS=' :' read a b c <<< "1 :: 2"; echo "[$a][$b][$c]"
+IFS=$'\t' read a b <<< $'1\t\t2'; echo "[$a][$b]"
+
+# No IFS, no name.
+IFS= read q <<< " a b "; echo "[$q]"
+read <<< " a b "; echo "[$REPLY]"
+read <<< 'a\ b '; echo "[$REPLY]"
+read -r <<< ' a\ b '; echo "[$REPLY]"
+
+# A backslash keeps a delimiter from counting, but not from going at the end.
+read q <<< 'a\ b\ '; echo "[$q]"
+read -r q <<< 'a\ b\ '; echo "[$q]"
+read q <<< 'a b\ '; echo "[$q]"
+read q <<< 'a\\ '; echo "[$q]"
+read -r q <<< 'a\\ '; echo "[$q]"
+read a b <<< 'x\ y z'; echo "[$a][$b]"
+IFS=: read a b <<< 'x\:y:z'; echo "[$a][$b]"
+
+# Wherever the line comes from.
+printf 'a b \n' | { read q; echo "[$q]"; }
+printf 'a b  \n' > read_fields.$$; read q < read_fields.$$; echo "[$q]"
+printf 'a b  ' > read_fields.$$; read q < read_fields.$$; echo "[$q] rc=$?"
+rm -f read_fields.$$
+read -d: q <<< "a b :c"; echo "[$q]"
+read -d: p q <<< "1  2  :c"; echo "[$p][$q]"
+read -n3 q <<< "a  b"; echo "[$q]"
+read -a arr <<< " a  b "; echo "[${#arr[@]}][${arr[0]}][${arr[1]}]"
+IFS=: read -a arr <<< "x:y:"; echo "${#arr[@]} [${arr[0]}][${arr[1]}]"
+IFS=' :' read -a arr <<< " x : y "; echo "${#arr[@]} [${arr[0]}][${arr[1]}]"

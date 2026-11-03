@@ -1655,7 +1655,7 @@
             "description": "Case modification, negative subscripts, zero-padded ranges, ;& and ;;&, [[ -v ]], declare -A, declare -l and -u, ${x@Q}.",
             "script": "Tests/exsh/tests/bash5_forms.exsh",
             "expect": "runtime_ok",
-            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9\n3\n127\n4\n127\n3\nv w\none\ntwo"
+            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9\n3\n127\n4\n127\n3\nv w\none\ntwo\n3\ndeclare -i n=\"3\"\ndeclare -- v=\"1\"\ndeclare -x pe\ndeclare -- gv=\"l\"\ndeclare -- gv=\"g\"\ndeclare -- lv\ndeclare -- lv\ndeclare -x lx=\"1\"\ndeclare -- a=\"1\"\ndeclare -- b=\"x y\"\n[unset] [e] [0]\ndeclare -- v\nrc=0\n1\ndeclare -- sa=\"1\"\n0\nv"
         },
         {
             "id": "bash_parity_condition_list",
@@ -1731,6 +1731,86 @@
             "env": {
                 "POSIXLY_CORRECT": "1"
             },
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_read_fields",
+            "name": "read deals out a line as bash does",
+            "category": "parity",
+            "description": "Trailing IFS whitespace, a closing delimiter, whitespace around a delimiter, $REPLY, escapes.",
+            "script": "Tests/exsh/tests/bash_parity_read_fields.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_prefix_order",
+            "name": "Prefixes see the ones before them",
+            "category": "parity",
+            "description": "A=1 B=$A cmd, with and without a command, after the words, with attributes and readonly.",
+            "script": "Tests/exsh/tests/bash_parity_prefix_order.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_readonly_prefix",
+            "name": "A readonly prefix does not stop the command",
+            "category": "parity",
+            "description": "Reported and left alone, the rest go ahead; under set -e the report ends the shell.",
+            "script": "Tests/exsh/tests/bash_parity_readonly_prefix.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_unset_local",
+            "name": "unset of a local keeps the name local",
+            "category": "parity",
+            "description": "In its own function it hides what is outside; from a callee it goes. Children, prefixes, arrays.",
+            "script": "Tests/exsh/tests/bash_parity_unset_local.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_set_list",
+            "name": "set and declare list the variables",
+            "category": "parity",
+            "description": "Quoting, order, locals, arrays, what the shell keeps itself, declare with attribute letters.",
+            "script": "Tests/exsh/tests/bash_parity_set_list.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_trap_now",
+            "name": "A trap runs when the command is done",
+            "category": "parity",
+            "description": "In the function it broke into, keeping $?; return, break, continue and exit in the text.",
+            "script": "Tests/exsh/tests/bash_parity_trap_now.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_program",
+            "name": "exec runs a program and ends the shell",
+            "category": "parity",
+            "description": "Applets, shells, scripts, prefixes, redirections, options, no EXIT trap; what it will not run.",
+            "script": "Tests/exsh/tests/bash_parity_exec_program.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_stdin",
+            "name": "exec gives its program a redirected stdin",
+            "category": "parity",
+            "description": "A redirection on exec, on the subshell around it, or from an exec before it; with and without a shell in between.",
+            "script": "Tests/exsh/tests/bash_parity_exec_stdin.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_env_program",
+            "name": "env runs a program",
+            "category": "parity",
+            "description": "Shells and scripts under what env was given, in a pipeline, with -i, -u, -C, -S.",
+            "script": "Tests/exsh/tests/bash_parity_env_program.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_stale_pwd",
+            "name": "A $PWD handed down must name where we are",
+            "category": "parity",
+            "description": "A stale $PWD is replaced, a right one stays.",
+            "script": "Tests/exsh/tests/bash_parity_stale_pwd.exsh",
             "expect": "match_bash"
         },
         {

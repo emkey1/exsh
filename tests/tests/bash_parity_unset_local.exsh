@@ -1,0 +1,55 @@
+#!/usr/bin/env exsh
+# unset in the function that made a local keeps the name local and hides what is outside. From a
+# function it called, the local goes and the next one out shows.
+v=g
+f() { local v=1; y=$(unset v; echo "[$v]"); echo "$y [$v]"; }; f; echo "[$v]"
+f() { local v=1; unset v; echo "[$v] [${v-unset}]"; v=2; echo "[$v]"; }; f; echo "[$v]"
+f() { local v; unset v; echo "[${v-unset}]"; }; f; echo "[$v]"
+f() { local v=1; unset v; unset v; echo "[${v-unset}]"; }; f; echo "[$v]"
+f() { local v=1; unset v; local v; echo "[${v-unset}]"; local v=3; echo "[$v]"; }; f; echo "[$v]"
+f() { local v=1; unset -v v; echo "[${v-unset}]"; }; f; echo "[$v]"
+f() { local v=1; unset v; echo "rc=$?"; }; f
+f() { local v=1; (unset v; echo "[${v-unset}]"); echo "[$v]"; }; f
+f() { local v=1; { unset v; echo "[${v-unset}]"; } | cat; echo "[$v]"; }; f
+f() { local v; for v in 1 2; do unset v; echo "[${v-unset}]"; done; }; f; echo "[$v]"
+f() { local v=1; unset v; read v <<< 'r'; echo "[$v]"; }; f; echo "[$v]"
+f() { local v=1; unset v; v+=x; echo "[$v]"; }; f; echo "[$v]"
+f() { local v=1; unset v; [ "${v+set}" = set ] && echo s || echo u; test -n "$v" && echo full || echo empty; }; f
+f() { local v=1; unset v; set | grep -c '^v='; }; f
+v2=5; f() { local v2=1; unset v2; echo $((v2+1)); }; f
+
+# Called functions see the hidden name, and what they set stays in it.
+h() { echo "h [${v-unset}]"; }; f() { local v=1; unset v; h; }; f
+h() { v=9; }; f() { local v=1; unset v; h; echo "f [$v]"; }; f; echo "[$v]"
+
+# From a function it called.
+h() { unset v; echo "h [${v-unset}]"; }; f() { local v=1; h; echo "f [${v-unset}]"; }; f; echo "[$v]"
+h() { unset v; echo "h [${v-unset}]"; }; m() { local v=m; h; echo "m [${v-unset}]"; }; f() { local v=f; m; echo "f [${v-unset}]"; }; f; echo "[$v]"
+v=g
+
+# What a child gets.
+export w=g
+f() { local w=1; unset w; sh -c 'echo "child [${w-unset}]"'; echo "[${w-unset}]"; }; f; echo "[$w]"
+export -n w; w=g
+f() { local w=1; export w; sh -c 'echo "child [$w]"'; unset w; sh -c 'echo "child [${w-unset}]"'; }; f; sh -c 'echo "after [${w-unset}]"'
+f() { local w=1; unset w; export w=2; sh -c 'echo "child [$w]"'; }; f; echo "[$w]"
+
+# A prefix on it goes away again.
+f() { local v=1; unset v; v=2 sh -c 'echo "[$v]"'; echo "[${v-unset}]"; }; f; echo "[$v]"
+
+# Arrays.
+a=(g h)
+f() { local -a a; a=(1 2); unset a; echo "[${#a[@]}] [${a[*]-none}]"; a=(3); echo "[${a[*]}]"; }; f; echo "[${a[*]}]"
+f() { local a=1; echo "[$a]"; }; f; echo "[${a[1]}] ${#a[@]}"
+f() { local -a b; b=(1 2 3); unset 'b[1]'; echo "[${b[*]}] ${#b[@]}"; }; f
+
+# IFS, and a local's own name for a function too.
+f() { local IFS=:; unset IFS; x='a b'; set -- $x; echo "$#"; }; f
+f() { local f=1; unset f; declare -F f > /dev/null && echo fn || echo nofn; }; f
+# Nothing to do with locals.
+f() { unset v; echo "[${v-unset}]"; }; f; echo "[${v-unset}]"
+# Declared again, it keeps its value. Its attributes are its own and end with it.
+f() { local v=1; local v; echo "[$v]"; }; f
+f() { local -i n=2; n=n+1; echo "[$n]"; }; f; n=1+1; echo "[$n]"; unset n
+f() { declare -i n=2; n=n+1; echo "[$n]"; }; f; n=1+1; echo "[$n]"; unset n
+declare -i gi=1; f() { local gi=1+1; echo "[$gi]"; gi=2+2; echo "[$gi]"; }; f; gi=3+3; echo "[$gi]"

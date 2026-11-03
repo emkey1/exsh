@@ -1,0 +1,40 @@
+#!/usr/bin/env exsh
+# env runs a program under what it was given. In the iOS app that takes a shell, a frontend or a
+# script as a call, since it cannot exec them.
+export K=1
+env sh -c 'echo inner'; echo "rc=$?"
+env V=1 sh -c 'echo "[$V]"; exit 4'; echo "rc=$?"
+env -u K sh -c 'echo "[$K]"'; echo "rc=$?"
+env -i sh -c 'echo "[$K]"'; echo "rc=$?"
+env sh -c 'exit 9'; echo "rc=$?"
+env -- env -- env sh -c 'echo nested'; echo "rc=$?"
+env sh -c 'echo piped' | cat
+printf 'x\n' | env sh -c 'cat'; echo "rc=$?"
+env sh -c 'echo redirected' > env_program.$$; cat env_program.$$; rm -f env_program.$$
+env -S 'sh -c "echo split"'; echo "rc=$?"
+
+# Applets as before.
+env V=1 printenv V; echo "rc=$?"
+env echo hi; echo "rc=$?"
+env true; echo "rc=$?"
+env false; echo "rc=$?"
+
+# Files.
+printf '#!/bin/sh\necho "[$V] $1"\n' > env_program_s.$$; chmod +x env_program_s.$$
+env V=1 ./env_program_s.$$ a; echo "rc=$?"
+printf 'echo "plain [$V]"\n' > env_program_s.$$
+env V=1 ./env_program_s.$$; echo "rc=$?"
+rm -f env_program_s.$$
+mkdir -p env_program_d.$$; printf '#!/bin/sh\necho on-path\n' > env_program_d.$$/env_program_t; chmod +x env_program_d.$$/env_program_t
+PATH="$PWD/env_program_d.$$:$PATH" env env_program_t; echo "rc=$?"
+rm -f env_program_d.$$/env_program_t; rmdir env_program_d.$$
+
+# -C changes where it runs, and only there.
+mkdir -p env_program_c.$$; env -C env_program_c.$$ sh -c 'echo "${PWD##*/}" | cut -c1-13'; echo "rc=$?"
+echo "${PWD##*/}" | grep -c '^env_program'
+rmdir env_program_c.$$
+
+# What it will not run.
+env nosuchprogram_x 2>/dev/null; echo "rc=$?"
+f() { echo fn; }; env f 2>/dev/null; echo "rc=$?"
+printf 'x\n' > env_program_s.$$; chmod -x env_program_s.$$; env ./env_program_s.$$ 2>/dev/null; echo "rc=$?"; rm -f env_program_s.$$

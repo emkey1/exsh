@@ -1,0 +1,22 @@
+#!/usr/bin/env exsh
+# A readonly name in a prefix is reported and left alone. The rest go ahead, command included.
+readonly r=1
+r=2 sh -c 'echo "ran [$r]"'; echo "rc=$? r=$r"
+r=2 echo ran; echo "rc=$? r=$r"
+r=2 :; echo "rc=$? r=$r"
+r=2 false; echo "rc=$? r=$r"
+f() { echo "f [$r]"; }
+r=2 f; echo "rc=$? r=$r"
+g() { return 7; }
+r=2 g; echo "rc=$?"
+r=2 B=3 sh -c 'echo "[$r][$B]"'; echo "[${B-unset}]"
+A=0 r=2 B=$A sh -c 'echo "[$A][$r][$B]"'
+r=2 echo ran | cat; echo "rc=$?"
+r=2 sh -c 'echo ran' & wait; echo "rc=$?"
+r=2 eval 'echo ran'; echo "rc=$?"
+export x=1; readonly x
+x=2 sh -c 'echo "ran [$x]"'; echo "rc=$?"
+# Under set -e, reporting it ends the shell, whatever it was part of.
+(set -e; r=2 echo ran; echo not reached); echo "rc=$?"
+(set -e; false || r=2 echo ran; echo not reached); echo "rc=$?"
+(set -e; if r=2 echo ran; then echo not reached; fi; echo not reached); echo "rc=$?"

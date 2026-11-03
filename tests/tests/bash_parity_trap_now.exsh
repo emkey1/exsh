@@ -1,0 +1,48 @@
+#!/usr/bin/env exsh
+# A trap runs as soon as the command that let the signal in is done, in the function it was in,
+# and leaves $? alone. USR1, since a detached run ignores INT and QUIT on entry.
+f() { local v=1; trap 'echo "trap [$v]"' USR1; kill -USR1 $$; }; f
+f() { local v=1; trap 'echo "trap [$v]"' USR1; kill -USR1 $$; echo after; }; f; echo end
+f() { local v=1; trap 'v=2' USR1; kill -USR1 $$; echo "[$v]"; }; f; echo "[${v-unset}]"
+trap - USR1
+
+trap 'echo got' USR1
+kill -USR1 $$
+echo after
+f() { kill -USR1 $$; return 3; }; f; echo "rc=$?"
+for i in 1 2; do kill -USR1 $$; echo "i=$i"; done
+i=0; while [ $i -lt 2 ]; do kill -USR1 $$; i=$((i+1)); done
+sh -c 'kill -USR1 $PPID; echo child'; echo after
+# To a file: bash runs the trap between stages if the signal comes before it has started cat.
+{ kill -USR1 $$; echo piped; } | cat > trap_now_p.$$; echo after; cat trap_now_p.$$; rm -f trap_now_p.$$
+kill -USR1 $$ | cat; echo "rc=$?"
+kill -USR1 $$; kill -USR1 $$; echo two
+eval 'kill -USR1 $$; echo in eval'
+echo 'kill -USR1 $$; echo in source' > trap_now.$$; . ./trap_now.$$; rm -f trap_now.$$
+trap - USR1
+
+# $?.
+trap 'false' USR1; kill -USR1 $$; echo "rc=$?"
+trap 'echo "in $?"' USR1; (exit 3); kill -USR1 $$; echo "rc=$?"
+f() { trap 'false' USR1; kill -USR1 $$; echo "in $?"; }; f; echo "out $?"
+trap - USR1
+
+# What the text does to what it broke into.
+f() { trap 'return 5' USR1; kill -USR1 $$; echo not reached; }; f; echo "rc=$?"
+trap 'break' USR1; for i in 1 2 3; do echo "i=$i"; kill -USR1 $$; echo not reached; done; echo end
+trap 'continue' USR1; for i in 1 2; do kill -USR1 $$; echo not reached; done; echo end
+trap - USR1
+(trap 'exit 4' USR1; sh -c 'kill -USR1 $PPID'; echo not reached); echo "rc=$?"
+(trap 'exit' USR1; (exit 3); sh -c 'kill -USR1 $PPID'; echo not reached); echo "rc=$?"
+trap 'echo first; trap "echo second" USR1' USR1; kill -USR1 $$; kill -USR1 $$; echo end
+trap - USR1
+
+# Set in a function, for later.
+f() { trap 'echo later' USR1; }; f; kill -USR1 $$; echo after
+trap '' USR1; kill -USR1 $$; echo ignored
+trap - USR1
+
+# Its own signal waits for it to finish, and the last command of the script counts too.
+n=0; trap 'n=$((n+1)); [ $n -lt 2 ] && kill -USR1 $$; echo "t$n"' USR1; (:) ; n=1; kill -USR1 $$; echo end
+trap 'echo last' USR1
+kill -USR1 $$

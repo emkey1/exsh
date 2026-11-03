@@ -1,0 +1,56 @@
+#!/usr/bin/env exsh
+# Prefixes are expanded in turn, each seeing those before it, and after the command's words.
+unset A B C
+A=1 B=$A sh -c 'echo "[$A][$B]"'; echo "[${A-unset}][${B-unset}]"
+A=1 B=$A; echo "[$A][$B]"
+unset A B
+A=1 B=$A eval 'echo "[$A][$B]"'; echo "[${A-unset}][${B-unset}]"
+f() { echo "[$A][$B]"; }
+A=1 B=$A f; echo "[${A-unset}][${B-unset}]"
+A=1 B=$A$A C=$B$A sh -c 'echo "[$A][$B][$C]"'
+unset A B C
+
+# However the later one gets at it.
+A=1 B=$(echo "[$A]") sh -c 'echo "$B"'
+A=1 B=$(echo "[$A]"); echo "$B"
+unset A B
+A=2 B=$((A+1)) sh -c 'echo "$B"'
+(set -u; unset A; A=1 B=$A sh -c 'echo "$B"')
+
+# What a substitution starts sees one only if a command follows.
+A=1 B=$(sh -c 'echo "[$A]"') sh -c 'echo "$B"'
+A=1 B=$(sh -c 'echo "[$A]"'); echo "$B"; sh -c 'echo "[$A][$B]"'
+unset A B
+
+# Not the command's words: they come first.
+A=old; A=new echo "$A"; unset A
+A=1 B=$A echo "[$A][$B]"
+x=$(printf 'A\n' >> prefix_order.$$) sh -c ':' $(printf 'B\n' >> prefix_order.$$); cat prefix_order.$$
+rm -f prefix_order.$$
+
+# Locals, and what kind of command it is.
+A=g; g() { local A=l; A=p B=$A sh -c 'echo "[$A][$B]"'; echo "[$A]"; }; g; echo "[$A]"; unset A
+A=1 B=$A sh -c 'echo "[$A][$B]"' | cat; echo "[${A-unset}]"
+A=1 B=$A sh -c 'echo "[$A][$B]"' & wait; echo "[${A-unset}]"
+(A=1 B=$A exec sh -c 'echo "[$A][$B]"'); echo "[${A-unset}]"
+A=1 B=$A export B; echo "[${A-unset}][${B-unset}]"; sh -c 'echo "[$A][$B]"'; unset A B
+
+# Arrays and attributes. In front of a command an attribute does not count.
+a=(1 2) b=${a[1]}; echo "[$b]"; unset a b
+a=(1 2); B=${a[1]} sh -c 'echo "$B"'; unset a B
+declare -i n=1; n=n+1 m=$n; echo "[$n][$m]"
+declare -i n=1; n=n+1 m=$n sh -c 'echo "[$n][$m]"'; echo "[$n]"
+unset n m
+
+# The status, and a word that expands to nothing still counts as a word.
+A=$(false) B=$A echo "rc=$?"
+A=$(false) B=1; echo "rc=$?"
+A=1 B=$(exit 3); echo "rc=$?"
+unset A B; e=; $e A=1 B=$A 2>/dev/null; echo "[$A][$B]"
+unset A B; A=f1 echo hi > ${A:-prefix_order.$$}; cat prefix_order.$$; rm -f prefix_order.$$
+
+# set -x gives each its own line.
+set -x
+A=1 B=$A true
+C=3 D=4
+set +x

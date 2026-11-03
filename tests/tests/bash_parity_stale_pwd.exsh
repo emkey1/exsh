@@ -1,0 +1,13 @@
+#!/usr/bin/env exsh
+# A $PWD handed down counts only if it names where the shell is.
+[ "$PWD" = "$(pwd)" ] && echo starts where it says
+mkdir -p stale_pwd_dir; cd stale_pwd_dir
+PWD=/ sh -c 'echo "${PWD##*/}"'
+PWD=/nonexistent sh -c 'echo "${PWD##*/}"'
+PWD=relative sh -c 'echo "${PWD##*/}"'
+env PWD=/ sh -c 'echo "${PWD##*/}"'
+PWD=/ sh -c '[ "$PWD" = "$(pwd)" ] && echo agrees'
+# The right one stays.
+sh -c 'echo "${PWD##*/}"'
+cd ..
+rmdir stale_pwd_dir

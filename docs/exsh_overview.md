@@ -147,13 +147,18 @@ extends it with orchestration helpers implemented in
   `set -aCefuvx`. Aliases expand at a prompt, and in a script only after
   `shopt -s expand_aliases`. The `bash_parity_*` tests compare the two directly. Still
   different: `select`, `compgen`/`complete`/`compopt`, `suspend`, `declare -n`,
-  `printf '%(fmt)T'`, `for in in in` and `exit abc`. `set` alone lists nothing, a script
-  with no `#!` goes to the system's `sh` on a host where bash would read it itself, and
-  `A=1 B=$A cmd` expands `$A` before `A` is set. `set -o posix` does not make a
+  `printf '%(fmt)T'`, `for in in in` and `exit abc`. `set` and `declare` list variables
+  but not functions, since a function keeps no source to print. A script with no `#!`
+  goes to the system's `sh` on a host where bash would read it itself. A failed
+  assignment with no command, such as `readonly r=1; r=2`, ends the script where bash
+  goes on with the next line. `set -o posix` does not make a
   failing special builtin end the script, `set -v` is accepted but prints nothing,
   `set -x` does not show compound commands, a `DEBUG` trap runs only for top-level
   commands, and `[[ ]]` expands all of its operands first. On iOS, where nothing
-  execs, `./f` runs without the execute bit and `cd` resolves links at once.
+  execs, `./f` runs without the execute bit and `cd` resolves links at once; `exec`
+  and `env` run a program as a call, and `exec -a` and `-l` do not change its name.
+  A `CHLD` trap does not run there, because every applet has a vproc of its own, and
+  `kill -TERM $$` with no trap leaves the shell running.
 - Shell control builtins (`cd`, `pwd`, `exit`, `alias`, `export`, `setenv`,
   `unset`, `unsetenv`) and an interactive `help` builtin for listing and
   describing available commands. The directory-stack helpers (`dirs`, `pushd`,
@@ -273,19 +278,3 @@ builtins live in `Examples/exsh/`. The regression suite under `Tests/exsh/`
 runs these scripts through `build/bin/exsh`, checks stdout/stderr, and verifies
 exit codes. The CI workflow executes the new suite alongside the Pascal, CLike,
 and Rea test runs.
-
-
-## POSIX deviations (non-additive)
-
-`exsh` intentionally omits or simplifies a handful of POSIX behaviours. These
-differences are not additive extensions:
-
-- `set` only recognises `-e`, `+e`, and `-o/+o errexit`; other options are
-  ignored or flagged as errors.【F:src/backend_ast/shell.c†L6415-L6459】
-- `trap` merely toggles a global flag—no handler strings are registered or
-  executed, and non-string arguments fail validation.【F:src/backend_ast/shell.c†L6464-L6481】
-- `local` does not introduce a new scope; it simply flips an internal marker and
-  returns success.【F:src/backend_ast/shell.c†L6484-L6489】
-- `read` supports `-p` prompts and `--` but otherwise rejects option flags, and
-  assigns results by exporting environment variables (defaulting to `REPLY`)
-  instead of populating shell-local variables.【F:src/backend_ast/shell.c†L6195-L6307】

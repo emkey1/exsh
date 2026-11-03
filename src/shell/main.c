@@ -4331,7 +4331,39 @@ static int runInteractiveSession(const ShellRunOptions *options) {
     return last_status;
 }
 
+#if defined(PSCAL_TARGET_IOS)
+int exsh_main(int argc, char **argv);
+extern void smallclueAppSetCommandRunner(int (*runner)(int argc, char **argv));
+
+/* What smallclue runs when a program started from an applet is a frontend or a script. Its
+ * thread may have no context of its own, and a new thread's default is one that other shells
+ * may be using. */
+static int exshRunChildCommand(int argc, char **argv) {
+    char **shell_argv = (char **)calloc((size_t)argc + 5, sizeof(char *));
+    if (!shell_argv) {
+        return 126;
+    }
+    shell_argv[0] = (char *)"exsh";
+    shell_argv[1] = (char *)"-c";
+    shell_argv[2] = (char *)"\"$@\"";
+    shell_argv[3] = (char *)"exsh";
+    memcpy(shell_argv + 4, argv, (size_t)argc * sizeof(char *));
+    ShellRuntimeState *context = shellRuntimeCreateContext();
+    ShellRuntimeState *previous = context ? shellRuntimeActivateContext(context) : NULL;
+    int status = exsh_main(argc + 4, shell_argv);
+    if (context) {
+        shellRuntimeActivateContext(previous);
+        shellRuntimeDestroyContext(context);
+    }
+    free(shell_argv);
+    return status;
+}
+#endif
+
 int exsh_main(int argc, char **argv) {
+#if defined(PSCAL_TARGET_IOS)
+    smallclueAppSetCommandRunner(exshRunChildCommand);
+#endif
     FrontendKind previousKind = frontendPushKind(FRONTEND_KIND_SHELL);
 #if defined(PSCAL_TARGET_IOS)
     /* Centralize SIGINT ownership: block it process-wide before any thread is
@@ -4566,20 +4598,28 @@ int exsh_main(int argc, char **argv) {
 
     shellSyncIdentityEnvFromPasswd();
     setenv("EXSH_LAST_STATUS", "0", 1);
-#if !defined(PSCAL_TARGET_IOS)
     {
         /* An inherited $PWD counts only if it names where we are. */
         const char *pwd = getenv("PWD");
         struct stat named;
         struct stat here;
         char cwd[PATH_MAX];
+#if defined(PSCAL_TARGET_IOS)
+        /* The names here are the app's. */
+        bool same = pwd && pwd[0] == '/' && pscalPathVirtualized_stat(pwd, &named) == 0 &&
+                    pscalPathVirtualized_stat(".", &here) == 0 &&
+                    named.st_dev == here.st_dev && named.st_ino == here.st_ino;
+        if (!same && pscalPathVirtualized_getcwd(cwd, sizeof(cwd))) {
+            setenv("PWD", cwd, 1);
+        }
+#else
         bool same = pwd && pwd[0] == '/' && stat(pwd, &named) == 0 && stat(".", &here) == 0 &&
                     named.st_dev == here.st_dev && named.st_ino == here.st_ino;
         if (!same && getcwd(cwd, sizeof(cwd))) {
             setenv("PWD", cwd, 1);
         }
-    }
 #endif
+    }
     shellRuntimeInitExports();
     shellRuntimeInitSignals();
 

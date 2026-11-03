@@ -1,0 +1,11 @@
+#!/usr/bin/env exsh
+# exec's program reads a redirected stdin. The iOS list runs this one with no job control asked
+# for: there a subshell is not the foreground group, and the read stopped it as a background one.
+printf 'from file\n' > exec_stdin.$$
+(exec cat < exec_stdin.$$); echo "rc=$?"
+(exec cat) < exec_stdin.$$; echo "rc=$?"
+(exec < exec_stdin.$$; exec cat); echo "rc=$?"
+(exec cat < exec_stdin.$$) > exec_stdin_o.$$ 2>&1; echo "rc=$?"; cat exec_stdin_o.$$
+(exec sh -c 'cat; echo in sh' < exec_stdin.$$); echo "rc=$?"
+(exec sh -c 'read x; echo "[$x]"' < exec_stdin.$$); echo "rc=$?"
+rm -f exec_stdin.$$ exec_stdin_o.$$

@@ -1,0 +1,42 @@
+#!/usr/bin/env exsh
+# set and declare with nothing to do list the variables, in a form that sets them back. The
+# shells' own variables differ, so this looks at names it knows.
+x=1; y='a b'; z=; w="it's"; q='a"b'; d='$x'; t='~h'; u='a~b'; v='p:~r'; h='#c'; i='a#b'; e='a=b'; p='%+,-./:@_'; n=$'l1\nl2'; tb=$'a\tb'; bs='a\b'
+set | grep -E '^(x|y|z|w|q|d|t|u|v|h|i|e|p|n|tb|bs)='
+echo "rc=$?"
+c=$'\001x\033y\177'; c2=$'a\'b\nc'; c3=$'\\\t'
+set | grep -E '^(c|c2|c3)='
+a=(1 "x y" '$q'); set | grep '^a='; a[5]=z; set | grep '^a='; unset a
+e2=(); set | grep '^e2='
+zz=1; aa=2; AA=3; _b=4; a1=5; set | grep -E '^(zz|aa|AA|_b|a1)='
+
+# Locals show, over a global of that name.
+v=g; w=g; f() { local v=l; local u=m; set | grep -E '^(v|w|u)='; }; f; set | grep -E '^(v|w)='
+# Any kind of variable.
+export e1=1; readonly r1=2; set | grep -E '^(e1|r1)='
+declare -i m=5; set | grep '^m='
+
+# It changes nothing.
+false; set > /dev/null; echo "rc=$?"
+set -- a b; set > /dev/null; echo "$# $*"
+gone=1; unset gone; set | grep -c '^gone='
+
+# What the shell keeps itself.
+set | grep -cE '^IFS='; IFS=x; set | grep '^IFS='; IFS=$' \t\n'
+unset IFS; set | grep -c '^IFS='; IFS=$' \t\n'
+set | grep -E '^(EUID|IFS|OPTERR|OPTIND|OSTYPE|PPID|PS4|PWD|UID)=' | cut -d= -f1
+echo "[$OPTIND][$OPTERR][$PS4]"
+
+# declare alone is the same list, and with a letter those that have it.
+dx=1; dy='a b'; declare | grep -E '^(dx|dy)='
+f() { local lv=1; declare | grep -E '^lv='; }; f
+export ex=1; nx=2; declare -x | grep -E ' (ex|nx)(=|$)'
+readonly ro=1; declare -r | grep -E ' ro(=|$)'
+declare -i ii=1; declare -i | grep -E ' ii(=|$)'
+ar=(1); declare -a | grep -cE ' ar='
+export a2=1; readonly b2=2; declare -rx | grep -E ' (a2|b2)(=|$)'
+export a3=1; b3=2; declare -px | grep -E ' (a3|b3)(=|$)'
+
+# A local of an array's name is a plain variable, not exported, and the array is back after.
+ga=(1 2); f() { local ga=x; echo "$ga"; env | grep -c '^ga='; }; f; echo "${ga[1]}"
+gb=(1 2); export gb; f() { local gb=x; env | grep '^gb='; echo "$gb"; }; f; echo "${gb[1]}"; env | grep -c '^gb='
