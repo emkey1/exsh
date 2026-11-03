@@ -1223,6 +1223,14 @@
       "script": "Tests/exsh/tests/bash_parity_background_starter.exsh",
       "expect": "match_bash"
     },
+    {
+      "id": "bash_parity_wait_killed",
+      "name": "wait gives a killed job's signal, and killing a job harms nothing else",
+      "category": "parity",
+      "description": "128 + the signal whatever the job was doing, a kill right after the job starts included; in a subshell $! is the job's own pid; the shell and the pipes the job held carry on.",
+      "script": "Tests/exsh/tests/bash_parity_wait_killed.exsh",
+      "expect": "match_bash"
+    },
         {
             "id": "bash_parity_group_redirect",
             "name": "Redirections on compound commands match bash",

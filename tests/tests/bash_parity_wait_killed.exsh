@@ -1,0 +1,50 @@
+#!/usr/bin/env exsh
+# wait gives 128 + the signal for a killed job, whatever the job was doing when it was killed.
+# On iOS a job is a thread that kill cancels, so its end and the wait race, the cancel can
+# land anywhere in the thread, and what the thread held has to be let go of. A lost race
+# gives the wrong status, and a lost lock hangs the shell, which is why the first forms
+# repeat. The jobs sleep briefly because under bash the sleep outlives its killed subshell
+# and holds this script's output open. Versions of bash differ in what they report on stderr
+# for a killed job, so it is not compared.
+exec 2> /dev/null
+
+n=0
+while [ "$n" -lt 6 ]; do
+  ( sleep 2; echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "subshell $?"
+  ( x=$(sleep 2); echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "substitution $?"
+  ( sleep 2; echo no ) & p=$!; kill $p; wait $p; echo "at once $?"
+  ( x=$(sleep 2); echo no ) & p=$!; kill $p; wait $p; echo "substitution at once $?"
+  { sleep 2; echo no; } & p=$!; kill $p; wait $p; echo "group at once $?"
+  sleep 2 & p=$!; kill $p; wait $p; echo "simple at once $?"
+  n=$((n + 1))
+done
+
+# While the job is doing something other than sleeping: waiting for a child, on a pipe,
+# in a loop that takes vproc locks all the time.
+( sleep 2 & wait; echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "waiting $?"
+( sleep 2 | cat; echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "pipeline $?"
+( x=$(sleep 2 | cat); echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "substituted pipeline $?"
+sleep 2 | ( read x; echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "reading a pipe $?"
+( ( sleep 2 ); echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "subshell in it $?"
+n=0
+while [ "$n" -lt 4 ]; do
+  ( while :; do echo hi > /dev/null; done ) & p=$!; sleep 0.05; kill $p; wait $p; echo "busy $?"
+  ( while :; do x=$(echo hi); done ) & p=$!; sleep 0.05; kill $p; wait $p; echo "busy substitution $?"
+  n=$((n + 1))
+done
+
+# When kill and wait come apart, and through a job number.
+( sleep 2; echo no ) & p=$!; sleep 0.05; kill $p; sleep 0.05; wait $p; echo "wait later $?"
+( sleep 2; echo no ) & sleep 0.05; kill %1; wait %1; echo "job number $?"
+
+# The other signal that cannot be caught.
+( sleep 2; echo no ) & p=$!; sleep 0.05; kill -9 $p; wait $p; echo "kill -9 $?"
+
+# In a subshell $! is the job, not the subshell, and the subshell goes on.
+( ( sleep 2 ) & p=$!; sleep 0.05; kill $p; wait $p; echo "in a subshell $?"; echo "it goes on" )
+
+# The job holds this pipe through the command it was running, and cat has to see its end.
+{ ( sleep 2 ) & p=$!; sleep 0.05; kill $p; wait $p; echo "in a stage $?"; } | cat
+
+# Stdout is still the shell's, and substitutions still work.
+y=$(echo next); echo "$y"
