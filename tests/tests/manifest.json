@@ -1457,6 +1457,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_substitution_keeps_redirect",
+            "name": "A command substitution puts back the stdout it found",
+            "category": "parity",
+            "description": "Subshells, groups, loops, functions, exec, pipes and source with a redirection or a pipe on them keep it after a command substitution; nothing the substitution did to its own stdout gets out.",
+            "script": "Tests/exsh/tests/bash_parity_substitution_keeps_redirect.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_big_here",
             "name": "Here documents larger than a pipe, and small substitutions",
             "category": "parity",
