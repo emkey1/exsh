@@ -24,6 +24,8 @@ HARNESS_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = HARNESS_ROOT.parent
 DEFAULT_MANIFEST = HARNESS_ROOT / "tests" / "manifest.json"
 DEFAULT_TIMEOUT = 20.0
+# A test may print any bytes. Bad ones show up escaped and fail that test's comparison.
+OUTPUT_ERRORS = "backslashreplace"
 
 
 def resolve_script_path(raw_script: str) -> Path:
@@ -173,6 +175,7 @@ def run_exsh(executable: Path, case: TestCase, extra_args: Optional[List[str]] =
         cmd,
         cwd=str(REPO_ROOT),
         text=True,
+        errors=OUTPUT_ERRORS,
         capture_output=True,
         timeout=DEFAULT_TIMEOUT,
         env=env,
@@ -198,6 +201,7 @@ def run_bash(
         cmd,
         cwd=str(REPO_ROOT),
         text=True,
+        errors=OUTPUT_ERRORS,
         capture_output=True,
         timeout=DEFAULT_TIMEOUT,
         env=env,
@@ -305,11 +309,18 @@ def run_case(executable: Path, bash_executable: Path, case: TestCase) -> TestRes
         except subprocess.SubprocessError:
             pass  # ignore priming errors; actual run will report details
 
-    proc = run_exsh(executable, case)
+    # One hung test is that test's failure: results print only after every test has run.
+    try:
+        proc = run_exsh(executable, case)
+    except subprocess.TimeoutExpired as exc:
+        return TestResult(case=case, passed=False, reason=f"exsh timed out after {exc.timeout:g}s")
     bash_proc = None
     if case.expect == "match_bash":
         bash_override = case.bash_cmd
-        bash_proc = run_bash(bash_executable, case, bash_override, case.bash_args, case.stdin)
+        try:
+            bash_proc = run_bash(bash_executable, case, bash_override, case.bash_args, case.stdin)
+        except subprocess.TimeoutExpired as exc:
+            return TestResult(case=case, passed=False, reason=f"bash timed out after {exc.timeout:g}s")
     return evaluate(case, proc, bash_proc)
 
 
