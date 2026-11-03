@@ -1,0 +1,14 @@
+#!/usr/bin/env exsh
+# A stage's redirection replaces its stderr, and on iOS that closes a host descriptor. The
+# stage's end closed that number again, when a later stage's stdout could already hold it:
+# what the pipeline printed was gone, with status 0 and no message, in up to a third of runs.
+i=0
+while [ "$i" -lt 40 ]; do
+  ls /nonexistent/zz 2>&1 | wc -l | tr -d ' '
+  echo a 2>&1 | cat | cat
+  ls /nonexistent/zz 2>/dev/null | wc -l | tr -d ' '
+  ls /nonexistent/zz 2>&1 | cat | wc -l | tr -d ' '
+  echo b <&- | cat | cat
+  true <&- | wc -l | tr -d ' '
+  i=$((i + 1))
+done

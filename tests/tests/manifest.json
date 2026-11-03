@@ -1383,6 +1383,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_stage_stdio_reuse",
+            "name": "A stage's redirection and a later stage's output",
+            "category": "parity",
+            "description": "A pipeline keeps its output when an earlier stage redirects stderr, run many times since it failed in a race.",
+            "script": "Tests/exsh/tests/bash_parity_stage_stdio_reuse.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_heredoc_escapes",
             "name": "Backslashes and quoted delimiters in here documents",
             "category": "parity",
