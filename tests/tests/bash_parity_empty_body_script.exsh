@@ -1,0 +1,5 @@
+#!/usr/bin/env exsh
+# In the script itself a syntax error ends it, with status 2. Only comments come first, since exsh
+# parses the whole file before running any of it, where bash runs the lines before the error.
+while false; do done
+echo after

@@ -1269,7 +1269,7 @@ def scenario_multiline_for_continues(shell: PtyShell) -> tuple[bool, str]:
     text = shell.tail(6000)
     if "__FOR__alpha" not in text:
         return False, "multi-line for clause did not run its body"
-    if "parse error" in text:
+    if "parse error" in text or "syntax error" in text:
         return False, "multi-line for clause reported a parse error"
     return True, "multi-line for clause read its continuation lines and ran"
 
@@ -1296,7 +1296,7 @@ def scenario_open_quote_continues(shell: PtyShell) -> tuple[bool, str]:
     text = shell.tail(6000)
     if "two" not in text:
         return False, "quoted continuation did not reach the command"
-    if "parse error" in text:
+    if "parse error" in text or "syntax error" in text:
         return False, "quoted continuation reported a parse error"
     return True, "open quote read its continuation line"
 
@@ -1431,8 +1431,8 @@ def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
     _unlink_if_exists(marker)
 
     shell.send_line("done")
-    if not shell.wait_for_substring("parse error", timeout=2.0):
-        return False, "a stray 'done' did not report a parse error"
+    if not shell.wait_for_substring("syntax error near unexpected token `done'", timeout=2.0):
+        return False, "a stray 'done' did not report a syntax error"
     shell._pump(0.30)
     shell.send_line(f"touch {_shell_path(marker)}")
     if not shell.wait_for_path(marker, timeout=2.5):

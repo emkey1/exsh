@@ -1385,6 +1385,22 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_empty_body",
+            "name": "A compound command with nothing in it does not parse",
+            "category": "parity",
+            "description": "do, then, else, { and ( with no command in them, and the other tokens a command cannot start with: bash's message and the line, through eval, source and a substitution. What may be empty still runs.",
+            "script": "Tests/exsh/tests/bash_parity_empty_body.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_empty_body_script",
+            "name": "An empty loop body ends the script with status 2",
+            "category": "parity",
+            "description": "A syntax error in the script itself: bash's message, status 2, and nothing after it runs.",
+            "script": "Tests/exsh/tests/bash_parity_empty_body_script.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_backslash_escape",
             "name": "A backslash stops what follows it",
             "category": "parity",

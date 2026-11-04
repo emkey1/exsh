@@ -165,6 +165,10 @@ void shellParserFree(ShellParser *parser) {
     }
     shellFreeToken(&parser->current);
     shellFreeToken(&parser->previous);
+    free(parser->syntax_error_token);
+    parser->syntax_error_token = NULL;
+    free(parser->syntax_error_text);
+    parser->syntax_error_text = NULL;
     if (parser->pending_here_docs) {
         pendingHereDocArrayFree(parser->pending_here_docs);
         free(parser->pending_here_docs);
@@ -376,6 +380,44 @@ static void parserErrorAt(ShellParser *parser, const ShellToken *token, const ch
     }
     parser->had_error = true;
     parser->panic_mode = true;
+}
+
+/* The current token stood where a command has to start. It is kept with the line it is on, which
+ * is what bash shows. Text that ran out is not this: more of it may come at a prompt. */
+static void parserUnexpectedToken(ShellParser *parser) {
+    if (!parser || parser->had_error) {
+        return;
+    }
+    const ShellToken *token = &parser->current;
+    if (token->type == SHELL_TOKEN_EOF || token->type == SHELL_TOKEN_ERROR ||
+        token->type == SHELL_TOKEN_NEWLINE || !token->lexeme || !token->lexeme[0] ||
+        parser->lexer.unterminated) {
+        parserErrorAt(parser, token, "Expected command");
+        return;
+    }
+    /* The token is the last thing the lexer read, so the line is the one around its position. */
+    const char *src = parser->lexer.src;
+    size_t start = parser->lexer.pos < parser->lexer.length ? parser->lexer.pos : parser->lexer.length;
+    size_t end = start;
+    while (start > 0 && src[start - 1] != '\n') {
+        start--;
+    }
+    while (end < parser->lexer.length && src[end] != '\n') {
+        end++;
+    }
+    parser->syntax_error_text = strndup(src + start, end - start);
+    parser->syntax_error_token = strdup(token->lexeme);
+    parser->syntax_error_line = token->line;
+    parser->syntax_error = true;
+    parser->had_error = true;
+    parser->panic_mode = true;
+}
+
+/* A do, then, else, { or ( needs a command in it. What closes it comes too early. */
+static void parserRequireCommand(ShellParser *parser, const ShellProgram *list) {
+    if (parser && list && list->commands.count == 0 && parser->current.type != SHELL_TOKEN_EOF) {
+        parserUnexpectedToken(parser);
+    }
 }
 
 static void shellParserConsume(ShellParser *parser, ShellTokenType type, const char *message) {
@@ -1254,7 +1296,7 @@ static ShellCommand *parseSimpleCommand(ShellParser *parser) {
 
     if (!seen_word && command->data.simple.words.count == 0 && command->redirections.count == 0) {
         shellFreeCommand(command);
-        parserErrorAt(parser, &parser->current, "Expected command");
+        parserUnexpectedToken(parser);
         return NULL;
     }
     return command;
@@ -1327,6 +1369,7 @@ static ShellCommand *parseBraceGroup(ShellParser *parser) {
     parseLinebreak(parser);
     ShellProgram *body = parseCompoundListUntil(parser, SHELL_TOKEN_RBRACE, SHELL_TOKEN_EOF, SHELL_TOKEN_EOF);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
+    parserRequireCommand(parser, body);
     shellParserConsume(parser, SHELL_TOKEN_RBRACE, "Expected '}' to close brace group");
     ShellCommand *command = shellCreateBraceGroupCommand(body);
     if (command) {
@@ -1344,6 +1387,7 @@ static ShellCommand *parseSubshell(ShellParser *parser) {
     parseLinebreak(parser);
     ShellProgram *body = parseCompoundListUntil(parser, SHELL_TOKEN_RPAREN, SHELL_TOKEN_EOF, SHELL_TOKEN_EOF);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
+    parserRequireCommand(parser, body);
     shellParserConsume(parser, SHELL_TOKEN_RPAREN, "Expected ')' to close subshell");
     ShellCommand *command = shellCreateSubshellCommand(body);
     if (command) {
@@ -1408,7 +1452,7 @@ static ShellCommand *parseConditionList(ShellParser *parser, ShellTokenType term
     }
     if (list->commands.count == 0) {
         shellFreeProgram(list);
-        parserErrorAt(parser, &parser->current, "Expected command");
+        parserUnexpectedToken(parser);
         return NULL;
     }
     ShellCommand *group = shellCreateBraceGroupCommand(list);
@@ -1436,6 +1480,7 @@ static ShellCommand *parseIfClause(ShellParser *parser) {
 
     ShellProgram *else_block = NULL;
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
+    parserRequireCommand(parser, then_block);
     if (parser->current.type == SHELL_TOKEN_ELIF) {
         ShellCommand *elif_cmd = parseIfClause(parser);
         else_block = shellCreateProgram();
@@ -1446,6 +1491,7 @@ static ShellCommand *parseIfClause(ShellParser *parser) {
         parseLinebreak(parser);
         else_block = parseCompoundListUntil(parser, SHELL_TOKEN_FI, SHELL_TOKEN_EOF, SHELL_TOKEN_EOF);
         parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
+        parserRequireCommand(parser, else_block);
         shellParserConsume(parser, SHELL_TOKEN_FI, "Expected 'fi' to close if");
     } else {
         parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
@@ -1475,6 +1521,7 @@ static ShellCommand *parseWhileClause(ShellParser *parser, bool is_until) {
     parseLinebreak(parser);
     ShellProgram *body = parseCompoundListUntil(parser, SHELL_TOKEN_DONE, SHELL_TOKEN_EOF, SHELL_TOKEN_EOF);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
+    parserRequireCommand(parser, body);
     shellParserConsume(parser, SHELL_TOKEN_DONE, "Expected 'done' to close loop");
     ShellLoop *loop = shellCreateLoop(is_until, condition, body);
     ShellCommand *command = shellCreateLoopCommand(loop);
@@ -1519,6 +1566,7 @@ static ShellCommand *parseCStyleForClause(ShellParser *parser, int line, int col
     parseLinebreak(parser);
     ShellProgram *body = parseCompoundListUntil(parser, SHELL_TOKEN_DONE, SHELL_TOKEN_EOF, SHELL_TOKEN_EOF);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
+    parserRequireCommand(parser, body);
     shellParserConsume(parser, SHELL_TOKEN_DONE, "Expected 'done' to close for clause");
 
     ShellLoop *loop = shellCreateCStyleForLoop(init, cond, update, body);
@@ -1607,6 +1655,7 @@ static ShellCommand *parseForClause(ShellParser *parser) {
     parseLinebreak(parser);
     body = parseCompoundListUntil(parser, SHELL_TOKEN_DONE, SHELL_TOKEN_EOF, SHELL_TOKEN_EOF);
     parserReclassifyCurrentToken(parser, RULE_MASK_COMMAND_START);
+    parserRequireCommand(parser, body);
     shellParserConsume(parser, SHELL_TOKEN_DONE, "Expected 'done' to close for clause");
 
     ShellLoop *loop = shellCreateForLoop(name_word, &value_words, body);

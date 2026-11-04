@@ -26,6 +26,13 @@ typedef struct {
     /* Suppress diagnostics: set for a completeness probe, which parses text the
      * user may well be in the middle of typing. */
     bool quiet;
+    /* A token stood where a command has to start. Nothing is printed here: the caller
+     * knows what to call the text, and says so the way bash does. Freed by
+     * shellParserFree, apart from the flag. */
+    bool syntax_error;
+    int syntax_error_line;
+    char *syntax_error_token;
+    char *syntax_error_text;
 } ShellParser;
 
 ShellProgram *shellParseString(const char *source, ShellParser *parser);

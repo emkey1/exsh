@@ -600,6 +600,54 @@ static InterpretResult shellRunAfterDiscard(VM *vm, const ShellProgram *program,
     return result;
 }
 
+/* Bash's words, and its name for what it was reading: a file by its name, anything else as
+ * $0 and the kind of text. At a prompt it gives the shell's own name and neither the line
+ * number nor the line. */
+static void shellReportSyntaxError(const ShellParser *parser, const char *path) {
+    static const struct {
+        const char *path;
+        const char *kind;
+    } kinds[] = {
+        {"<command>", "-c: "},
+        {"<eval>", "eval: "},
+        {"<command-substitution>", "command substitution: "},
+        {"<process-substitution>", "process substitution: "},
+        {"<exit-trap>", "exit trap: "},
+        {"<err-trap>", "error trap: "},
+        {"<debug-trap>", "debug trap: "},
+        {"<return-trap>", "return trap: "},
+        {"<trap", "trap: "}, /* And the rest of the label is the signal's number. */
+    };
+    const char *name = shellRuntimeGetArg0();
+    if (!name || !*name) {
+        name = "exsh";
+    }
+    const char *token = parser->syntax_error_token ? parser->syntax_error_token : "";
+    const char *text = parser->syntax_error_text ? parser->syntax_error_text : "";
+    int line = parser->syntax_error_line;
+    const char *kind = "";
+
+    bool from_prompt = path && (strcmp(path, "<stdin>") == 0 || strcmp(path, "<eval>") == 0);
+    if (from_prompt && shellRuntimeIsInteractive()) {
+        const char *slash = strrchr(name, '/');
+        fprintf(stderr, "%s: syntax error near unexpected token `%s'\n", slash ? slash + 1 : name, token);
+        return;
+    }
+    if (path && path[0] == '<') {
+        /* <stdin> has no kind: a script read that way goes by $0 alone. */
+        for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); ++i) {
+            if (strncmp(path, kinds[i].path, strlen(kinds[i].path)) == 0) {
+                kind = kinds[i].kind;
+                break;
+            }
+        }
+    } else if (path && *path) {
+        name = path;
+    }
+    fprintf(stderr, "%s: %sline %d: syntax error near unexpected token `%s'\n", name, kind, line, token);
+    fprintf(stderr, "%s: %sline %d: `%s'\n", name, kind, line, text);
+}
+
 int shellRunSource(const char *source,
                    const char *path,
                    const ShellRunOptions *options,
@@ -699,6 +747,9 @@ int shellRunSource(const char *source,
         fprintf(stderr, "[shell-run] parsing\n");
     }
     program = shellParseStringAtLine(parse_src, &parser, options->first_line);
+    if (parser.syntax_error) {
+        shellReportSyntaxError(&parser, path);
+    }
     shellParserFree(&parser);
     if (getenv("PSCALI_PROMPT_DEBUG")) {
         fprintf(stderr, "[shell-run] parsed had_error=%d program=%p\n",
@@ -706,7 +757,9 @@ int shellRunSource(const char *source,
                 (void *)program);
     }
     if (parser.had_error || !program) {
-        fprintf(stderr, "Parsing failed.\n");
+        if (!parser.syntax_error) {
+            fprintf(stderr, "Parsing failed.\n");
+        }
         exit_code = 2;
         goto cleanup;
     }

@@ -1,0 +1,109 @@
+#!/usr/bin/env exsh
+# A do, then, else, { or ( needs a command in it. What closes it too early is a syntax error, in
+# bash's words, with the line it is on. Through eval and source, so the script goes on to the next
+# form; each says only that it failed, since 3.2 gives 1 there and 5 gives 2.
+eval 'while false; do done' || echo rejected
+eval 'until true; do done' || echo rejected
+eval 'for x in a; do done' || echo rejected
+eval 'for x; do done' || echo rejected
+eval 'for ((i = 0; i < 0; i++)); do done' || echo rejected
+eval 'if true; then fi' || echo rejected
+eval 'if true; then else :; fi' || echo rejected
+eval 'if true; then elif true; then :; fi' || echo rejected
+eval 'if true; then :; else fi' || echo rejected
+eval 'if true; then :; elif true; then fi' || echo rejected
+eval 'if false; then :; elif false; then else :; fi' || echo rejected
+eval '{ }' || echo rejected
+eval '( )' || echo rejected
+eval 'f() { }' || echo rejected
+eval 'function f { }' || echo rejected
+eval 'f() ( )' || echo rejected
+
+# Inside something else, and with something after it.
+eval '{ while false; do done; }' || echo rejected
+eval '( if true; then fi )' || echo rejected
+eval 'for x in a; do if true; then fi; done' || echo rejected
+eval 'while false; do done &' || echo rejected
+eval 'while false; do done | cat' || echo rejected
+eval 'while false; do done > /dev/null' || echo rejected
+eval 'true && while false; do done' || echo rejected
+eval 'echo no; while false; do done; echo no' || echo rejected
+
+# The line comes as it was written.
+eval '  while false; do done # a comment' || echo rejected
+
+# The other tokens a command cannot start with.
+eval 'if then :; fi' || echo rejected
+eval 'if true; then :; elif then :; fi' || echo rejected
+eval 'while do :; done' || echo rejected
+eval 'until do :; done' || echo rejected
+eval 'while false; do ; done' || echo rejected
+eval 'if true; then ; fi' || echo rejected
+eval 'if true; then ;; fi' || echo rejected
+eval '{ ; }' || echo rejected
+eval '( ; )' || echo rejected
+eval 'for x in a; do & done' || echo rejected
+eval 'while false; do :; done; done' || echo rejected
+eval 'done' || echo rejected
+eval 'fi' || echo rejected
+eval 'then' || echo rejected
+eval 'esac' || echo rejected
+eval 'echo no | ;' || echo rejected
+eval 'echo no && ;' || echo rejected
+eval ';;' || echo rejected
+eval ')' || echo rejected
+
+# A substitution's own text, reported when it runs.
+x=`while false; do done`
+echo "[$x]"
+
+# Over several lines: the line number and the line are where the token is.
+d="${TMPDIR:-/tmp}/exsh_parity_empty_body.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+printf 'while false; do done\n' > one
+. ./one || echo rejected
+printf 'while false; do\n\n  # only a comment\n  done # more\n' > two
+. ./two || echo rejected
+printf 'if true\nthen\n  # only a comment\n\nelse\n  echo no\nfi\n' > three
+. ./three || echo rejected
+printf 'for x in a b\ndo\ndone; echo no\n' > four
+. ./four || echo rejected
+printf '{\n}\n' > five
+. ./five || echo rejected
+printf '(\n\n)\n' > six
+. ./six || echo rejected
+cd /
+rm -rf "$d"
+
+# What has a command in it, and what is allowed to be empty, still runs.
+while false; do :; done; echo "while $?"
+until true; do :; done; echo "until $?"
+for x in a; do :; done; echo "for $?"
+for ((i = 0; i < 0; i++)); do :; done; echo "c-for $?"
+if true; then :; fi; echo "then $?"
+if false; then :; else :; fi; echo "else $?"
+if false; then :; elif true; then :; else :; fi; echo "elif $?"
+{ :; }; echo "group $?"
+( : ); echo "subshell $?"
+f() { :; }; f; echo "function $?"
+g() ( : ); g; echo "function subshell $?"
+h ( ) { :; }; h; echo "function spaces $?"
+( ( : ) ); echo "nested $?"
+(( 1 )); echo "arithmetic $?"
+for x in a; do
+  # A comment, and then a command.
+  echo "$x"
+done
+if true; then # A comment on the line.
+  echo then
+fi
+case x in a) ;; esac; echo "case 1 $?"
+case x in a) esac; echo "case 2 $?"
+case x in esac; echo "case 3 $?"
+case x in x) ;; esac; echo "case 4 $?"
+x=$(); y=$( ); echo "[$x][$y] $?"
+eval ''; echo "eval $?"
+eval ' '; echo "eval $?"
+eval '# only a comment'; echo "eval $?"
