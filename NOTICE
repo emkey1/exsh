@@ -1,0 +1,5 @@
+exsh
+Copyright 2025-2026 Mike Miller
+
+exsh is built on pscal-core (https://github.com/emkey1/pscal-core), which carries
+its own NOTICE, including the third-party software it ships.
