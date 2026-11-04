@@ -157,8 +157,10 @@ extends it with orchestration helpers implemented in
   commands, and `[[ ]]` expands all of its operands first. On iOS, where nothing
   execs, `./f` runs without the execute bit and `cd` resolves links at once; `exec`
   and `env` run a program as a call, and `exec -a` and `-l` do not change its name.
-  A `CHLD` trap does not run there, because every applet has a vproc of its own, and
-  `kill -TERM $$` with no trap leaves the shell running.
+  A signal that would end the shell there takes effect at its next command, after any
+  foreground command or `wait`, and its caller sees status 128 + the signal rather than a death by
+  signal; and a foreground applet is not a child, so `trap ... CHLD` runs only for
+  subshells and jobs.
 - A command substitution runs in the shell's own process, so that
   `tid=$(builtin ThreadSpawnBuiltin ...)` leaves the thread where the script can wait for
   it. Otherwise it behaves as a subshell: `exec cmd` in one runs the command and ends only
@@ -236,6 +238,18 @@ finishes, and only escalates deferred `set -e` failures once conditional guards
 have had a chance to handle them. This keeps `&&`, `||`, and `if` short-circuits
 behaving like Bash while preserving pending exits when the trap requests an
 override.【F:src/backend_ast/shell/shell_runtime_state.inc†L1667-L1779】
+
+A trap's signal is noted when it arrives and its command runs at the next command
+boundary, after the status of the command that was running is set. Only `wait`
+stops early for it, with status 128 + the signal, and the job stays waited for.
+On iOS a signal waits on the task table: each builtin, `eval` and sourced file runs
+under a vproc that ends with the command, so a trap is set on the task that is the
+shell (`shellRuntimeOwnPid`), not on the current vproc, and the shell's thread
+collects what waits there at each boundary (`vprocDeliverTaskSignals`). A new stage
+or job takes ignored signals from the shell and none of its traps
+(`vprocResetCaughtSignals`, as exec would). The shell's thread is never cancelled,
+even by way of a stage running on it: what would end the shell waits for it to unwind
+(`vprocSetUnwindsItself`).
 
 ## Worker threads and builtin orchestration
 

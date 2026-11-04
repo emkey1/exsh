@@ -258,6 +258,7 @@ static void shellSetupSelfVproc(void) {
         (void)vprocSetForegroundPgid(shell_pid, shell_pid);
         vprocSetCommandLabel(shell_pid, "shell");
         vprocRegisterTidHint(shell_pid, pthread_self());
+        vprocSetUnwindsItself(shell_pid, true);
         /* Always activate the shell's vproc so shims and stdio inheritance work
          * consistently for pipelines and background workers. */
         vprocActivate(gShellSelfVproc);
@@ -4314,6 +4315,12 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         }
 #endif
         last_status = shellRunSource(expanded_tilde, "<stdin>", &exec_opts, &exit_requested);
+        /* What the line's last command was sent runs before the next prompt. */
+        shellRuntimeProcessPendingSignals();
+        if (shellRuntimeConsumeExitRequested()) {
+            exit_requested = true;
+            last_status = shellRuntimeLastStatus();
+        }
         shellRuntimeSetPromptStatus(last_status);
 #if defined(PSCAL_TARGET_IOS)
         if (runtime_isig_disabled) {
@@ -4366,6 +4373,12 @@ int exsh_main(int argc, char **argv) {
 #endif
     FrontendKind previousKind = frontendPushKind(FRONTEND_KIND_SHELL);
 #if defined(PSCAL_TARGET_IOS)
+    /* In a vproc, in a session that has its shell, this is that shell's command:
+     * `exsh x`, `sh -c ...` or a #! script, on the caller's thread and inside the
+     * vproc that holds its stdio and redirections. A vproc of its own would write
+     * to the terminal, tearing that down would end the caller's session, and $1,
+     * $0 and the interactive flag are the caller's too. */
+    const bool nested = vprocCurrent() != NULL && vprocGetShellSelfPid() > 0;
     /* Centralize SIGINT ownership: block it process-wide before any thread is
      * created, so every thread (shell VM, session readers, tool workers,
      * frontends) inherits SIGINT blocked. A foreground Ctrl-C can then never be
@@ -4381,16 +4394,14 @@ int exsh_main(int argc, char **argv) {
          * "poke" used to interrupt blocked applet read()s. Blocking it by
          * default means VM-frontend workers (which never unblock it) treat a
          * stray poke as a harmless no-op instead of being terminated by
-         * SIGUSR1's default disposition; applet workers explicitly unblock it. */
-        sigaddset(&block_set, SIGUSR1);
+         * SIGUSR1's default disposition; applet workers explicitly unblock it.
+         * A nested shell's thread has it blocked already: in a vproc this call
+         * sets the virtual mask, where it would hold back a script's own trap. */
+        if (!nested) {
+            sigaddset(&block_set, SIGUSR1);
+        }
         pthread_sigmask(SIG_BLOCK, &block_set, NULL);
     }
-    /* In a vproc, in a session that has its shell, this is that shell's command:
-     * `exsh x`, `sh -c ...` or a #! script, on the caller's thread and inside the
-     * vproc that holds its stdio and redirections. A vproc of its own would write
-     * to the terminal, tearing that down would end the caller's session, and $1,
-     * $0 and the interactive flag are the caller's too. */
-    const bool nested = vprocCurrent() != NULL && vprocGetShellSelfPid() > 0;
     const int saved_param_count = gParamCount;
     char **const saved_param_values = gParamValues;
     const bool saved_param_owned = gParamValuesOwned;

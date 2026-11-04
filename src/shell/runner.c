@@ -816,6 +816,12 @@ int shellRunSource(const char *source,
     }
 cleanup:
     if (should_run_exit_trap) {
+        /* What the script's last command was sent. */
+        shellRuntimeProcessPendingSignals();
+        if (shellRuntimeConsumeExitRequested()) {
+            exit_flag = true;
+            exit_code = shellRuntimeLastStatus();
+        }
         shellRuntimeRunExitTrap();
         trap_exit_requested = shellRuntimeConsumeExitRequested();
         exit_flag = exit_flag || trap_exit_requested;
@@ -843,7 +849,6 @@ cleanup:
         source_pushed = false;
     }
     shellSemanticsSetWarningSuppressed(previous_suppress);
-    shellRuntimePopScript();
     shellRuntimeSetExitOnSignal(previous_exit_on_signal);
     if (out_exit_requested) {
         *out_exit_requested = exit_flag;
@@ -854,6 +859,9 @@ cleanup:
         shellRestoreCurrentVm(previous_vm_for_context);
         vm_context_swapped = false;
     }
+    /* From the context that pushed it. Popped from this run's copy, the caller stays a level
+     * too deep and no longer counts as the outermost script: no EXIT trap. */
+    shellRuntimePopScript();
     if (vm_shell_ctx && options->keep_line_state) {
         shellRuntimeKeepLineState(vm_shell_ctx);
     }

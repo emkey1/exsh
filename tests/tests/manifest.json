@@ -1666,6 +1666,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_trap_delivery",
+            "name": "A trap runs when its signal reaches the shell",
+            "category": "parity",
+            "description": "From itself or a job, beside a job, during wait or a foreground command; a job keeps none of the shell's traps; a stopped job with a CONT handler resumes; a script's own $$ and a trapped exit; the EXIT trap after a substitution.",
+            "script": "Tests/exsh/tests/bash_parity_trap_delivery.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_alias_text",
             "name": "Alias text is parsed",
             "category": "parity",

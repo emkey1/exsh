@@ -1,0 +1,268 @@
+#!/usr/bin/env exsh
+# A trap runs when its signal reaches the shell, whoever sent it and whatever the shell was
+# doing. On iOS the shell is a thread and a task beside its jobs, and each builtin runs under
+# a vproc of its own, so a trap set on that vproc was lost, and a job's kill found the default
+# action and cancelled the shell's thread: no output, a hang. Signals are named, not numbered,
+# since the numbers differ across systems. What a killed job reports on stderr differs between
+# versions of bash, so it is not compared. Every form is bounded: a wait that is not interrupted
+# takes the job's 2 seconds, and shows up as the wrong status.
+exec 2> /dev/null
+
+d="${TMPDIR:-/tmp}/exsh-trap-delivery.$$"
+mkdir -p "$d"
+
+# wait_for FILE: for a job to reach a point, without guessing how long it takes.
+wait_for() {
+    n=0
+    while [ ! -e "$1" ] && [ "$n" -lt 500 ]; do
+        sleep 0.01
+        n=$((n + 1))
+    done
+}
+
+signame() {
+    if [ "$1" -gt 128 ]; then
+        kill -l $(($1 - 128))
+    else
+        echo "status $1"
+    fi
+}
+
+echo "-- beside a job"
+trap 'echo got' USR2
+( while :; do :; done ) &
+j=$!
+sleep 0.1
+kill -USR2 $$
+sleep 0.1
+echo "after: $?"
+kill $j
+wait $j
+echo "job: $(signame $?)"
+trap - USR2
+
+echo "-- from a job, while the shell starts subshells"
+trap 'echo got' USR2
+me=$$
+( sleep 0.1; kill -USR2 $me ) &
+i=0
+while [ $i -lt 20 ]; do ( : ); sleep 0.01; i=$((i + 1)); done
+wait
+echo "wait: $?"
+trap - USR2
+
+echo "-- during wait for a pid"
+trap 'echo "in trap: $(signame $?)"; false' USR2
+sleep 2 &
+j=$!
+me=$$
+( sleep 0.1; kill -USR2 $me ) &
+wait $j
+echo "wait: $(signame $?)"
+kill -0 $j && echo "still running"
+kill $j
+wait $j
+echo "second wait: $(signame $?)"
+wait
+trap - USR2
+
+echo "-- during wait for every job"
+trap 'echo got' USR1
+sleep 2 &
+j=$!
+me=$$
+( sleep 0.1; kill -USR1 $me ) &
+wait
+echo "wait: $(signame $?)"
+kill $j
+wait $j
+trap - USR1
+
+echo "-- during a foreground command, after it"
+trap 'echo "in trap: $?"; false' USR1
+me=$$
+( sleep 0.1; kill -USR1 $me ) &
+( sleep 0.3; exit 4 )
+echo "after: $?"
+wait
+trap - USR1
+
+echo "-- the status goes back"
+trap 'false' USR1
+( exit 3 )
+kill -USR1 $$
+echo "after kill: $?"
+trap - USR1
+
+echo "-- two signals, both run"
+trap 'echo a' USR1
+trap 'echo b' USR2
+me=$$
+( kill -USR1 $me; sleep 0.1; kill -USR2 $me ) &
+sleep 0.3
+echo "next"
+wait
+trap - USR1
+trap - USR2
+
+echo "-- a job's own trap"
+( trap 'echo term; exit 3' TERM; touch "$d/ready1"; while :; do sleep 0.01; done ) &
+j=$!
+wait_for "$d/ready1"
+kill $j
+wait $j
+echo "job: $?"
+
+# A tight loop, so that the signal finds it anywhere: at the condition, which must not then run
+# and replace the status the trap ended with.
+echo "-- a job's own trap ends its loop"
+i=0
+while [ $i -lt 10 ]; do
+    ( trap 'exit 3' TERM; touch "$d/ready3"; while :; do :; done ) &
+    j=$!
+    wait_for "$d/ready3"
+    kill $j
+    wait $j
+    echo "job: $?"
+    rm -f "$d/ready3"
+    i=$((i + 1))
+done
+
+echo "-- a job does not keep the shell's trap"
+trap 'echo shell' USR1 TERM
+sleep 2 &
+a=$!
+( while :; do sleep 0.01; done ) &
+b=$!
+sleep 0.1
+kill -USR1 $a
+wait $a
+echo "applet: $(signame $?)"
+kill $b
+wait $b
+echo "subshell: $(signame $?)"
+trap - USR1 TERM
+
+echo "-- ignored"
+trap '' USR1
+kill -USR1 $$
+echo "survived"
+( kill -USR1 $$ ; echo "in a subshell too" )
+trap - USR1
+
+echo "-- continuing a job with a handler"
+( trap 'echo cont' CONT; touch "$d/ready2"
+  n=0; while [ ! -e "$d/go" ] && [ "$n" -lt 500 ]; do sleep 0.01; n=$((n + 1)); done
+  echo body-end ) &
+p=$!
+wait_for "$d/ready2"
+kill -STOP $p
+sleep 0.05
+kill -CONT $p
+sleep 0.05
+jobs > "$d/jobs"
+touch "$d/go"
+wait $p
+echo "wait: $?"
+grep -c Running "$d/jobs"
+
+echo "-- eval and a sourced file are the shell"
+trap 'echo got' USR1
+eval 'kill -USR1 $$'
+echo "after eval"
+cat > "$d/sourced" <<'EOF'
+trap 'echo got2' USR2
+kill -USR2 $$
+echo "in the file"
+EOF
+. "$d/sourced"
+echo "after source"
+cat > "$d/sourced_child" <<'EOF'
+sh -c 'echo $PPID' > "$d/ppid"
+[ "$(cat "$d/ppid")" = "$$" ] && echo "the child's parent is the shell"
+sh -c 'kill -USR1 $PPID; echo child'
+echo "after the child"
+EOF
+. "$d/sourced_child"
+cat > "$d/nested_child" <<'EOF'
+sh -c 'echo $PPID' | cat > "$1/ppid"
+[ "$(cat "$1/ppid")" = "$$" ] && echo "a stage's parent is the nested shell"
+EOF
+sh "$d/nested_child" "$d"
+trap - USR1
+trap - USR2
+
+echo "-- a function sets it"
+f() { trap 'echo got' USR1; kill -USR1 $$; }
+f
+echo "after f"
+trap - USR1
+
+echo "-- a script run as a command"
+cat > "$d/kill_self" <<'EOF'
+kill $$
+echo alive
+EOF
+sh "$d/kill_self"
+echo "kills itself: $?"
+cat > "$d/job_kills" <<'EOF'
+me=$$
+( sleep 0.1; kill $me ) &
+sleep 0.3
+echo alive
+EOF
+sh "$d/job_kills"
+echo "a job kills it: $?"
+cat > "$d/trap_exit" <<'EOF'
+trap 'echo "in trap: $?"; exit 7' USR1
+me=$$
+( sleep 0.1; kill -USR1 $me ) &
+( sleep 0.3; exit 4 )
+echo alive
+EOF
+sh "$d/trap_exit"
+echo "a trap exits: $?"
+cat > "$d/trap_exit_wait" <<'EOF'
+trap 'echo got; exit 8' USR1
+sleep 2 &
+j=$!
+me=$$
+( sleep 0.1; kill -USR1 $me; ) &
+wait $j
+echo alive
+EOF
+sh "$d/trap_exit_wait"
+echo "a trap exits a wait: $?"
+cat > "$d/trap_in_script" <<'EOF'
+trap 'echo got' USR1
+sleep 2 &
+j=$!
+me=$$
+( sleep 0.1; kill -USR1 $me; ) &
+wait $j
+if [ $? -gt 128 ]; then echo interrupted; fi
+kill $j
+EOF
+sh "$d/trap_in_script"
+echo "in a script: $?"
+
+wait
+
+echo "-- the same text twice in a command runs twice"
+echo 1 > "$d/f"
+echo $(cat "$d/f"; echo 2 > "$d/f") $(cat "$d/f"; echo 2 > "$d/f")
+echo 3 > "$d/f"
+a=$(cat "$d/f"; echo 4 > "$d/f") b=$(cat "$d/f"; echo 4 > "$d/f")
+echo "$a $b"
+next() { cat "$d/f"; echo 5 > "$d/f"; }
+a=$(next) b=$(next)
+echo "$a $b"
+rm -rf "$d"
+
+# The end of the script: a substitution or a trap must not stop this from counting as the
+# outermost script, and what the last command was sent still runs.
+trap 'echo "exit trap"' EXIT
+x=$(echo substituted)
+echo "$x"
+trap 'echo "last command"' USR1
+kill -USR1 $$
