@@ -178,6 +178,7 @@ static const ShellBuiltinEntry kShellBuiltins[] = {
     {"addtab", "addt", -1},
     {"tabadd", "tabadd", -1},
     {"tadd", "tadd", -1},
+    {"ws", "ws", -1},
     {"smallclue-help", "smallclue-help", -1},
     {"dmesg", "dmesg", -1},
     {"licenses", "licenses", -1},
