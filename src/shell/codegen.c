@@ -721,6 +721,7 @@ static void emitBuiltinProc(BytecodeChunk *chunk, const char *name, uint8_t arg_
 static const char *redirTypeName(ShellRedirectionType type) {
     switch (type) {
         case SHELL_REDIRECT_INPUT: return "<";
+        case SHELL_REDIRECT_READ_WRITE: return "<>";
         case SHELL_REDIRECT_OUTPUT: return ">";
         case SHELL_REDIRECT_APPEND: return ">>";
         case SHELL_REDIRECT_HEREDOC: return "<<";

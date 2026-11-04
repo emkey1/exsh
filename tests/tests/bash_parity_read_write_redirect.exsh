@@ -1,0 +1,59 @@
+#!/usr/bin/env exsh
+# <> opens for reading and writing. It was parsed as <, so a write through it failed, it never
+# made the file, and a FIFO opened through it waited for a writer for ever.
+d="${TMPDIR:-/tmp}/exsh_parity_read_write_redirect.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# It makes the file.
+exec 3<> new.txt
+echo "made $?"
+echo written >&3
+echo "wrote $?"
+exec 3>&-
+cat new.txt
+
+# It keeps what is there, and a read and a write share one offset.
+printf 'one\ntwo\nthree\n' > keep.txt
+exec 4<> keep.txt
+read first <&4
+echo "read $first"
+echo TWO >&4
+read last <&4
+echo "read $last"
+exec 4>&-
+cat keep.txt
+
+# Standard input unless a number says otherwise.
+printf 'from file\n' > in.txt
+read line <> in.txt
+echo "$line"
+cat <> in.txt
+{ cat; } <> in.txt & wait $!
+echo "background group $?"
+cat <> in.txt & wait $!
+echo "background $?"
+
+# On a compound command, for as long as it runs.
+{ read a <&5; echo "got $a"; echo more >&5; } 5<> in.txt
+cat in.txt
+if ( echo gone >&5 ) 2> /dev/null; then echo "5 stayed open"; else echo "5 closed"; fi
+
+# A file that cannot be opened.
+mkdir dir
+if ( exec 6<> dir ) 2> /dev/null; then echo "opened a directory"; else echo "no directory"; fi
+
+# A FIFO opened for both does not wait for anyone. Not every system here has mkfifo.
+if command -v mkfifo > /dev/null 2>&1; then
+    mkfifo p
+    exec 7<> p
+    echo through >&7
+    read b <&7
+    echo "$b"
+    exec 7>&-
+else
+    echo through
+fi
+
+cd / && rm -rf "$d"

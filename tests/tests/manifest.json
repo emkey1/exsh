@@ -1804,6 +1804,14 @@
             "description": "Every shape of loop around every shape of return, with status, nesting, break and continue around the call, redirections either way round, eval, source, set -e, and apart from the shell in a subshell, substitution, background body and pipeline stage.",
             "script": "Tests/exsh/tests/bash_parity_return_in_loop.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_read_write_redirect",
+            "name": "<> opens for reading and writing",
+            "category": "parity",
+            "description": "It makes the file, keeps what is there, shares one offset between reads and writes, defaults to standard input, and does not wait for a writer on a FIFO.",
+            "script": "Tests/exsh/tests/bash_parity_read_write_redirect.exsh",
+            "expect": "match_bash"
         }
     ]
 }

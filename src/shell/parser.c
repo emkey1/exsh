@@ -1892,7 +1892,7 @@ static ShellRedirection *parseRedirection(ShellParser *parser, bool *strip_tabs_
         case SHELL_TOKEN_TLESS: type = SHELL_REDIRECT_HERE_STRING; break;
         case SHELL_TOKEN_LESSAND: type = SHELL_REDIRECT_DUP_INPUT; break;
         case SHELL_TOKEN_GREATAND: type = SHELL_REDIRECT_DUP_OUTPUT; break;
-        case SHELL_TOKEN_LESSGREAT: type = SHELL_REDIRECT_INPUT; break;
+        case SHELL_TOKEN_LESSGREAT: type = SHELL_REDIRECT_READ_WRITE; break;
         case SHELL_TOKEN_CLOBBER: type = SHELL_REDIRECT_CLOBBER; break;
         case SHELL_TOKEN_ANDGREAT: type = SHELL_REDIRECT_OUTPUT_AND_ERROR; break;
         case SHELL_TOKEN_ANDDGREAT: type = SHELL_REDIRECT_APPEND_OUTPUT_AND_ERROR; break;
