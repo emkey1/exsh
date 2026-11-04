@@ -98,6 +98,8 @@ typedef struct {
     size_t command_count;
     bool negated;
     bool has_explicit_negation;
+    bool timed; /* `time` in front of it */
+    bool time_posix; /* time -p */
     bool *merge_stderr;
 } ShellPipeline;
 

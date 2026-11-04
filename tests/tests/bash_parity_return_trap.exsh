@@ -1,0 +1,316 @@
+#!/usr/bin/env exsh
+# return, break and continue in the places they rarely go: in a trap, with a bad argument, outside
+# what they end. Then what goes with them: set -E and set -T, the time keyword, and redirections
+# that hold for the EXIT trap. Every loop calls g, so a build that spins fails on its output instead.
+# Statuses the two bashes disagree on print as "failed": bash5_forms has the numbers.
+d="${TMPDIR:-/tmp}/exsh_parity_return_trap.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+exec 3>&2 2>/dev/null
+
+c=0
+g() { c=$((c+1)); [ $c -le 3000 ] || { echo RUNAWAY; exit 9; }; }
+st() { if [ "$1" -eq 0 ]; then echo "$2 ok"; else echo "$2 failed"; fi; }
+msg() { l=$(cat "$1"); echo "${l#*: line *: }"; }
+
+echo "# return in an ERR trap ends the function"
+( f() { trap 'return 1' ERR; false; echo no; }; f; echo "plain $?" )
+( f() { trap 'echo t; return 1' ERR; false; echo no; }; f; trap - ERR; h() { eval 'echo in-eval'; echo still; }; h; eval 'echo e2'; echo "later eval" )
+( f() { trap 'return 1' ERR; while :; do g; false; echo no; break; done; echo no2; }
+  for x in 1 2; do g; f; st $? "loop $x"; done; echo end )
+( f() { trap 'return 1' ERR; false; }; f; echo a; false; echo "top level $?" )
+( f() { trap 'return 1' ERR; if false; then echo no; fi; echo ok; false; echo no; }; f; echo "after a condition $?" )
+( k() { false; echo in; }; f() { trap 'return 1' ERR; if k; then echo t; fi; echo tail; false; echo no; }; f; echo "in a condition $?" )
+( f() { local v=in; trap 'return 1' ERR; false; echo no; }; v=out; set -- a b; f x y z; trap - ERR; echo "$v $# $1" )
+( k() { false; echo k-tail; }; f() { trap 'return 7' ERR; k; echo f-tail; }; f; echo "not inherited $?" )
+( set -e; f() { trap 'return 1' ERR; false; echo no; }; f || echo handled; echo end )
+( set -e; f() { trap 'return 1' ERR; false; echo no; }; f; echo no2 ); echo "set -e $?"
+( f() { trap 'exit 5' ERR; false; echo no; }; f; echo no2 ); echo "exit in the trap $?"
+( f() { trap 'return 1' ERR; { false; echo no; } > o1; echo no2; }; f; echo "redirection $?"; wc -c < o1 | tr -d ' ' )
+( printf 'trap "return 1" ERR\nfalse\necho no\n' > s1; . ./s1; echo "sourced $?" )
+( f() { eval "trap 'return 1' ERR; false; echo no"; echo no2; }; f; echo "in eval $?" )
+( trap 'echo bye $?' EXIT; f() { trap 'return 1' ERR; false; echo no; }; f; echo "exit trap after $?" )
+
+echo "# and in a signal's"
+f() { trap 'return 3' USR1; kill -USR1 $$; echo after; return 9; }; f; echo "usr1 $?"; trap - USR1
+trap 'return 3' USR1; f() { kill -USR1 $$; echo after; }; f; echo "set outside $?"; trap - USR1
+f() { trap 'return 2' USR1; while kill -USR1 $$; do g; echo no; break; done; echo no2; }; f; echo "while condition $?"; trap - USR1
+f() { trap 'return 3' USR1; while :; do g; kill -USR1 $$; echo no; done > o2; echo no2; }; f; echo "redirected loop $?"; wc -c < o2 | tr -d ' '; trap - USR1
+f() { trap 'return 3' USR1; while :; do g; kill -USR1 $$; echo no; done; }
+for x in 1 2; do g; f; echo "for $x $?"; done; n=0; while [ $n -lt 2 ]; do g; n=$((n+1)); f; echo "while $n $?"; done; trap - USR1
+f() { trap 'return 3' USR1; case a in a) kill -USR1 $$; echo no;; esac; echo no2; }; f; echo "case $?"; case b in b) echo fine;; esac; trap - USR1
+f() { trap 'eval "return 2"' USR1; kill -USR1 $$; echo no; }; f; echo "eval $?"; trap - USR1
+h() { return 3; }; f() { trap 'h; echo "h $?"' USR1; kill -USR1 $$; echo after; }; f; echo "its own function $?"; trap - USR1
+printf 'return 3\necho no\n' > s2; f() { trap '. ./s2; echo "s $?"' USR1; kill -USR1 $$; echo after; }; f; echo "its own source $?"; trap - USR1
+printf 'trap "return 2" USR1\nkill -USR1 $$\necho no\n' > s3; . ./s3; echo "sourced $?"; trap - USR1
+f() { trap 'echo a; return 3; echo b' USR1; kill -USR1 $$; echo no; }; f; echo "text after it $?"; trap - USR1
+f() { trap 'trap - USR1; return 3' USR1; kill -USR1 $$; echo no; }; f; echo "takes itself away $?"; h() { echo h; }; h; echo end
+f() { trap 'break' USR1; for x in 1 2 3; do g; kill -USR1 $$; echo "x$x"; done; echo tail; }; f; echo "break in a trap $?"; trap - USR1
+
+echo "# outside a function, it says so and goes on"
+return; st $? plain; return 3; st $? number
+eval return; st $? eval; eval 'return 3'; st $? "eval number"; eval 'eval return'; st $? "eval eval"
+for x in 1 2; do g; eval return; st $? "loop $x"; done
+eval 'return 3; echo more'; st $? "more after"
+eval 'for x in 1 2; do g; return; echo no; done; echo tail'; echo "loop in eval"
+x=$(return 3; st $? substitution); echo "[$x] $?"; x=$(eval return 3; st $? "eval substitution"); echo "[$x]"
+( return 3; st $? subshell ); echo "$?"; ( eval return 3; st $? "eval subshell" ); echo "$?"
+eval return | cat; st ${PIPESTATUS[0]} stage; eval return & wait $!; st $? background
+trap 'return 3' USR1; kill -USR1 $$; echo "signal trap $?"; trap - USR1
+trap 'eval return 3' USR1; kill -USR1 $$; echo "signal trap eval $?"; trap - USR1
+( trap 'return 3' ERR; false; echo "err trap $?" )
+( trap 'echo in; return 3; echo tail' EXIT; exit 5 ); echo "exit trap $?"
+( set -e; eval return; echo no ); st $? "set -e"
+eval 'f() { return 2; }; f; echo "function in eval $?"'; echo "$?"
+f() { eval return 3; echo no; }; f; echo "eval in a function $?"
+printf 'eval return 4\necho no\n' > s4; . ./s4; echo "eval in a sourced file $?"
+printf 'eval "return 5"\necho no\n' > s5; f() { . ./s5; echo "s $?"; }; f; echo "$?"
+f() { ( return 3; echo no ); echo "subshell $?"; x=$(return 4; echo no); echo "[$x] $?"; }; f; echo "$?"
+f() { ( eval return 3; echo no ); echo "eval subshell $?"; }; f; echo "$?"
+f() { return 3 | cat; echo "stage ${PIPESTATUS[0]}"; }; f; echo "$?"
+f() { return 3 & wait $!; echo "background $?"; }; f; echo "$?"
+h() { eval 'echo e'; echo h-tail; }; f() { echo a | { return 3; }; echo "group stage $?"; h; }; f; echo "$?"
+
+echo "# what it takes"
+f() { return abc; echo no; }; f; st $? word
+f() { return ""; echo no; }; f; st $? empty
+f() { return 1abc; echo no; }; f; st $? "number and word"
+f() { return -x; echo no; }; f; st $? option
+f() { return 0x10; echo no; }; f; st $? hex
+f() { return 99999999999999999999; echo no; }; f; st $? huge
+f() { return abc def; echo no; }; f; st $? "word and more"
+f() { return -- abc; echo no; }; f; st $? "dashes and word"
+f() { while :; do g; return abc; echo no; done; echo no2; }; f; st $? "in a loop"
+f() { eval 'return abc'; echo no; }; f; st $? "in eval"
+printf 'return abc\necho no\n' > s6; . ./s6; st $? "in a sourced file"
+f() { return abc; }; if f; then echo no; else st $? "in a condition"; fi
+( set -e; f() { return abc; echo no; }; f; echo no2 ); st $? "set -e"
+f() { return -1; echo no; }; f; echo "minus one $?"
+f() { return 256; echo no; }; f; echo "wraps $?"
+f() { return -- 3; echo no; }; f; echo "dashes $?"
+f() { false; return --; echo no; }; f; echo "dashes alone $?"
+f() { return +3; echo no; }; f; echo "plus $?"
+f() { return ' 3 '; echo no; }; f; echo "spaces $?"
+f() { return abc; }; f 2> e1; msg e1
+return abc 2> e2; st $? "word outside a function"
+f() { return 1 2; }
+f 2> e3
+msg e3
+for x in 1; do g; break 1 2 2> e4; done
+msg e4
+
+echo "# too many: all that is running goes, up to the next line"
+f() { return 1 2; echo no; }
+f; echo no
+st $? "same line"
+f
+st $? call
+k() { f; echo no-k; }
+k
+st $? nested
+for x in 1 2; do g; f; echo "x$x"; done
+st $? loop
+for x in 1 2; do
+  g
+  f
+  echo no
+done
+st $? "lines in a loop"
+eval 'f; echo a
+echo b'
+st $? eval
+( f; echo a
+echo b )
+st $? subshell
+x=$(f; echo a)
+echo "[$x] $?"
+f | cat
+st ${PIPESTATUS[0]} stage
+if f; then echo then; else echo else; fi
+st $? if
+f || echo or
+st $? or
+printf 'return 1 2\necho no\n' > s7
+. ./s7
+st $? sourced
+for x in 1 2; do g; . ./s7; echo "x$x"; done
+st $? "sourced in a loop"
+printf 'eval "return 1 2"\necho no\n' > s8
+h() { . ./s8; echo no2; }
+h
+st $? "eval in source in a function"
+{ f; echo no; } > o3
+st $? redirected; wc -c < o3 | tr -d ' '
+h() { echo in; return 1 2; }
+h > o4
+st $? "call redirected"; wc -c < o4 | tr -d ' '
+h() { local v=in; set -- p q; return 1 2; }
+v=out; set -- a
+h
+echo "$v $# $1"
+f & wait $!
+st $? background
+( set -e
+  f
+  echo "goes on under set -e" )
+( trap 'echo err' ERR
+  f
+  echo "no ERR trap" )
+f
+h() { echo defined after; }
+h
+f
+cat <<EOF
+here document after
+EOF
+for x in 1 2; do g; break 1 2; echo no; done
+st $? break
+for x in 1 2; do g; continue 1 2; echo no; done
+st $? continue
+for x in 1 2; do for y in 1 2; do g; break 1 2; done; echo no; done
+st $? "break nested"
+
+echo "# break and continue"
+( while :; do g; break abc; echo no; done; echo no2 ); st $? "break word"
+( for x in 1 2; do g; break abc; echo no; done; echo no2 ); st $? "break for"
+( for x in 1 2; do g; continue abc; echo no; done; echo no2 ); st $? "continue word"
+( for x in 1 2; do g; break ""; echo no; done; echo no2 ); st $? "break empty"
+( for x in 1 2; do g; break 1abc; echo no; done; echo no2 ); st $? "break number and word"
+( for x in 1 2; do g; break -x; echo no; done; echo no2 ); st $? "break option"
+( for x in 1 2; do g; break 99999999999999999999; echo no; done; echo no2 ); st $? "break huge"
+( for x in 1 2; do g; eval 'break abc'; echo no; done; echo no2 ); st $? "break in eval"
+( while break abc; do g; echo no; done; echo no2 ); st $? "break in a condition"
+( n=0; until [ $n -gt 2 ]; do g; n=$((n+1)); continue abc; done; echo no ); st $? "continue until"
+( for ((i=0;i<2;i++)); do g; continue abc; done; echo no ); st $? "continue cfor"
+( for x in 1; do g; break abc; done > o5; echo no ); st $? "break redirected"
+( trap 'echo bye' EXIT; while :; do g; break abc; done; echo no ); st $? "EXIT trap"
+x=$(while :; do g; break abc; done; echo no); st $? "break in a substitution"; echo "[$x]"
+while :; do g; break abc; done | cat; st ${PIPESTATUS[0]} "break in a stage"
+for x in 1 2; do for y in 1 2; do g; break 0; echo no; done; echo no2; done; echo "break 0 $?"
+for x in 1 2; do for y in 1 2; do g; continue 0; echo no; done; echo no2; done; echo "continue 0 $?"
+for x in 1 2; do for y in 1 2; do g; break -1; echo no; done; echo no2; done; echo "break -1 $?"
+for x in 1 2; do for y in 1 2; do g; continue -1; echo no; done; echo no2; done; echo "continue -1 $?"
+for x in 1 2; do g; if break 0; then echo no; else echo no2; fi; done; echo "break 0 if $?"
+for x in 1 2; do for y in 1 2; do g; break 9; done; echo no; done; echo "break too many $?"
+for x in 1 2; do g; break +1; echo no; done; echo "break plus $?"
+for x in 1 2; do g; break -- 1; echo no; done; echo "break dashes $?"
+for x in 1 2; do g; continue -- 1; echo no; done; echo "continue dashes $?"
+false; break; echo "break outside $?"; false; break abc; echo "break word outside $?"
+false; continue; echo "continue outside $?"; false; continue abc; echo "continue word outside $?"
+break 2> e5; msg e5; continue 2> e6; msg e6
+( for x in 1; do g; break abc 2> e7; done ); msg e7
+for x in 1; do g; break 0 2> e8; done; msg e8
+
+echo "# set -T and set -E"
+( trap 'echo r' RETURN; f() { echo in; }; f; echo not without it )
+( set -T; trap 'echo r' RETURN; f() { echo in; }; f; echo out )
+( set -o functrace; trap 'echo r $1' RETURN; k() { :; }; f() { k x; echo in; }; f y; echo out )
+( f() { echo in; }; k() { echo k; }; declare -ft f; trap 'echo r' RETURN; f; k; echo one function )
+( f() { echo in; }; declare -ft f; declare +ft f; trap 'echo r' RETURN; f; echo taken back )
+( printf 'echo sourced\n' > s9; trap 'echo r' RETURN; . ./s9; echo sourced without it )
+( printf 'echo sourced\n' > s9; set -T; trap 'echo r' RETURN; . ./s9; echo sourced with it )
+( set -T; trap 'echo r' RETURN; f() { :; }; x=$(f); echo "substitution [$x]" )
+( trap 'echo r' RETURN; f() { :; }; x=$(f); echo "substitution without it [$x]" )
+( set -T; trap 'echo r' RETURN; f() { :; }; ( f ); echo subshell )
+( trap 'echo r' RETURN; f() { :; }; ( f; . /dev/null ); echo subshell without it )
+( printf ':\n' > s9; f() { trap 'echo r' RETURN; }; f; k() { :; }; k; echo mid; f; . ./s9; echo stays set )
+( trap 'echo r1' RETURN; f() { trap - RETURN; }; f; printf ':\n' > s9; . ./s9; echo comes back )
+( set -T; f() { trap 'echo r' RETURN; k; echo f-tail; }; k() { echo k; }; f; echo nested )
+( k() { echo k; }; f() { trap 'echo r' RETURN; k; echo tail; }; f; echo not nested )
+( set -T; trap 'echo "r $?"' RETURN; f() { return 3; }; f; echo "status $?" )
+( set -T; trap 'echo "r $?"' RETURN; f() { false; }; f; echo "status $?" )
+( set -T; trap 'echo r' RETURN; f() { while :; do g; return 2; done; }; for x in 1 2; do g; f; echo "x$x $?"; done )
+( set -T; trap 'echo "r ${FUNCNAME[0]}"' RETURN; f() { :; }; f; echo out )
+( set -T; trap 'echo r' RETURN; f() { set +T; }; f; k() { :; }; k; echo turned off )
+( printf ':\n' > s9; f() { trap 'echo r' RETURN; . ./s9; echo tail; }; f; echo source in a function )
+( printf 'return 3\n' > s9; set -T; trap 'echo "r $?"' RETURN; . ./s9; echo "status $?" )
+( trap 'echo r' RETURN; eval 'echo e'; echo eval does not )
+( trap 'echo r' RETURN; trap -p RETURN; f() { trap -p RETURN; echo in; }; f; set -T; f )
+( set -T; case $- in *T*) echo T;; *) echo noT;; esac; set +T; case $- in *T*) echo T;; *) echo noT;; esac )
+( set -E; case $- in *E*) echo E;; *) echo noE;; esac; set +E; case $- in *E*) echo E;; *) echo noE;; esac )
+( set -T; set -o > o6; while read -r n v; do case $n in functrace) echo "$n $v";; esac; done < o6 )
+( set -E; set -o > o6; while read -r n v; do case $n in errtrace) echo "$n $v";; esac; done < o6 )
+( trap 'echo e' ERR; f() { false; echo in; }; f; echo err not inherited )
+( set -E; trap 'echo e' ERR; f() { false; echo in; }; f; echo err inherited )
+( set -E; trap 'echo e' ERR; f() { false; }; f; echo twice )
+( trap 'echo e' ERR; f() { false; }; f; echo once )
+( f() { trap 'echo e' ERR; return 1; }; f; echo "set in the call $?"; f; echo "second call $?" )
+( set -e; f() { trap 'echo e' ERR; return 1; }; f; echo no ); echo "errexit still $?"
+( eval "trap 'echo e' ERR; false"; echo "eval $?" )
+( printf "trap 'echo e' ERR\nfalse\n" > s9; . ./s9; echo "source $?" )
+( set -E; trap 'echo e' ERR; f() { x=$(false; echo sub); echo "[$x]"; }; f; echo substitution )
+( trap 'echo e' ERR; f() { x=$(false; echo sub); echo "[$x]"; }; f; echo substitution without it )
+( set -E; trap 'echo e' ERR; ( false; echo sub ); echo subshell )
+( trap 'echo e' ERR; ( false; echo sub ); echo subshell without it )
+
+echo "# time"
+j() { echo in; return 3; }
+{ time j; } 2>/dev/null; echo "function $?"
+{ time { echo a; false; }; } 2>/dev/null; echo "group $?"
+{ time ( echo b; exit 4 ); } 2>/dev/null; echo "subshell $?"
+{ time echo a | cat; } 2>/dev/null; echo "pipeline $?"
+{ time -p echo a; } 2>/dev/null; echo "-p $?"
+{ time ! false; } 2>/dev/null; echo "time ! $?"
+{ ! time false; } 2>/dev/null; echo "! time $?"
+{ time false; } 2>/dev/null; echo "false $?"
+n=0; { time while [ $n -lt 2 ]; do g; n=$((n+1)); echo "n$n"; done; } 2>/dev/null; echo "while $?"
+{ time for x in 1 2; do g; echo "x$x"; done; } 2>/dev/null; echo "for $?"
+{ time if true; then echo y; fi; } 2>/dev/null; echo "if $?"
+{ time [[ a = a ]]; } 2>/dev/null; echo "[[ $?"
+{ time (( 0 )); } 2>/dev/null; echo "(( $?"
+{ time cd .; } 2>/dev/null; echo "cd $?"
+{ time x=1; } 2>/dev/null; echo "assignment $x"
+{ time V=1 sh -c 'echo "$V"'; } 2>/dev/null; echo "prefix $?"
+{ time true && echo yes; time false || echo no; true && time echo mid; } 2>/dev/null; echo "and or $?"
+{ time echo a > o7; } 2>/dev/null; cat o7
+{ f() { time return 3; echo no; }; f; } 2>/dev/null; echo "return $?"
+( { time exit 3; } 2>/dev/null; echo no ); echo "exit $?"
+( set -e; { time false; } 2>/dev/null; echo no ); echo "set -e $?"
+{ time nosuchcommand; } 2>/dev/null; echo "not found $?"
+{ time -x; } 2>/dev/null; echo "-x is a command $?"
+{ time sleep 0 & } 2>/dev/null; wait $!; echo "background $?"
+time=3; echo "$time"; echo time; x=time; echo "$x"
+for time in 1 2; do g; echo "$time"; done; case time in time) echo case;; esac; unset time
+j2() { :; }; "time" j2 > /dev/null 2>&1; echo "quoted $?"; \time j2 > /dev/null 2>&1; echo "escaped $?"; x=time; $x j2 > /dev/null 2>&1; echo "expanded $?"
+{ time -p :; } 2> t1; while read -r w v; do g; echo "$w"; done < t1
+{ time :; } 2> t2; while IFS= read -r l; do g; echo "[${l%%[0-9]*}]"; done < t2
+TIMEFORMAT='fmt %%'; { time :; } 2>&1; echo "$?"
+TIMEFORMAT=; { time :; } 2>&1; echo "empty $?"
+TIMEFORMAT='a %2R'; { time :; } 2> t3; read -r w v < t3; echo "$w"
+unset TIMEFORMAT; { time :; } 2> t4; n=0; while IFS= read -r l; do g; n=$((n+1)); done < t4; echo "default has $n lines"
+{ time -p :; } 2> t5; TIMEFORMAT=x; { time -p :; } 2> t6; n=0; while IFS= read -r l; do g; n=$((n+1)); done < t6; echo "-p has $n lines"; unset TIMEFORMAT
+
+echo "# what the EXIT trap still has redirected"
+show() { echo "$1=[$(cat "$1")]"; rm -f "$1"; }
+f() { { exit 3; } > o; }; ( trap 'echo in-trap' EXIT; f; echo no ); echo "group in a function $?"; show o
+( trap 'echo in-trap' EXIT; { exit 3; } > o; echo no ); echo "group $?"; show o
+( trap 'echo in-trap' EXIT; while :; do g; exit 3; done > o; echo no ); echo "loop $?"; show o
+( trap 'echo in-trap' EXIT; for x in 1 2; do g; exit 3; done > o; echo no ); echo "for $?"; show o
+f() { exit 3; }; ( trap 'echo in-trap' EXIT; f > o; echo no ); echo "call $?"; show o
+f() { exit 3; } > o; ( trap 'echo in-trap' EXIT; f; echo no ); echo "definition $?"; show o
+printf 'exit 3\n' > s; ( trap 'echo in-trap' EXIT; . ./s > o; echo no ); echo "source $?"; show o
+( trap 'echo in-trap' EXIT; eval 'exit 3' > o; echo no ); echo "eval $?"; show o
+( trap 'echo in-trap' EXIT; { eval 'exit 3'; } > o; echo no ); echo "around eval $?"; show o
+( trap 'echo in-trap' EXIT; { { exit 3; } > o1; } > o2; echo no ); echo "nested $?"; show o1; show o2
+( trap 'echo in-trap' EXIT; for x in 1; do g; { exit 3; } > o1; done > o2; echo no ); echo "group in a loop $?"; show o1; show o2
+( trap 'echo in-trap' EXIT; { for x in 1; do g; exit 3; done > o1; } > o2; echo no ); echo "loop in a group $?"; show o1; show o2
+f() { { exit 3; } 2> o; }; ( trap 'echo in-trap >&2' EXIT; f; echo no ) 2> e; echo "stderr $?"; show o; show e
+f() { { exit 3; } 3> o; }; ( trap 'echo in-trap >&3' EXIT; f ); echo "fd 3 $?"; show o
+f() { { exit 3; } < /dev/null; }; ( trap 'read l; echo "got [$l]"' EXIT; f ) <<EOF
+line
+EOF
+echo "stdin $?"
+( set -e; trap 'echo in-trap' EXIT; { false; echo no; } > o; echo no2 ); echo "set -e $?"; show o
+f() { { false; echo no; } > o; }; ( set -e; trap 'echo in-trap' EXIT; f; echo no2 ); echo "set -e in a function $?"; show o
+f() { { return 3; } > o1; }; k() { f; { exit "$?"; } > o2; }; ( trap 'echo in-trap' EXIT; k ); echo "return then exit $?"; show o1; show o2
+( trap 'echo in-trap' EXIT; if { exit 3; } > o; then echo no; fi ); echo "condition $?"; show o
+( trap 'exit 7' EXIT; { exit 3; } > o; echo no ); echo "exit in the trap $?"; show o
+( trap 'echo once' EXIT; f() { exit 3; }; f; echo no ); echo "runs once $?"
+( f() { local v=loc; exit 3; }; trap 'echo "v=[$v] $?"' EXIT; f ); echo "sees the local $?"
+( trap 'echo in-trap' EXIT; eval '{ exit 3; } > o'; echo no ); echo "inside eval it is undone $?"; show o
+printf '{ exit 3; } > o\n' > s; ( trap 'echo in-trap' EXIT; . ./s; echo no ); echo "inside source too $?"; show o
+( trap 'echo in-trap' EXIT; for x in 1; do g; { break abc; } > o; done; echo no ); st $? "break word undoes it"; show o
+
+exec 2>&3
+cd / && rm -rf "$d"
+echo done

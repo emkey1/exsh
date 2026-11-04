@@ -14,7 +14,8 @@ tmp=".tmp-time-frontend-$$"
 rm -rf "$tmp"
 mkdir "$tmp" || exit 1
 
-out="$(time ../clike/examples/base/hello 2>&1)"
+# The keyword reports to the shell's stderr. This one is about the applet: a quoted name is not the keyword.
+out="$(\time ../clike/examples/base/hello 2>&1)"
 status=$?
 
 rm -rf "$tmp"

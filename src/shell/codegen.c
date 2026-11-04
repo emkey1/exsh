@@ -945,8 +945,16 @@ static void compilePipeline(BytecodeChunk *chunk, const ShellPipeline *pipeline,
     if (!pipeline) {
         return;
     }
-    char *meta = buildPipelineMetadata(pipeline);
     int line = (pipeline->command_count > 0 && pipeline->commands[0]) ? pipeline->commands[0]->line : 0;
+    if (pipeline->timed) {
+        emitBuiltinProc(chunk, "__shell_time_begin", 0, line);
+    }
+    if (pipeline->timed && pipeline->command_count == 0) {
+        emitPushString(chunk, pipeline->time_posix ? "pe" : "e", line);
+        emitBuiltinProc(chunk, "__shell_time_end", 1, line);
+        return;
+    }
+    char *meta = buildPipelineMetadata(pipeline);
     /* A simple command's status is inverted when its pipeline finishes. The commands
      * inside a compound one are pipelines of their own, so it is inverted here, after
      * them. A subshell is started as one command, so it counts as simple. */
@@ -987,6 +995,10 @@ static void compilePipeline(BytecodeChunk *chunk, const ShellPipeline *pipeline,
         emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 1, line);
     } else if (pipeline->negated) {
         emitBuiltinProc(chunk, "__shell_leave_condition_preserve", 0, line);
+    }
+    if (pipeline->timed) {
+        emitPushString(chunk, pipeline->time_posix ? "p" : "", line);
+        emitBuiltinProc(chunk, "__shell_time_end", 1, line);
     }
 }
 

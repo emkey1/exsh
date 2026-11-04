@@ -49,3 +49,18 @@ A=1 B=${A:-d} sh -c 'echo "$B"'; unset A
 declare -A sa; f() { local sa=1; declare -p sa; env | grep -c '^sa='; }; f; sa[k]=v; echo "${sa[k]}"
 (exit 3) & sleep 0.1; x=$(wait -n 2>/dev/null; echo "in $?"); echo "[$x]"; wait -n; echo "out $?"
 sleep 0.2 & x=$(sleep 0 & wait -n; echo "in $?"); echo "[$x]"; wait; echo "out $?"
+# The numbers: 3.2 gives 255, 1 and 128 for the bad arguments, and goes by the failed command in an ERR trap.
+f() { return abc; echo no; }; f 2>/dev/null; echo "return word $?"
+return 2>/dev/null; echo "return outside $?"
+eval return 2>/dev/null; echo "eval return outside $?"
+(while :; do break abc; done) 2>/dev/null; echo "break word $?"
+f() { return 1 2; echo no; }
+f 2>/dev/null; echo no
+echo "too many $?"
+(f() { trap 'return' ERR; (exit 5); echo no; }; f; echo "bare return in ERR $?")
+(f() { trap 'echo x; return' ERR; (exit 6); echo no; }; f; echo "bare return after a command $?")
+(f() { trap 'return 8' ERR; false; echo no; }; f; echo "number in ERR $?")
+(f() { trap 'return 2' ERR; (( 0 )); echo no; }; f; echo "arithmetic in ERR $?")
+(set -E; k() { false; echo no; }; f() { trap 'return 7' ERR; k; echo no; }; f; echo "nested with -E $?")
+(trap 'echo r1' RETURN; f() { trap 'echo r2' RETURN; }; f; . /dev/null; echo "a function's own stays")
+time -- echo dashes 2>/dev/null

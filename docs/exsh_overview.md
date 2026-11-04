@@ -238,6 +238,12 @@ finishes, and only escalates deferred `set -e` failures once conditional guards
 have had a chance to handle them. This keeps `&&`, `||`, and `if` short-circuits
 behaving like Bash while preserving pending exits when the trap requests an
 override.【F:src/backend_ast/shell/shell_runtime_state.inc†L1667-L1779】
+An EXIT trap sees the redirections around the `exit` that ended the script, as
+under Bash, except those opened inside the text of an `eval`, a sourced file or
+a trap, which are undone first. A `return` in a trap's text ends the function or
+sourced file the trap broke into. A function starts without its caller's `ERR`
+and `RETURN` traps unless `set -E` and `set -T` hand them on, or `declare -ft`
+for that one function.
 
 A trap's signal is noted when it arrives and its command runs at the next command
 boundary, after the status of the command that was running is set. Only `wait`
@@ -283,7 +289,8 @@ The parser now accepts the broader POSIX grammar expected by automation-heavy
 scripts. Here documents honour quoting rules (`<<word` expands variables while
 `<<'word'` keeps literal text), brace groups run in the current shell context
 and can appear inside pipelines, and leading `!` prefixes invert pipeline exit
-statuses. Multi-line `for` loops with backslash continuations and complex
+statuses. `time` is a keyword in front of a pipeline, with `-p` and `TIMEFORMAT`;
+quoted (`\time`) it is the command or applet. Multi-line `for` loops with backslash continuations and complex
 `case` clauses split across lines (including pattern alternation with `|`) are
 all recognised. Targeted regression scripts under `Tests/exsh/tests/`
 exercise these constructs so future grammar work can expand safely.

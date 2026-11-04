@@ -1,5 +1,6 @@
 #include "shell/parser.h"
 #include "core/utils.h"
+#include "backend_ast/builtin.h"
 #include "shell/quote_markers.h"
 #include "shell/word_scan.h"
 #include <ctype.h>
@@ -947,16 +948,45 @@ static ShellCommand *parseAndOr(ShellParser *parser) {
     return cmd;
 }
 
+static bool tokenIsWordText(const ShellToken *token, const char *text) {
+    return (token->type == SHELL_TOKEN_WORD || token->type == SHELL_TOKEN_NAME) && token->lexeme &&
+           !token->single_quoted && !token->double_quoted && strcmp(token->lexeme, text) == 0;
+}
+
+/* `time` opens a pipeline as `!` does, but the lexer has no token for it: the word is a name
+ * anywhere else, `time=1` and `for time in` among them. An alias comes first, and `time ()`
+ * defines a function. */
+static bool parserAtTimeKeyword(ShellParser *parser) {
+    return tokenIsWordText(&parser->current, "time") && !parserIsFunctionDefinitionStart(parser) &&
+           !shellRuntimeAliasExpands("time");
+}
+
 static ShellPipeline *parsePipeline(ShellParser *parser) {
     if (!parser) {
         return NULL;
     }
     bool negate = false;
-    while (parser->current.type == SHELL_TOKEN_BANG) {
-        negate = !negate;
+    bool timed = false;
+    bool time_posix = false;
+    while (parser->current.type == SHELL_TOKEN_BANG || parserAtTimeKeyword(parser)) {
+        bool is_time = parser->current.type != SHELL_TOKEN_BANG;
+        negate = is_time ? negate : !negate;
         parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
         shellParserAdvance(parser);
-        parseLinebreak(parser);
+        if (!is_time) {
+            parseLinebreak(parser);
+            continue;
+        }
+        timed = true;
+        if (tokenIsWordText(&parser->current, "-p")) {
+            time_posix = true;
+            parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
+            shellParserAdvance(parser);
+        }
+        if (tokenIsWordText(&parser->current, "--")) {
+            parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
+            shellParserAdvance(parser);
+        }
     }
 
     ShellPipeline *pipeline = shellCreatePipeline();
@@ -964,6 +994,14 @@ static ShellPipeline *parsePipeline(ShellParser *parser) {
         return NULL;
     }
     shellPipelineSetNegated(pipeline, negate);
+    pipeline->timed = timed;
+    pipeline->time_posix = time_posix;
+
+    /* `time` alone times nothing, and succeeds. */
+    if (timed && (parser->current.type == SHELL_TOKEN_SEMICOLON || parser->current.type == SHELL_TOKEN_NEWLINE ||
+                  parser->current.type == SHELL_TOKEN_EOF)) {
+        return pipeline;
+    }
 
     ShellCommand *command = parsePipelineCommand(parser);
     if (!command) {

@@ -14,7 +14,8 @@ tmp=".tmp-frontend-stdin-time-$$"
 rm -rf "$tmp"
 mkdir "$tmp" || exit 1
 
-time ../pascal/examples/base/FindPrimes >"$tmp/out" 2>&1
+# A quoted name is not the keyword: this one is about the applet.
+\time ../pascal/examples/base/FindPrimes >"$tmp/out" 2>&1
 status=$?
 
 if [ "$status" -eq 0 ]; then

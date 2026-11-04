@@ -550,6 +550,56 @@ char *shellLoadFile(const char *path) {
     return buffer;
 }
 
+/* `return 1 2` and the like drop what the shell last read, the rest of its line with it, and
+ * it reads on from there. The whole text was compiled at once here, so what is left of it is
+ * compiled again. A substitution is one command, and ends. */
+static InterpretResult shellRunAfterDiscard(VM *vm, const ShellProgram *program, const ShellRunOptions *options,
+                                            size_t redirect_scope_depth, InterpretResult result) {
+    BytecodeChunk rest_chunk;
+    bool rest_chunk_live = false;
+    while (shellRuntimeConsumeDiscard()) {
+        shellRuntimeAbandonCommand();
+        shellRuntimeUnwindRedirectScopes(redirect_scope_depth);
+        if (options->inherit_locals) {
+            shellRuntimeSetLastStatus(1);
+            break;
+        }
+        int line = 0;
+        if (vm->chunk && vm->chunk->lines && vm->lastInstruction) {
+            line = vm->chunk->lines[vm->lastInstruction - vm->chunk->code];
+        }
+        size_t next = 0;
+        while (next < program->commands.count && program->commands.items[next] &&
+               program->commands.items[next]->line <= line) {
+            next++;
+        }
+        if (rest_chunk_live) {
+            vm->chunk = NULL;
+            freeBytecodeChunk(&rest_chunk);
+            rest_chunk_live = false;
+        }
+        if (next >= program->commands.count) {
+            break;
+        }
+        ShellProgram rest = *program;
+        rest.commands.items += next;
+        rest.commands.count -= next;
+        shellCompile(&rest, &rest_chunk);
+        rest_chunk_live = true;
+        vmResetExecutionState(vm);
+        result = interpretBytecode(vm, &rest_chunk, globalSymbols, constGlobalSymbols, procedure_table, 0);
+        if (!options->keep_line_state) {
+            shellRuntimeFinishChunk(vm);
+        }
+        shellRuntimeUnwindRedirectScopes(redirect_scope_depth);
+    }
+    if (rest_chunk_live) {
+        vm->chunk = NULL;
+        freeBytecodeChunk(&rest_chunk);
+    }
+    return result;
+}
+
 int shellRunSource(const char *source,
                    const char *path,
                    const ShellRunOptions *options,
@@ -763,7 +813,10 @@ int shellRunSource(const char *source,
         if (options->inherit_locals) {
             /* The top frame is the substitution's own marker. */
             shellRuntimeContextInheritLocals(vm_shell_ctx, 1);
+        } else {
+            shellRuntimeContextResetReturnScope(vm_shell_ctx);
         }
+        shellRuntimeContextSetTextDepth(vm_shell_ctx, shellRuntimeIsOutermostScript() ? 0 : 1);
         vm->frontendContext = vm_shell_ctx;
     }
     previous_thread_owner = gShellThreadOwnerVm;
@@ -779,8 +832,17 @@ int shellRunSource(const char *source,
     vm_context_swapped = true;
 
     size_t redirect_scope_depth = shellRuntimeRedirectScopeDepth();
+    void *substitution_traps = options->inherit_locals ? shellRuntimeSubstitutionTrapsPutAside() : NULL;
     InterpretResult result = interpretBytecode(vm, &chunk, globalSymbols, constGlobalSymbols, procedure_table, 0);
+    /* At a prompt that waits for the line after: a known difference, listed in the release notes. */
+    if (!options->keep_line_state) {
+        shellRuntimeFinishChunk(vm);
+    }
     shellRuntimeUnwindRedirectScopes(redirect_scope_depth);
+    if (!options->share_runtime_context) {
+        result = shellRunAfterDiscard(vm, program, options, redirect_scope_depth, result);
+    }
+    shellRuntimeSubstitutionTrapsBack(substitution_traps);
     if (getenv("PSCALI_PROMPT_DEBUG")) {
         fprintf(stderr, "[shell-run] interpret-done result=%d\n", (int)result);
     }
