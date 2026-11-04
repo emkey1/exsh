@@ -1,0 +1,78 @@
+#!/usr/bin/env exsh
+# A job started in a $(...) with its output elsewhere lets go of the stdout outside it. The
+# shell runs a substitution in its own process and keeps a copy of that stdout to put back.
+# A job inherited the copy, so whoever read the outer stdout waited for the job.
+d="${TMPDIR:-/tmp}/exsh_parity_subst_outer.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# The job runs until the reader has seen end of file. The reader cannot see it while the
+# job holds the pipe, so then the job gives up, leaves a mark, and the reader finds the
+# mark. No test depends on the time when the pipe is let go of.
+job() {
+  : > "$1.up"
+  tries=0
+  while [ ! -e "$1.seen" ] && [ "$tries" -lt 15 ]; do
+    tries=$((tries + 1))
+    sleep 0.1
+  done
+  [ -e "$1.seen" ] || : > "$1.held"
+}
+
+reader() {
+  cat
+  if [ -e "$1.held" ]; then echo "$1: held until the job ended"; else echo "$1: released"; fi
+  : > "$1.seen"
+}
+
+# Each substitution waits for its job to start, and then only the job can hold the pipe.
+# A job that never starts must not hang the test.
+started() {
+  waited=0
+  until [ -e "$1.up" ] || [ "$waited" -ge 200 ]; do
+    waited=$((waited + 1))
+    sleep 0.05
+  done
+}
+
+( x=$( { job group; } > /dev/null 2>&1 & started group; echo early ); echo "[$x]" ) | reader group
+( x=$( { job group_pipe | cat; } > /dev/null 2>&1 & started group_pipe; echo early ); echo "[$x]" ) | reader group_pipe
+( x=$( ( job subshell ) > /dev/null 2>&1 & started subshell; echo early ); echo "[$x]" ) | reader subshell
+( x=$(job function > /dev/null 2>&1 & started function; echo early); echo "[$x]" ) | reader function
+( x=$(for f in 1; do job loop; done > /dev/null 2>&1 & started loop; echo early); echo "[$x]" ) | reader loop
+
+# Each substitution around it keeps a copy, and so does a subshell in between.
+( x=$(y=$( { job nested; } > /dev/null 2>&1 & started nested; echo inner ); echo "$y outer"); echo "[$x]" ) | reader nested
+( x=$( ( { job in_subshell; } > /dev/null 2>&1 & started in_subshell ); echo early ); echo "[$x]" ) | reader in_subshell
+
+# A plain program leaves no mark, but the reader can ask whether it is still there.
+( x=$(sleep 2 > /dev/null 2>&1 & echo "$!"; sleep 0.1); echo "$x" > program.pid; echo "a program" ) | {
+  cat
+  if kill -0 "$(cat program.pid)" 2> /dev/null; then echo "program: released"; else echo "program: held until the job ended"; fi
+}
+wait
+
+# The outer stdout is still there afterwards, however deep it went.
+x=$(y=$(z=$(echo three); echo "two $z"); echo "one $y"); echo "[$x]"
+x=$( { sleep 0.1; } > /dev/null 2>&1 & echo early ); echo "[$x]"
+x=$( { y=$(echo inner); echo "$y"; } & wait ); echo "[$x]"
+echo "stdout is back"
+
+# A stdout that was closed is closed again afterwards, so a program has nowhere to write.
+# bash_parity_substitution_closed_stdout has what is captured while it is closed.
+echo data > data.txt
+exec 8>&1 >&-
+x=$(echo in-closed)
+cat data.txt 2> /dev/null; rc=$?
+exec >&8 8>&-
+echo "closed [$x] rc=$rc"
+
+# What a command started in there can see is what it would see outside.
+x=$(ls /dev/fd | wc -l); echo "stage $((x))"
+x=$( { ls /dev/fd; } | wc -l); echo "group $((x))"
+x=$(y=$(ls /dev/fd | wc -l); echo "$y"); echo "nested $((x))"
+x=$(ls /dev/fd > ls.out; wc -l < ls.out); echo "simple $((x))"
+
+cd /
+rm -rf "$d"

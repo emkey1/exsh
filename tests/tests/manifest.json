@@ -1975,6 +1975,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_substitution_outer_stdout",
+            "name": "A job started in a command substitution lets go of the stdout outside it",
+            "category": "parity",
+            "description": "A reader of the outer stdout sees end of file while a job with its output elsewhere runs, from groups, subshells, functions, loops, programs and nested substitutions; a stdout that was closed stays closed; commands in there see no more descriptors than under bash. Host only: on iOS the saved copy is in no vproc slot, there is no /dev/fd, and applets ignore a failed write.",
+            "script": "Tests/exsh/tests/bash_parity_substitution_outer_stdout.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_substitution_closed_stdout",
             "name": "A command substitution around closed descriptors",
             "category": "parity",
