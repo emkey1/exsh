@@ -1232,6 +1232,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_background_redirect",
+      "name": "Every redirection on a simple background command acts in order, on the job alone",
+      "category": "parity",
+      "description": "Descriptors above stdio, >&2, 2>&1 with no file and in either order, open flags, <&n, here-documents, here-strings, >&-, failures, a job with no command word, and which stdin a job keeps. Files are read back with a prefix, so the test shows where the data went.",
+      "script": "Tests/exsh/tests/bash_parity_background_redirect.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_wait_killed",
       "name": "wait gives a killed job's signal, and killing a job harms nothing else",
       "category": "parity",

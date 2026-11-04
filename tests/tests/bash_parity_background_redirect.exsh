@@ -1,0 +1,113 @@
+#!/usr/bin/env exsh
+# Every redirection on a simple background command acts, in the order written, on the job
+# alone. On iOS the job kept only an open of 0, 1 or 2 and a `2>&1` after a `> f`.
+# Files are read back with a prefix: `cmd > f; cat f` prints the same line whether the data
+# reached f or went to stdout.
+d="${TMPDIR:-/tmp}/exsh_parity_bg_redirect.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+show() {
+  for f in "$@"; do
+    if [ ! -e "$f" ]; then
+      echo "  $f: (no file)"
+    elif [ ! -s "$f" ]; then
+      echo "  $f: (empty)"
+    else
+      while IFS= read -r line; do echo "  $f: $line"; done < "$f"
+    fi
+  done
+}
+both() { echo out; echo err >&2; }
+fd3() { echo viafd >&3; }
+readit() { v=; read -r v; echo "read [$v] $?"; }
+
+echo "above stdio"
+echo x 3> a1 & wait; show a1
+fd3 3> a2 & wait; show a2
+exec 3> a3; echo x >&3 & wait; echo y >&3 & wait; exec 3>&-; show a3
+exec 3> a4; fd3 3> a5 & wait; echo shell >&3; exec 3>&-; show a4 a5
+echo x 3> a6 & wait; { echo y >&3; } 2> /dev/null; echo "the shell has no 3: $?"; show a6
+
+echo "stdout and stderr"
+{ echo err >&2 & wait; } > b1o 2> b1e; show b1o b1e
+{ both 2>&1 & wait; } > b2o 2> b2e; show b2o b2e
+both > b3 2>&1 & wait; show b3
+{ both 2>&1 > b4 & wait; } > b4o 2> b4e; show b4 b4o b4e
+both > b5o 2> b5e & wait; show b5o b5e
+both 2> b6 >&2 & wait; show b6
+{ both >&2 2> b7 & wait; } > b7o 2> b7e; show b7 b7o b7e
+echo one > b8; echo two >> b8 & wait; show b8
+for i in 1 2 3; do echo "$i" >> b9 & wait; done; show b9
+{ echo a >&2 & echo b; wait; } > b10o 2> b10e; show b10o b10e
+
+echo "open flags"
+set -C
+echo first > c2 & wait; echo second 2> /dev/null > c2 & wait $!; echo "noclobber $?"; show c2
+echo third >| c2 & wait; show c2
+set +C
+
+echo "stdin"
+printf 'file\n' > input
+cat < input & wait
+exec 3< input; cat <&3 & wait; exec 3<&-
+cat <<EOF &
+here doc
+EOF
+wait
+cat <<< "here string" &
+wait
+readit < input & wait
+exec 3< input; readit <&3 & wait; exec 3<&-
+readit <<< word & wait
+readit <&- 2> /dev/null & wait
+{ readit <&0 & wait; } < input
+{ readit 3< input & wait; } < input
+cat < input > d1 & wait; show d1
+exec < /dev/null
+readit & wait
+readit > d3 & wait; show d3
+cat & wait $!; echo "cat, no stdin $?"
+( cat & wait $! ); echo "cat in a subshell $?"
+big=0123456789; i=0
+while [ "$i" -lt 10 ]; do big="$big$big"; i=$((i + 1)); done
+cat <<< "$big" > d2 & wait; wc -c < d2 | tr -d ' '
+
+echo "closing"
+echo x >&- 2> /dev/null & wait $!; echo "closed stdout $?"
+both 2>&- > e1 & wait; show e1
+exec 3> e2; fd3 3>&- 2> /dev/null & wait $!; echo "closed 3 $?"; echo kept >&3; exec 3>&-; show e2
+echo x 2>&- >&2 & wait $!; echo "to a closed stderr $?"
+( exec >&-; echo x 2> /dev/null & wait $!; echo "from a subshell $?" >&2 ) 2> e4; show e4
+cat <&- 2> /dev/null & wait $!; echo "closed stdin $?"
+( exec <&-; cat 2> /dev/null; echo "closed by exec $?" )
+
+echo "failures"
+echo x 2> /dev/null >&7 & wait $!; echo "bad descriptor $?"
+echo x 2> /dev/null < missing.in & wait $!; echo "no input $?"
+echo x > f1 2> /dev/null < missing.in & wait $!; echo "after a good one $?"; show f1
+{ echo x < missing.in 2> f2 & wait $!; echo "before a good one $?"; } 2> /dev/null; show f2
+
+echo "no command"
+> g1 & wait; show g1
+3> g2 & wait; show g2
+x=1 > g3 & wait; show g3; echo "[${x-unset}]"
+
+echo "where it starts"
+mkdir sub; cd sub; echo rel > r & wait; cd ..; show sub/r
+eval 'echo viaeval 3> i1 &'; wait; show i1
+( echo insub 3> i2 & wait ); show i2
+( echo e2 >&2 & wait ) > i3 2> i4; show i3 i4
+
+echo "what it replaces it lets go of"
+late() { sleep 2; echo late > j1; }
+( late > /dev/null 2>&1 & ) | cat
+if [ -e j1 ]; then echo "held until it ended"; else echo "let go"; fi
+while [ ! -e j1 ]; do sleep 0.1; done
+
+echo "the environment"
+env > h1 & wait; grep -c PSCALI_BG h1
+
+cd /
+rm -rf "$d"
