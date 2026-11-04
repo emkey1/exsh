@@ -1417,6 +1417,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_stdin_redirect_loop",
+            "name": "Redirecting stdin many times",
+            "category": "parity",
+            "description": "A loop of commands with stdin from a file keeps running, past where each round leaving a descriptor open would run out.",
+            "script": "Tests/exsh/tests/bash_parity_stdin_redirect_loop.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_heredoc_escapes",
             "name": "Backslashes and quoted delimiters in here documents",
             "category": "parity",
