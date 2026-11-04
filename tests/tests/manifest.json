@@ -946,6 +946,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_kill_zero",
+            "name": "kill 0 is the shell's own group",
+            "category": "builtins",
+            "description": "kill with a pid of 0 addresses the shell's process group as in bash; it used to fail with an invalid argument.",
+            "script": "Tests/exsh/tests/bash_parity_kill_zero.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_set_posix",
             "name": "set -o posix mirrors POSIXLY_CORRECT",
             "category": "parity",

@@ -1,0 +1,9 @@
+#!/usr/bin/env exsh
+
+# 0 is the shell's own group. Signal 0 only: any other would reach the harness in that group too.
+kill -0 0
+printf "probe:%s\n" "$?"
+kill -s 0 0
+printf "named:%s\n" "$?"
+kill -0 0 $$
+printf "with_pid:%s\n" "$?"

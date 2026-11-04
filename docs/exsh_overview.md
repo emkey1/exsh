@@ -212,6 +212,9 @@ Job control follows Bash's conventions. `jobs` collates the active table,
 pipelines, and `wait`/`kill` honour `%`-style specifiers while normalising
 signal names and integers. All helpers consult the shared job ledger so output
 stays stable when pipelines fork or launch nested processes.【F:src/backend_ast/shell/shell_builtins.inc†L7949-L8119】
+One difference: every child gets a process group of its own, with job control off too,
+where bash leaves a script's children in the shell's group. So `kill 0` in a script
+reaches only the shell, and `kill -- -$!` finds the job where bash says no such process.
 
 ## Accessing core and extended builtins
 
