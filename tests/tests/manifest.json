@@ -1863,6 +1863,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_nohup_program",
+            "name": "nohup runs a program",
+            "category": "parity",
+            "description": "Files, a shell and applets in every position; a hangup does nothing to them, and the shell's own handling stays.",
+            "script": "Tests/exsh/tests/bash_parity_nohup_program.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_stale_pwd",
             "name": "A $PWD handed down must name where we are",
             "category": "parity",

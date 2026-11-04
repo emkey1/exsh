@@ -1,0 +1,39 @@
+#!/usr/bin/env exsh
+# nohup runs a program that ignores a hangup, and the shell carries on. In the iOS app it reached a
+# raw exec, and that replaced the whole app.
+# $$ can repeat from run to run, so a run that died must not stop the next one.
+d=nohup_program.$$
+rm -rf "$d"
+mkdir "$d" || exit 1
+cd "$d" || exit 1
+
+printf '#!/bin/sh\necho "with [$V] $#"\nexit 3\n' > with
+printf 'echo "without [$V] $#"\nexit 4\n' > without
+chmod +x with without
+
+# A file, with #! and without, in every position a command can be in.
+V=1 nohup ./with a b; echo "rc=$?"
+V=2 nohup ./without a; echo "rc=$?"
+echo "after [$V]"
+nohup ./with | cat
+x=$(V=3 nohup ./with); echo "sub $x rc=$?"
+V=4 nohup ./with > out & wait $!; echo "job rc=$?"; cat out
+
+# A shell, and what is an applet in the app.
+nohup sh -c 'echo inner; exit 5'; echo "rc=$?"
+nohup printf 'hi\n'; echo "rc=$?"
+nohup true; echo "rc=$?"
+nohup false; echo "rc=$?"
+printf 'x\n' | nohup cat; echo "rc=$?"
+
+# A hangup does nothing to what it runs. No trap here: a harness started under nohup hands bash a
+# hangup that is already ignored, and bash will not trap one.
+nohup sh -c 'kill -HUP $$; echo survived'; echo "rc=$?"
+
+# What it will not run.
+nohup nosuchprogram_x 2>/dev/null; echo "rc=$?"
+f() { echo fn; }; nohup f 2>/dev/null; echo "rc=$?"
+printf 'x\n' > plain; chmod -x plain; nohup ./plain 2>/dev/null; echo "rc=$?"
+
+cd ..
+rm -rf "$d"
