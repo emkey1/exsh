@@ -38,3 +38,18 @@ rmdir env_program_c.$$
 env nosuchprogram_x 2>/dev/null; echo "rc=$?"
 f() { echo fn; }; env f 2>/dev/null; echo "rc=$?"
 printf 'x\n' > env_program_s.$$; chmod -x env_program_s.$$; env ./env_program_s.$$ 2>/dev/null; echo "rc=$?"; rm -f env_program_s.$$
+
+# A script keeps its own status, in every position a command can be in, and the shell carries on.
+printf '#!/bin/sh\necho "[$V] $#"\nexit 3\n' > env_program_s.$$; chmod +x env_program_s.$$
+env V=1 ./env_program_s.$$ a b; echo "rc=$?"
+echo "after [$V]"
+env ./env_program_s.$$ | cat
+x=$(env V=2 ./env_program_s.$$); echo "sub $x rc=$?"
+env V=3 ./env_program_s.$$ > env_program_o.$$ & wait $!; echo "job rc=$?"; cat env_program_o.$$
+rm -f env_program_s.$$ env_program_o.$$
+
+# What the shell marked is its own: a program starts over.
+readonly ENV_PROGRAM_RO=1
+printf '#!/bin/sh\nENV_PROGRAM_RO=2; echo "readonly [$ENV_PROGRAM_RO]"\n' > env_program_s.$$; chmod +x env_program_s.$$
+env ./env_program_s.$$; echo "rc=$?"
+rm -f env_program_s.$$
