@@ -1,0 +1,61 @@
+#!/bin/sh
+# On iOS cd moves the vproc's directory, not the process's, and a program's imports used the
+# process's, with no error. The directory this starts in is the process's, and it has its own
+# copy of each name, as a and b do, so the output tells which copy each run compiled.
+echo "imports-follow-cd:start"
+d="${TMPDIR:-/tmp}/exsh_imports_cd.$$"
+n="exsh_imcd_$$"
+start="$PWD"
+rm -rf "$d"
+mkdir -p "$d/a" "$d/b" || exit 1
+copies() {
+  printf 'str who() { return "clike %s"; }\n' "$2" > "$1/$n.cl"
+  printf 'str whoinc() { return "include %s"; }\n' "$2" > "$1/$n.h"
+  printf 'module Imx { export str who() { return "rea %s"; } }\n' "$2" > "$1/$n.rea"
+  printf 'mod Imx { export fn who() -> Text { ret "aether %s"; } }\n' "$2" > "$1/$n.aether"
+  mkdir -p "$1/$n.lib"
+  printf 'unit imcdu;\ninterface\nprocedure who;\nimplementation\nprocedure who;\nbegin\n  writeln(%spascal %s%s);\nend;\nend.\n' "'" "$2" "'" > "$1/$n.lib/imcdu.pl"
+}
+copies . start
+copies "$d/a" a
+copies "$d/b" b
+printf 'import "%s.cl";\nint main() { printf("%%s\\n", who()); return 0; }\n' "$n" > "$d/p.cl"
+printf '#include "%s.h"\nint main() { printf("%%s\\n", whoinc()); return 0; }\n' "$n" > "$d/a/inc.cl"
+printf '#import "%s.rea";\nwriteln(who());\n' "$n" > "$d/p.rea"
+printf 'use "%s.aether";\nfn main() -> Void { fx { println(who()); } ret; }\n' "$n" > "$d/p.aether"
+printf 'program P;\nuses imcdu;\nbegin\n  who;\nend.\n' > "$d/p.pas"
+# An absolute path, which on iOS is under the app's root.
+printf 'import "%s/a/%s.cl";\nint main() { printf("%%s\\n", who()); return 0; }\n' "$d" "$n" > "$d/abs.cl"
+printf '#import "%s/a/%s.rea";\nwriteln(who());\n' "$d" "$n" > "$d/abs.rea"
+printf 'use "%s/a/%s.aether";\nfn main() -> Void { fx { println(who()); } ret; }\n' "$d" "$n" > "$d/abs.aether"
+cd "$d/a" || exit 1
+clike --no-cache ../p.cl
+clike --no-cache inc.cl
+rea --no-cache ../p.rea
+aether --no-cache ../p.aether
+PASCAL_LIB_DIR="$n.lib" pascal --no-cache ../p.pas
+cd ../b || exit 1
+clike --no-cache ../p.cl
+rea --no-cache ../p.rea
+aether --no-cache ../p.aether
+PASCAL_LIB_DIR="$n.lib" pascal --no-cache ../p.pas
+clike --no-cache ../abs.cl
+rea --no-cache ../abs.rea
+aether --no-cache ../abs.aether
+PASCAL_LIB_DIR="$d/a/$n.lib" pascal --no-cache ../p.pas
+# With the cache: an entry from a is newer than b's copy, and must not stand in for it. On iOS
+# Rea and Aether skip the cache unless REA_CACHE is set.
+sleep 2
+cd ../a || exit 1
+clike ../p.cl
+REA_CACHE=1 rea ../p.rea
+REA_CACHE=1 aether ../p.aether
+sleep 2
+cd ../b || exit 1
+clike ../p.cl
+REA_CACHE=1 rea ../p.rea
+REA_CACHE=1 aether ../p.aether
+cd "$start" || exit 1
+rm -f "$n.cl" "$n.h" "$n.rea" "$n.aether"
+rm -rf "$n.lib" "$d"
+echo "imports-follow-cd:end"

@@ -102,6 +102,16 @@
     "expected_stdout": "vm-files-follow-cd:start\npascal read in-a\nexists TRUE FALSE\nclike read in-a\nrea read in-a\naether read in-a\nabs true\na/vm.ae: aether \na/vm.fo: fopen \na/vm.in: in-a \na/vm.ms: in-a \na/vm.out: wrote in-a appended \na/vm.re: rea \na/vm.ren2: ren-a \nb/vm.del: del-b \nb/vm.in: in-b \nb/vm.ren: ren-b \nvm.del: del-. \nvm.in: in-. \nvm.ren: ren-. \nvm-files-follow-cd:end"
   },
   {
+    "id": "imports_follow_cd_ios",
+    "name": "A program's imports follow cd (iOS)",
+    "category": "pipeline_ios",
+    "description": "After cd, each frontend's import, include or unit search reaches the current directory's copy, not the one in the directory the process started in, and an absolute path means the same file as it does to a redirection.",
+    "script": "Tests/exsh/tests/imports_follow_cd_ios.exsh",
+    "expect": "runtime_ok",
+    "env": { "RUN_VPROC_TESTS": "1" },
+    "expected_stdout": "imports-follow-cd:start\nclike a\ninclude a\nrea a\naether a\npascal a\nclike b\nrea b\naether b\npascal b\nclike a\nrea a\naether a\npascal a\nclike a\nrea a\naether a\nclike b\nrea b\naether b\nimports-follow-cd:end"
+  },
+  {
     "id": "pipeline_empty_ios",
     "name": "Pipeline empty spool (iOS)",
     "category": "pipeline_ios",
