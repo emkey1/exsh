@@ -1255,6 +1255,14 @@
       "script": "Tests/exsh/tests/bash_parity_wait_killed.exsh",
       "expect": "match_bash"
     },
+    {
+      "id": "bash_parity_substitution_beside_job",
+      "name": "A job's substitutions leave the shell's stdout alone",
+      "category": "parity",
+      "description": "A job's substitution beside the shell's captures only its own output and costs the shell none; a job killed inside one lets go of the pipe it was writing to.",
+      "script": "Tests/exsh/tests/bash_parity_substitution_beside_job.exsh",
+      "expect": "match_bash"
+    },
         {
             "id": "bash_parity_group_redirect",
             "name": "Redirections on compound commands match bash",

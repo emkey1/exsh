@@ -1,0 +1,88 @@
+#!/usr/bin/env exsh
+# A substitution in a job takes stdout from that job and from nothing else. In one process host fd
+# 1 is everybody's. A job's substitution moved it, and the shell's own substitutions and pipelines
+# running beside it picked it up: the shell's output went into the job's capture, or to a pipe long
+# dead, and SIGPIPE ended the shell. A job killed inside a substitution must also let go of the pipe
+# it was writing to, or what reads that pipe never returns. The sleeps outlive their killed
+# subshells under bash and would hold stderr open, and versions of bash differ in what they report
+# for a killed job.
+exec 2> /dev/null
+d="${TMPDIR:-/tmp}/exsh_parity_sub_job.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# Says which file a line came from: a line that went to stdout instead would look the same.
+show() {
+  while IFS= read -r line; do
+    echo "$1: $line"
+  done < "$1"
+}
+
+# A job's substitutions beside the shell's, with nothing killed.
+( i=0; bad=0
+  while [ "$i" -lt 100 ]; do
+    x=$(echo hi)
+    [ "$x" = hi ] || bad=$((bad + 1))
+    i=$((i + 1))
+  done
+  echo "$bad wrong" > job.txt ) &
+for k in 1 2 3 4 5 6 7 8 9 10; do
+  y=$(echo next)
+  echo "$y $k"
+done
+wait
+show job.txt
+
+# Two jobs running substitutions over and over. Each hands out host numbers beside the other, and a
+# job's stream kept from before its substitution went on writing to the real stdout.
+for j in 1 2; do
+  ( i=0; bad=0
+    while [ "$i" -lt 100 ]; do
+      x=$(echo hi)
+      [ "$x" = hi ] || bad=$((bad + 1))
+      i=$((i + 1))
+    done
+    echo "$bad wrong" > "two$j.txt" ) &
+done
+wait
+show two1.txt
+show two2.txt
+
+# Jobs side by side, each with its own.
+for j in 1 2 3 4 5 6; do
+  ( v=$(echo "value $j"; sleep 0.02); echo "$v" > "side$j.txt" ) &
+done
+wait
+for j in 1 2 3 4 5 6; do show "side$j.txt"; done
+
+# The shell runs commands and a substitution while the job's is under way, and none of it is captured.
+( x=$(sleep 0.4); echo "job [$x]" > under.txt ) &
+i=0
+while [ "$i" -lt 100 ]; do i=$((i + 1)); done
+y=$(echo next)
+echo "$y"
+wait
+show under.txt
+
+# In a stage of a pipeline, the same.
+{ ( x=$(sleep 0.2); echo "job [$x]" > stage.txt ) & y=$(echo in-stage); echo "$y"; wait; } | cat
+show stage.txt
+
+# A job killed inside a substitution lets go of what it was writing to, so the reader returns.
+{ ( x=$(sleep 2); echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "group $?"; } | cat > group.out
+show group.out
+( ( x=$(sleep 2); echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "subshell $?" ) | cat > subshell.out
+show subshell.out
+echo '( x=$(sleep 2); echo no ) & p=$!; sleep 0.05; kill $p; wait $p; echo "script $?"' > killed.sh
+sh killed.sh | cat > script.out
+show script.out
+. ./killed.sh | cat > sourced.out
+show sourced.out
+
+# And this shell's own stdout is still its own.
+y=$(echo end)
+echo "$y"
+
+cd /
+rm -rf "$d"
