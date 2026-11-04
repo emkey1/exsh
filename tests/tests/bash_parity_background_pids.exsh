@@ -14,6 +14,15 @@
     wait "$a"; echo "first $?"
     wait "$b"; echo "second $?"
 )
+# Both ended before the shell looked, and each status waits to be asked for.
+(
+    (exit 5) & a=$!
+    (exit 6) & b=$!
+    sleep 1
+    wait "$a"; echo "ended first $?"
+    wait "$b"; echo "ended second $?"
+    wait "$a"; echo "asked twice $?"
+) 2>/dev/null
 # $! of a pipeline is its last process, in a subshell and at the top.
 (
     (exit 6) | (exit 7) & p=$!
