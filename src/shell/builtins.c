@@ -64,6 +64,7 @@ static const ShellBuiltinEntry kShellBuiltins[] = {
     {"wait", "wait", 20},
     {"WaitForThread", "waitforthread", 1056},
 #ifdef PSCAL_MOBILE_PLATFORM
+    {"which", "which", 54},
     {"aether", "aether", -1},
     {"cal", "cal", -1},
     {"chmod", "chmod", -1},
@@ -204,7 +205,6 @@ static const ShellBuiltinEntry kShellBuiltins[] = {
     {"bind", "bind", 33},
     {"shopt", "shopt", 34},
     {"type", "type", 42},
-    {"which", "which", 54},
     {"dirs", "dirs", 35},
     {"pushd", "pushd", 36},
     {"popd", "popd", 37},

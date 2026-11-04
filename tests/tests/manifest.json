@@ -1812,6 +1812,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_path_runs_file",
+            "name": "A path runs the file, and which is a program",
+            "category": "parity",
+            "description": "/bin/x and /usr/bin/x run the file and never the builtin of that name, in every way a command runs; command still means the builtin of a name; which is the first file of that name on PATH, so its answer can be run. Host only.",
+            "script": "Tests/exsh/tests/bash_parity_path_runs_file.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_posixly_correct_aliases",
             "name": "POSIXLY_CORRECT in the environment turns aliases on",
             "category": "parity",

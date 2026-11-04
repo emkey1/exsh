@@ -155,8 +155,10 @@ extends it with orchestration helpers implemented in
   failing special builtin end the script, `set -v` is accepted but prints nothing,
   `set -x` does not show compound commands, a `DEBUG` trap runs only for top-level
   commands, and `[[ ]]` expands all of its operands first. On iOS, where nothing
-  execs, `./f` runs without the execute bit and `cd` resolves links at once; `exec`
-  and `env` run a program as a call, and `exec -a` and `-l` do not change its name.
+  execs, `./f` runs without the execute bit and `cd` resolves links at once; `/bin/x`
+  means `x`, so `/bin/cd` moves the shell, and `which` names builtins and applets, since
+  they have no file; `exec` and `env` run a program as a call, and `exec -a` and `-l`
+  do not change its name.
   A signal that would end the shell there takes effect at its next command, after any
   foreground command or `wait`, and its caller sees status 128 + the signal rather than a death by
   signal; and a foreground applet is not a child, so `trap ... CHLD` runs only for
@@ -188,7 +190,7 @@ extends it with orchestration helpers implemented in
   stdout open.
 - The complete PSCAL builtin catalog (HTTP, sockets, JSON, extended math/string
   groups, optional SQLite/SDL bindings) via `registerAllBuiltins()`.
-- Command-dispatch diagnostics such as `hash`, `enable`, and `which` let
+- Command-dispatch diagnostics such as `hash` and `enable` let
   scripts inspect the cached PATH table or enumerate disabled builtins without
   leaving the shell.【F:src/backend_ast/shell/shell_builtins.inc†L7243-L7310】
 

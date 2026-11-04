@@ -1,0 +1,106 @@
+#!/usr/bin/env exsh
+# A command word with a slash in it is a file, whatever its last part is called, and `which` is a
+# program, so neither reaches a builtin, while `command` still means the builtin of a name. What the
+# files print differs between a Mac and Linux, so nothing here is a fixed answer: the harness
+# compares with bash on the same machine. Host only: on the iOS-flavoured build nothing execs, and
+# /bin/x means x.
+PATH=/usr/bin:/bin
+here=$PWD
+
+echo "--- a path runs the file"
+/bin/echo -e 'a\tb'; echo "echo -e rc=$?"
+/bin/echo --version | head -1; echo "echo --version"
+/bin/kill -l 2>/dev/null; echo "kill -l rc=$?"
+/usr/bin/true; echo "/usr/bin/true rc=$?"
+/usr/bin/false; echo "/usr/bin/false rc=$?"
+/bin/true 2>/dev/null; echo "/bin/true rc=$?"
+/private/usr/bin/true 2>/dev/null; echo "/private/usr/bin/true rc=$?"
+/private/bin/true 2>/dev/null; echo "/private/bin/true rc=$?"
+
+echo "--- a path never reaches the shell's own state"
+/bin/cd / 2>/dev/null; echo "/bin/cd rc=$?"
+[ "$PWD" = "$here" ] && echo "still here"
+/usr/bin/cd / 2>/dev/null; echo "/usr/bin/cd rc=$?"
+[ "$PWD" = "$here" ] && echo "still here"
+/bin/export PB_X=1 2>/dev/null; echo "export rc=$? [${PB_X:-}]"
+/bin/set -- a b 2>/dev/null; echo "set rc=$? [$#]"
+/bin/unset here 2>/dev/null; echo "unset rc=$? [${here:+kept}]"
+/bin/eval 'echo no' 2>/dev/null; echo "eval rc=$?"
+/bin/exit 3 2>/dev/null; echo "exit rc=$?"
+/usr/bin/read pb_v < /dev/null 2>/dev/null; echo "read rc=$? [${pb_v:-}]"
+
+echo "--- however it runs"
+/bin/echo -e 'a\tb' | cat
+x=$(/bin/echo -e 'a\tb'); echo "[$x]"
+( /bin/echo -e 'a\tb' )
+{ /bin/echo -e 'a\tb'; } | cat
+eval "/bin/echo -e 'a\tb'"
+f() { /bin/echo -e "$@"; }; f 'a\tb'
+/bin/echo -e 'a\tb' & wait $!; echo "job rc=$?"
+PB_Y=1 /usr/bin/env | grep '^PB_Y='
+if /usr/bin/false; then echo yes; else echo no; fi
+! /usr/bin/true; echo "negated rc=$?"
+for i in 1 2; do /bin/echo -e "$i"; break; done
+
+echo "--- command means the builtin of a name"
+command echo -e 'a\tb'; echo "echo rc=$?"
+command -p echo -e 'a\tb'; echo "-p echo rc=$?"
+command true; echo "true rc=$?"
+command false; echo "false rc=$?"
+command kill -l 15; echo "kill rc=$?"
+command printf '%s\n' printf; echo "printf rc=$?"
+command test a = a; echo "test rc=$?"
+command [ a = b ]; echo "[ rc=$?"
+command cd /; [ "$PWD" = / ] && echo "cd moved"; cd "$here"
+command -p cd /; [ "$PWD" = / ] && echo "-p cd moved"; cd "$here"
+command export PB_Z=1; echo "export [${PB_Z:-}]"
+command read pb_r <<< x; echo "read [$pb_r]"
+command set -- p q; echo "set [$#]"
+
+echo "--- and a file otherwise"
+command ls -d .; echo "ls rc=$?"
+command -p ls -d .; echo "-p ls rc=$?"
+command /bin/echo -e 'a\tb'; echo "path rc=$?"
+command sh -c 'echo "$0"'; echo "its own name rc=$?"
+command nosuch_pb 2>/dev/null; echo "none rc=$?"
+ls() { echo function; }
+ls -d .
+command ls -d .; echo "past a function rc=$?"
+command -p ls -d .; echo "-p past a function rc=$?"
+unset -f ls
+
+echo "--- which is a program"
+which true; echo "true rc=$?"
+which ls; echo "ls rc=$?"
+which -a true; echo "-a rc=$?"
+which nosuch_pb 2>/dev/null; echo "none rc=$?"
+t=$(which false); "$t"; echo "false by its path rc=$?"
+t=$(command which true); "$t"; echo "true by its path rc=$?"
+which cd 2>/dev/null; echo "cd rc=$?"
+which if 2>/dev/null; echo "if rc=$?"
+alias pb_al=ls
+which pb_al 2>/dev/null; echo "alias rc=$?"
+pb_fn() { :; }
+which pb_fn 2>/dev/null; echo "function rc=$?"
+x=$(which true | cat); echo "in a pipe [$x]"
+# bash says "hashed" for a command it has run; exsh hashes only when asked.
+hash -r
+type which; type -t which
+command -v which; command -V which
+builtin which true 2>/dev/null; echo "builtin rc=$?"
+enable -n which 2>/dev/null; echo "enable rc=$?"
+help which > /dev/null 2>&1; echo "help rc=$?"
+
+echo "--- the first file named which on PATH"
+d="${TMPDIR:-/tmp}/exsh_which.$$"
+mkdir -p "$d"
+printf '#!/bin/sh\necho "which of mine: $*"\n' > "$d/which"
+chmod +x "$d/which"
+PATH=$d:$PATH which a b; echo "prefix rc=$?"
+( PATH=$d:$PATH; which c; command which d )
+PATH=/usr/bin:/bin
+rm -f "$d/which"
+printf '#!/bin/sh\nexit 7\n' > "$d/pb_tool"
+chmod +x "$d/pb_tool"
+t=$(PATH=$d:$PATH; which pb_tool); echo "found [${t##*/}]"; "$t"; echo "ran rc=$?"
+rm -rf "$d"
