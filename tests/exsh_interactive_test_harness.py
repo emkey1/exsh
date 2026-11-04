@@ -36,6 +36,7 @@ class Scenario:
     test_id: str
     name: str
     run: Callable[["PtyShell"], tuple[bool, str]]
+    env: Optional[dict[str, str]] = None
 
 
 @dataclass
@@ -47,10 +48,17 @@ class Result:
 
 
 class PtyShell:
-    def __init__(self, executable: Path, timeout: float, controlling_terminal: bool = False):
+    def __init__(
+        self,
+        executable: Path,
+        timeout: float,
+        controlling_terminal: bool = False,
+        extra_env: Optional[dict[str, str]] = None,
+    ):
         self.executable = executable
         self.timeout = timeout
         self.controlling_terminal = controlling_terminal
+        self.extra_env = extra_env or {}
         self.master_fd: Optional[int] = None
         self.proc: Optional[subprocess.Popen[bytes]] = None
         self.selector: Optional[selectors.BaseSelector] = None
@@ -64,6 +72,7 @@ class PtyShell:
         env["EXSH_SKIP_RC"] = "1"
         env["PS1"] = "PROMPT> "
         env["PS2"] = "CONT> "
+        env.update(self.extra_env)
         self.proc = subprocess.Popen(
             [str(self.executable)],
             stdin=slave_fd,
@@ -1378,6 +1387,41 @@ def scenario_ctrl_c_ends_substitution_wait(shell: PtyShell) -> tuple[bool, str]:
         terminal.close()
 
 
+HISTORY_LIMIT_FILE = MARKER_DIR / "history-limit"
+
+
+def scenario_history_file_keeps_its_limit(shell: PtyShell) -> tuple[bool, str]:
+    """Past HISTFILESIZE the file is rewritten from a temporary one.
+
+    mkstemp gives a host descriptor, and on iOS write looks for a slot, so the rewrite
+    wrote nothing and an empty file replaced the history.
+    """
+    MARKER_DIR.mkdir(parents=True, exist_ok=True)
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    for word in ("one", "two", "three", "four"):
+        count = _prompt_count(shell)
+        shell.send_line(f": {word}")
+        end = time.monotonic() + 2.5
+        while _prompt_count(shell) <= count and time.monotonic() < end:
+            shell._pump(0.05)
+    try:
+        lines = HISTORY_LIMIT_FILE.read_text().splitlines()
+    except FileNotFoundError:
+        return False, "the history file is gone"
+    finally:
+        _unlink_if_exists(HISTORY_LIMIT_FILE)
+    left_over = list(MARKER_DIR.glob(HISTORY_LIMIT_FILE.name + ".tmp*"))
+    for path in left_over:
+        _unlink_if_exists(path)
+    if left_over:
+        return False, f"temporary files were left: {left_over}"
+    if lines != [": three", ": four"]:
+        return False, f"the history file has {lines!r}"
+    return True, "the file holds the last HISTFILESIZE lines"
+
+
 def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
     """A genuine syntax error still reports at once; only unfinished input waits."""
     ok, reason = _wait_for_prompt(shell)
@@ -1398,6 +1442,16 @@ def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
 
 
 SCENARIOS: List[Scenario] = [
+    Scenario(
+        test_id="interactive_history_file_limit",
+        name="History file past HISTFILESIZE keeps its last lines",
+        run=scenario_history_file_keeps_its_limit,
+        env={
+            "HISTFILE": _shell_path(HISTORY_LIMIT_FILE),
+            "HISTSIZE": "100",
+            "HISTFILESIZE": "2",
+        },
+    ),
     Scenario(
         test_id="interactive_multiline_for",
         name="Multi-line for clause reads continuation lines",
@@ -1643,7 +1697,7 @@ def main() -> int:
 
     results: List[Result] = []
     for scenario in scenarios:
-        shell = PtyShell(executable=exe, timeout=args.timeout)
+        shell = PtyShell(executable=exe, timeout=args.timeout, extra_env=scenario.env)
         try:
             passed, reason = scenario.run(shell)
             results.append(
