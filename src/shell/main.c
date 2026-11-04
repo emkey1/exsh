@@ -650,7 +650,8 @@ static int shellTcsetattr(int fd, int action, const struct termios *termios) {
 
 static void interactiveRestoreTerminal(void) {
     if (gInteractiveTermiosValid) {
-        (void)shellTcsetattr(STDIN_FILENO, TCSAFLUSH, &gInteractiveOriginalTermios);
+        /* Not a flush: the lines pasted after this one are on their way to the next prompt. */
+        (void)shellTcsetattr(STDIN_FILENO, TCSADRAIN, &gInteractiveOriginalTermios);
         gInteractiveTermiosValid = 0;
     }
 }
@@ -3219,14 +3220,9 @@ static char *readInteractiveLine(const char *prompt,
         raw_termios.c_cc[VMIN] = 1;
         raw_termios.c_cc[VTIME] = 0;
         gInteractiveOriginalTermios = original_termios;
-#if defined(PSCAL_TARGET_IOS)
-        /* Commands run in line mode, so part of a line typed during the last one
-         * may be waiting in the terminal. It belongs to this prompt. */
-        const int raw_action = TCSADRAIN;
-#else
-        const int raw_action = TCSAFLUSH;
-#endif
-        if (shellTcsetattr(STDIN_FILENO, raw_action, &raw_termios) != 0) {
+        /* Not a flush: commands run in line mode, so what was typed during the last
+         * one may be waiting in the terminal. It belongs to this prompt. */
+        if (shellTcsetattr(STDIN_FILENO, TCSADRAIN, &raw_termios) != 0) {
             if (out_editor_failed) {
                 *out_editor_failed = true;
             }
@@ -3434,7 +3430,7 @@ static char *readInteractiveLine(const char *prompt,
             interactiveRestoreSigtstpHandler();
             interactiveRestoreTerminal();
             raise(SIGTSTP);
-            if (shellTcsetattr(STDIN_FILENO, TCSAFLUSH, &raw_termios) != 0) {
+            if (shellTcsetattr(STDIN_FILENO, TCSADRAIN, &raw_termios) != 0) {
                 if (out_editor_failed) {
                     *out_editor_failed = true;
                 }

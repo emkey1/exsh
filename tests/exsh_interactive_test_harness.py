@@ -1026,6 +1026,33 @@ def scenario_wait_n_passes_what_a_prompt_told_of(shell: PtyShell) -> tuple[bool,
     return True, ""
 
 
+def scenario_typed_lines_are_kept(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("typed_lines")
+    done = _new_marker_path("typed_lines_done")
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    out = _shell_path(marker)
+    # This line arrives while the command runs.
+    _type_lines(shell, ["sleep 0.5", f"echo during >> {out}"])
+    shell._pump(0.6)
+    # These arrive together, as a paste does.
+    shell.send(f"echo one >> {out}\necho two >> {out}\ntouch {_shell_path(done)}\n".encode("utf-8"))
+    if not shell.wait_for_path(done):
+        got = marker.read_text().split() if marker.exists() else []
+        _unlink_if_exists(marker)
+        return False, f"the last line never ran, and the file has {got}"
+    got = marker.read_text().split()
+    _unlink_if_exists(marker)
+    _unlink_if_exists(done)
+    want = ["during", "one", "two"]
+    if got != want:
+        return False, f"got {got}, want {want}"
+    return True, ""
+
+
 def _exit_trap_runs(shell: PtyShell, marker: Path) -> list[str]:
     shell.wait_for_path(marker)
     shell._pump(0.5)
@@ -1467,6 +1494,11 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_wait_n_earlier_line",
         name="wait -n passes by a job a prompt has told of",
         run=scenario_wait_n_passes_what_a_prompt_told_of,
+    ),
+    Scenario(
+        test_id="interactive_typed_lines_kept",
+        name="A line typed during a command, and pasted lines, all run",
+        run=scenario_typed_lines_are_kept,
     ),
     Scenario(
         test_id="interactive_trap_later_line",
