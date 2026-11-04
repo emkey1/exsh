@@ -969,6 +969,14 @@ def scenario_wait_finds_a_job_from_an_earlier_line(shell: PtyShell) -> tuple[boo
         # At a prompt, a wait with no operands forgets every job.
         "wait",
         f'wait $wait_e; echo "forgotten=$?" >> {out}',
+        # The prompt right after `kill` has not told of it, and the one after that has.
+        "sleep 30 &",
+        "kill %1",
+        f'wait %1; echo "killed_number=$?" >> {out}',
+        "sleep 30 &",
+        "kill %1",
+        "true",
+        f'wait %1; echo "killed_told=$?" >> {out}',
         # All of those have ended, so numbers start again.
         "sleep 30 &",
         f"jobs > {listed}",
@@ -983,7 +991,7 @@ def scenario_wait_finds_a_job_from_an_earlier_line(shell: PtyShell) -> tuple[boo
     _unlink_if_exists(done)
     _unlink_if_exists(listing)
     want = ["b=4", "a=3", "c=7", "a_again=3", "killed=143", "told_number=127", "told_pid=5", "forgotten=127",
-            "number=1"]
+            "killed_number=143", "killed_told=127", "number=1"]
     if got != want:
         return False, f"got {got}, want {want}"
     return True, ""
