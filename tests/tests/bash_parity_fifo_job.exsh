@@ -1,0 +1,203 @@
+#!/usr/bin/env exsh
+# A job's redirections open in the job. The shell used to open them before the fork, and a FIFO's
+# open waits for the other end, usually the shell's next command, so the shell hung for good.
+# Not on the iOS list: nothing there has mkfifo.
+d="${TMPDIR:-/tmp}/exsh_parity_fifo_job.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+
+# A form that blocks has no other end coming. This ends the shell before the harness's limit, so
+# the test fails rather than waits, then lets go of whatever still waits on the FIFO and clears up.
+# It is nobody's child here, so `wait` does not count it, and it stops when the directory goes.
+( (
+  n=0
+  while [ -d "$d" ] && [ "$n" -lt 30 ]; do
+    sleep 0.5
+    n=$((n + 1))
+  done
+  [ -d "$d" ] || exit 0
+  kill -9 $$
+  exec 3<> "$d/p"
+  sleep 1
+  exec 3>&-
+  rm -rf "$d"
+) > /dev/null 2>&1 < /dev/null & )
+
+cd "$d" || exit 1
+mkfifo p || exit 1
+printf 'data\n' > f
+
+show() {
+  for n in "$@"; do
+    if [ ! -e "$n" ]; then
+      echo "  $n: (no file)"
+    elif [ ! -s "$n" ]; then
+      echo "  $n: (empty)"
+    else
+      while IFS= read -r line; do echo "  $n: $line"; done < "$n"
+    fi
+  done
+}
+writes() { echo "from a function"; }
+reads() { cat; }
+
+echo "the form that hung"
+echo x > p & cat p; wait; echo done
+
+echo "writers"
+printf 'printf\n' > p & cat p; wait
+cat f > p & cat p; wait
+sh -c 'echo program' > p & cat p; wait
+writes > p & cat p; wait
+{ echo group; } > p & cat p; wait
+( echo subshell ) > p & cat p; wait
+for i in 1 2; do echo "for $i"; done > p & cat p; wait
+if true; then echo if; fi > p & cat p; wait
+while read -r l; do echo "while $l"; done < f > p & cat p; wait
+case a in a) echo case;; esac > p & cat p; wait
+echo append >> p & cat p; wait
+echo clobber >| p & cat p; wait
+echo both &> p & cat p; wait
+( set -C; echo noclobber > p & cat p; wait )
+
+echo "readers"
+cat < p & echo to-cat > p; wait
+read -r v < p & echo to-read > p; wait
+reads < p & echo to-function > p; wait
+{ cat; } < p & echo to-group > p; wait
+( cat ) < p & echo to-subshell > p; wait
+while read -r l; do echo "while $l"; done < p & echo to-while > p; wait
+
+echo "a command in the foreground has the other end"
+cat < p & cat f > p; wait
+cat p & cat f > p; wait
+sh -c 'echo program' > p & cat < p; wait
+
+echo "pipeline stages"
+echo stage > p | cat & cat p; wait
+cat < p | tr a-z A-Z & echo stage > p; wait
+echo stage | cat > p & cat p; wait
+{ echo stage > p | cat; } & cat p; wait
+cat p & echo stage | cat > p; wait
+cat < p & ( echo stage > p | cat ); wait
+
+echo "with other redirections, in order"
+echo x 2> e1 > p & cat p; wait; show e1
+echo x > p 2>&1 & cat p; wait
+cat < p > o1 & echo y > p; wait; show o1
+cat f 3> t1 > p & cat p; wait; show t1
+cat 3< p <&3 & echo y > p; wait
+cat 3< f <&3 > p & cat p; wait
+cat <<EOF > p & cat p; wait
+here-document
+EOF
+cat <<< here-string > p & cat p; wait
+
+echo "in a subshell and a substitution"
+( echo x > p & cat p; wait; echo inner )
+x=$(echo v > p & cat p; wait); echo "[$x]"
+x=$( (echo v > p &) ; cat p); echo "[$x]"
+
+echo "the status comes through wait"
+echo x > p & j=$!; cat p; wait $j; echo "echo $?"
+false > p & j=$!; cat p; wait $j; echo "false $?"
+sh -c 'exit 7' > p & j=$!; cat p; wait $j; echo "program $?"
+writes 2> /dev/null > p & j=$!; cat p; wait $j; echo "function $?"
+
+# Versions of bash differ in what they report on stderr for a killed job, so it is not compared.
+# The kill comes twice: under a trap, one before the job has let go of the shell's traps is lost,
+# as it is on any job, and this job would then wait for ever.
+echo "a job waiting for the other end can be killed"
+(
+  exec 2> /dev/null
+  stop() { sleep 0.1; kill "$@"; sleep 0.1; kill "$@"; }
+  echo x > p & j=$!; stop $j; wait $j; echo "builtin $?"
+  cat f > p & j=$!; stop $j; wait $j; echo "program $?"
+  cat < p & j=$!; stop $j; wait $j; echo "reader $?"
+  { echo g; } > p & j=$!; stop $j; wait $j; echo "group $?"
+  trap 'echo trapped' TERM USR1
+  echo x > p & j=$!; stop $j; wait $j; echo "trap builtin $?"
+  cat f > p & j=$!; stop $j; wait $j; echo "trap program $?"
+  { echo g; } > p & j=$!; stop $j; wait $j; echo "trap group $?"
+  cat f > p & j=$!; stop -USR1 $j; wait $j; echo "trap other signal $?"
+  trap - TERM USR1
+  trap '' TERM
+  echo x > p & j=$!; sleep 0.1; kill $j; sleep 0.1; cat p; wait $j; echo "ignored $?"
+)
+
+# Each in its turn: what comes after a failure is not opened, and what comes before it is in
+# effect, whoever runs the command. fd 9 is not open here.
+echo "a failure stops the rest"
+cat f 2> /dev/null <&9 > g2; echo "dup first $?"; show g2
+cat f 2> /dev/null > g5 <&9 > g6; echo "between $?"; show g5 g6
+cat f 2> /dev/null > g7 <&9 > g8 & wait $!; echo "job $?"; show g7 g8
+cat f 2> /dev/null > no/such/g9 > g10 & wait $!; echo "missing $?"; show g10
+cat f 2> e2 > no/such/g11 & wait $!; echo "reported $?"; sed 's/.*: //' e2
+cat f 2> e3 <&9 & wait $!; echo "reported $?"; sed 's/.*: //' e3
+empty=; cat f 2> e4 < $empty > g12 & wait $!; echo "empty $?"; show g12
+
+echo "a descriptor named before its open is not there yet"
+cat 2> /dev/null <&3 3< f; echo "simple $?"
+cat 2> /dev/null <&3 3< f & wait $!; echo "job $?"
+( cat >&5 ) 2> /dev/null 5<&4 4> h1; echo "group $?"; show h1
+
+# Here-documents are ready before the fork; nothing on the list can write over them or name them.
+echo "numbers on the list"
+cat 4> i1 3< f <&3; show i1
+cat 3> i2 <<EOF; show i2
+three
+EOF
+cat 4> i3 <<EOF; show i3
+four
+EOF
+cat 9> i4 <<EOF; show i4
+nine
+EOF
+cat 3>&1 <<EOF
+dup three
+EOF
+cat 3>&1 4>&1 <<< 'dup four'
+cat <<EOF 3> i5; show i5
+after
+EOF
+cat 2> /dev/null <<EOF 3<&4; echo "not open $?"
+not open
+EOF
+cat 2> /dev/null <<< 'not open' 3<&4; echo "not open $?"
+sh -c 'cat <&3; cat <&4' 3<<A 4<<B
+three first
+A
+four second
+B
+sh -c 'cat <&3; cat <&4' 4<<A 3<<B
+four first
+A
+three second
+B
+{ cat; } 3> i6 <<EOF; show i6
+group
+EOF
+cat <<EOF | cat 3> i7; show i7
+stage
+EOF
+
+echo "with stdio closed, an open may land on a low number"
+( exec 2> /dev/null; exec >&-; cat < f > j1 ); show j1
+( exec 2> /dev/null; exec <&-; cat f > j2 ); show j2
+( exec 2> /dev/null; exec <&-; cat < f > j3 ); show j3
+( exec 2> /dev/null; exec 0<&- 1>&-; cat < f > j4 ); show j4
+( exec 2> /dev/null; exec >&-; cat f 3> j5 >&3 ); show j5
+
+echo "a name means what comes before it says"
+echo piped | cat < /dev/stdin
+echo piped | cat < /dev/fd/0
+( echo to-e | cat > /dev/stderr ) 2> k1; show k1
+sh -c 'echo to-e' 2> k2 > /dev/stderr; show k2
+sh -c 'echo to-three' 3> k3 > /dev/fd/3; show k3
+
+echo "process substitution"
+cat < <(echo in)
+cat < <(echo in) & wait
+sh -c 'echo out' > >(cat); sleep 0.1
+
+cd / && rm -rf "$d"

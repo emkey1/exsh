@@ -2342,6 +2342,14 @@
             "description": "%%, %+, %-, %N, %name and %?text mean the same to every builtin, what has ended can be named, fg and bg want job control.",
             "script": "Tests/exsh/tests/bash_parity_job_specs.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_fifo_job",
+            "name": "A job's redirections open in the job",
+            "category": "parity",
+            "description": "A FIFO's open waits for the other end, usually the shell's next command, so the shell must not make it. Every kind of job and stage as writer and reader, a job killed while it waits, under a trap too, and each redirection in its turn: what follows a failure is not opened, and a number on the list is not there before its turn. Ends itself if a form blocks.",
+            "script": "Tests/exsh/tests/bash_parity_fifo_job.exsh",
+            "expect": "match_bash"
         }
     ]
 }
