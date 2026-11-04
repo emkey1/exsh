@@ -1232,6 +1232,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_options_together",
+      "name": "Commands parsing options at once each keep their own",
+      "category": "parity",
+      "description": "tee with many options, four at a time, each to a file of its own: a lost -a truncates, and a mixed-up place makes a file named -a.",
+      "script": "Tests/exsh/tests/bash_parity_options_together.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_background_starter",
       "name": "A background job outlives what started it, with what that had at the &",
       "category": "parity",

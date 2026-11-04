@@ -1,0 +1,25 @@
+#!/usr/bin/env exsh
+# Commands parsing options at once each keep their own. On iOS these are threads, and libc's getopt
+# keeps its place for the whole process: tee lost its -a and truncated, or took it for the file to
+# write and made one named -a, or read past its arguments. Many options hold the parser for longer,
+# so a mix-up is likelier, but this is still a matter of timing: a wrong build fails often, not always.
+d="${TMPDIR:-/tmp}/exsh_parity_options.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+A="-a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a -a"
+: > t1
+: > t2
+: > t3
+: > t4
+n=0
+while [ "$n" -lt 300 ]; do
+    echo x | tee $A t1 > /dev/null & echo x | tee $A t2 > /dev/null & echo x | tee $A t3 > /dev/null & echo x | tee $A t4 > /dev/null & wait
+    n=$((n + 1))
+done
+echo "lines $(wc -l < t1 | tr -d ' ') $(wc -l < t2 | tr -d ' ') $(wc -l < t3 | tr -d ' ') $(wc -l < t4 | tr -d ' ')"
+echo "files $(ls | tr '\n' ' ')"
+
+cd /
+rm -rf "$d"
