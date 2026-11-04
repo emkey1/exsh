@@ -1,0 +1,25 @@
+#!/usr/bin/env exsh
+# dirname and basename running at once each give their own answer. On iOS these are threads, and
+# libc answers both in one buffer for the whole process, so `dirname /aaa/one` could print /bbb.
+# Each writes to a file of its own, so a wrong line can only be another one's answer.
+d="${TMPDIR:-/tmp}/exsh_parity_path_names.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+n=0
+while [ "$n" -lt 300 ]; do
+    dirname /aaa/one >> a & dirname /bbb/two >> b & dirname /ccc/three >> c & dirname /ddd/four >> e & wait
+    n=$((n + 1))
+done
+echo "dirname a $(grep -c -x /aaa a) b $(grep -c -x /bbb b) c $(grep -c -x /ccc c) e $(grep -c -x /ddd e)"
+
+n=0
+while [ "$n" -lt 300 ]; do
+    basename /aaa/one >> f & basename /bbb/two >> g & basename /ccc/three >> h & basename /ddd/four >> i & wait
+    n=$((n + 1))
+done
+echo "basename f $(grep -c -x one f) g $(grep -c -x two g) h $(grep -c -x three h) i $(grep -c -x four i)"
+
+cd /
+rm -rf "$d"

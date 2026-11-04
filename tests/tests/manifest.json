@@ -1224,6 +1224,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_path_names_together",
+      "name": "dirname and basename running at once each give their own answer",
+      "category": "parity",
+      "description": "Each writes to a file of its own, many times over, so a wrong line can only be another one's answer.",
+      "script": "Tests/exsh/tests/bash_parity_path_names_together.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_background_starter",
       "name": "A background job outlives what started it, with what that had at the &",
       "category": "parity",
