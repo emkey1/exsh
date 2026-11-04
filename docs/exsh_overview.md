@@ -257,6 +257,17 @@ or job takes ignored signals from the shell and none of its traps
 even by way of a stage running on it: what would end the shell waits for it to unwind
 (`vprocSetUnwindsItself`).
 
+A substitution runs in the shell's process, where under bash it is a process of its
+own that a signal sent to the shell does not reach. So what is sent waits for it, and
+the shell takes it when the command the substitution was part of is done: `x=$(cmd)`
+assigns, then the trap runs, and its output and its `exit` are the shell's
+(`gShellSubstitutionSignals`). A trap the substitution sets itself is its own, and it
+takes that signal whichever pid it was sent to, since `$$` and `$BASHPID` are one
+process here. What it does to a trap ends with it. Ctrl-C reaches a foreground's whole
+group and under bash a substitution's process dies of it, so `SIGINT` and `SIGQUIT`
+end the body and the shell's trap runs afterwards. `kill -INT $$` from inside does the
+same, where bash's substitution would go on.
+
 ## Worker threads and builtin orchestration
 
 `ThreadSpawnBuiltin` lets shell scripts queue allow-listed VM builtins—such as

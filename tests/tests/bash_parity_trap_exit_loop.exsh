@@ -1,0 +1,168 @@
+#!/usr/bin/env exsh
+# `exit` in a signal trap runs the EXIT trap, wherever the shell was. In a loop it did not: the trap
+# left the loop skipping its body, and what the EXIT trap runs was skipped with it. A form runs in a
+# subshell because it ends what it runs in, and `sh` would not be the shell under test. Every loop
+# has a limit, so a form that fails shows as wrong output.
+exec 2> /dev/null
+
+d="${TMPDIR:-/tmp}/exsh-trap-exit-loop.$$"
+mkdir -p "$d"
+
+# The subshell that calls it, on a bash with no $BASHPID too.
+find_me() {
+    me=${BASHPID:-}
+    if [ -z "$me" ]; then
+        sh -c 'echo $PPID' > "$d/me"
+        read me < "$d/me"
+    fi
+}
+
+echo "-- for"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+
+echo "-- while"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  n=0
+  while [ $n -lt 3 ]; do n=$((n + 1)); [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+
+echo "-- until"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  n=0
+  until [ $n -ge 3 ]; do n=$((n + 1)); [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+
+echo "-- for with arithmetic"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  for ((n = 1; n < 4; n++)); do [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+
+echo "-- the trap calls a function that exits"
+( find_me; g() { exit 2; }; trap 'g' USR1; trap 'echo "bye $?"' EXIT
+  for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+
+echo "-- loops in loops"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  for a in 1 2; do for b in 1 2; do [ $a$b = 12 ] && kill -USR1 $me; echo "$a$b"; done; done
+  echo no )
+echo "rc=$?"
+
+echo "-- in a function"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  g() { for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done; echo not-g; }
+  g
+  echo no )
+echo "rc=$?"
+
+echo "-- in eval and a sourced file"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  eval 'for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done; echo not-eval'
+  echo no )
+echo "rc=$?"
+echo 'for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done; echo not-sourced' > "$d/src"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  . "$d/src"
+  echo no )
+echo "rc=$?"
+
+echo "-- eval and a sourced file in a loop: the EXIT trap waits for them to return"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  for n in 1 2 3; do eval 'kill -USR1 $me'; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+echo 'kill -USR1 $me; echo not-sourced' > "$d/src2"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  for n in 1 2 3; do . "$d/src2"; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  g() { for n in 1 2 3; do eval 'kill -USR1 $me'; echo "n$n"; done; }
+  g
+  echo no )
+echo "rc=$?"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  for a in 1 2; do eval 'for b in 1 2; do kill -USR1 $me; echo "b$b"; done'; echo "a$a"; done
+  echo no )
+echo "rc=$?"
+( find_me; trap 'echo "bye $?"' EXIT
+  for n in 1 2; do eval 'exit 5'; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+
+echo "-- in a case"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  case x in x) for n in 1 2; do kill -USR1 $me; echo "n$n"; done ;; esac
+  echo no )
+echo "rc=$?"
+
+echo "-- what the EXIT trap runs"
+( find_me; trap 'exit 1' USR1; trap 'for i in a b; do echo "$i"; done' EXIT
+  for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; echo "n$n"; done )
+echo "rc=$?"
+( find_me; trap 'exit 3' USR1; trap 'x=$(echo t); echo "$x"' EXIT
+  for n in 1 2; do kill -USR1 $me; echo "n$n"; done )
+echo "rc=$?"
+
+echo "-- the status"
+( find_me; trap 'echo x; exit 7' USR1; trap 'echo "bye $?"' EXIT
+  for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; done )
+echo "rc=$?"
+( find_me; trap 'exit 7' USR1; trap 'echo bye; exit 9' EXIT
+  for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $me; done )
+echo "rc=$?"
+
+echo "-- from a job, a command in the loop"
+( find_me; trap 'echo term; exit 3' TERM; trap 'echo bye' EXIT
+  ( sleep 0.05; kill -TERM "$me" ) &
+  w=0; while [ "$w" -lt 300 ]; do sleep 0.01; w=$((w + 1)); done
+  echo survived )
+echo "rc=$?"
+
+echo "-- from a job, loops in loops"
+( find_me; trap 'echo term; exit 3' TERM; trap 'echo bye' EXIT
+  ( sleep 0.05; kill -TERM "$me" ) &
+  for a in 1 2 3 4 5 6 7 8 9; do for b in 1 2 3 4 5 6 7 8 9; do sleep 0.02; done; done
+  echo survived )
+echo "rc=$?"
+
+echo "-- from a job, nothing else in the loop"
+( find_me; trap 'echo term; exit 3' TERM; trap 'echo bye' EXIT
+  ( sleep 0.05; kill -TERM "$me" ) &
+  w=0; while [ "$w" -lt 1000000 ]; do w=$((w + 1)); done
+  echo survived )
+echo "rc=$?"
+
+echo "-- break in the trap, and the EXIT trap later"
+( find_me; trap 'break' USR1; trap 'echo bye' EXIT
+  for n in 1 2 3; do kill -USR1 $me; echo "n$n"; done
+  echo after
+  exit 6 )
+echo "rc=$?"
+
+echo "-- what already worked"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  if :; then kill -USR1 $me; echo in; fi
+  echo no )
+echo "rc=$?"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  { kill -USR1 $me; echo in; }
+  echo no )
+echo "rc=$?"
+( find_me; trap 'exit 1' USR1; trap 'echo bye' EXIT
+  kill -USR1 $me
+  echo no )
+echo "rc=$?"
+( trap 'echo bye' EXIT
+  for n in 1 2 3; do [ $n -eq 2 ] && exit 4; echo "n$n"; done
+  echo no )
+echo "rc=$?"
+
+rm -rf "$d"

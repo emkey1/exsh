@@ -1,0 +1,20 @@
+#!/usr/bin/env exsh
+# bash_parity_trap_substitution's first form at the top of a script, sent by a job, with an EXIT trap.
+# The signal comes while the substitution waits for it, and that wait has a limit.
+exec 2> /dev/null
+d="${TMPDIR:-/tmp}/exsh-trap-substitution-top.$$"
+mkdir -p "$d"
+trap 'echo "exit-trap"; rm -rf "$d"' EXIT
+trap 'echo "term [$x]"; exit 3' TERM
+wait_for() {
+    w=0
+    while [ ! -e "$1" ] && [ "$w" -lt 500 ]; do
+        sleep 0.01
+        w=$((w + 1))
+    done
+}
+( wait_for "$d/in"; kill -TERM $$; : > "$d/sent" ) &
+x=$(: > "$d/in"; wait_for "$d/sent"; echo y)
+echo "no [$x]"
+sleep 0.05
+echo "no 2"

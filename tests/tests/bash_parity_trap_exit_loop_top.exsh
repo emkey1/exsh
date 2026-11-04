@@ -1,0 +1,7 @@
+#!/usr/bin/env exsh
+# bash_parity_trap_exit_loop's first form at the top of a script, which ends differently from a
+# subshell. It is why the shell benchmark got no number from exsh: its count comes from an EXIT trap.
+trap 'exit 1' USR1
+trap 'echo bye' EXIT
+for n in 1 2 3; do [ $n -eq 2 ] && kill -USR1 $$; echo "n$n"; done
+echo no

@@ -1674,6 +1674,38 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_trap_substitution",
+            "name": "A signal sent to the shell waits for a substitution",
+            "category": "parity",
+            "description": "The shell takes it afterwards: the words and the command come first, the trap's output and its exit are the shell's, in every place a substitution goes. A trap the substitution sets is its own, and what it does to a trap stays in it.",
+            "script": "Tests/exsh/tests/bash_parity_trap_substitution.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_trap_substitution_top",
+            "name": "A signal during a substitution at the top of a script",
+            "category": "parity",
+            "description": "From a job, with an EXIT trap: the trap and the EXIT trap run, and the script ends with the trap's status.",
+            "script": "Tests/exsh/tests/bash_parity_trap_substitution_top.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_trap_exit_loop",
+            "name": "exit in a signal trap runs the EXIT trap in a loop",
+            "category": "parity",
+            "description": "for, while, until and arithmetic for, in a function, eval, a sourced file or a case; a trap's function that exits; what the EXIT trap runs and the status; from a job.",
+            "script": "Tests/exsh/tests/bash_parity_trap_exit_loop.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_trap_exit_loop_top",
+            "name": "exit in a signal trap in a loop at the top of a script",
+            "category": "parity",
+            "description": "The EXIT trap runs, as the shell benchmark needs.",
+            "script": "Tests/exsh/tests/bash_parity_trap_exit_loop_top.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_alias_text",
             "name": "Alias text is parsed",
             "category": "parity",

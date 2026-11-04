@@ -1,0 +1,350 @@
+#!/usr/bin/env exsh
+# A signal sent to the shell while a substitution runs waits until it is done, and the shell takes
+# it then: under bash the substitution is a process of its own, which was not sent it. Here it runs
+# in the shell's process, so its trap used to run inside the substitution: its `echo` landed in the
+# variable, its `exit` ended only the substitution, and the script went on. A form runs in a subshell
+# because it ends what it runs in, and `sh` would not be the shell under test. The signal comes while
+# the substitution waits for it, so nothing depends on how long anything takes, and every wait has
+# a limit, so a form that fails shows as wrong output.
+exec 2> /dev/null
+
+d="${TMPDIR:-/tmp}/exsh-trap-substitution.$$"
+mkdir -p "$d"
+n=0
+
+wait_for() {
+    w=0
+    while [ ! -e "$1" ] && [ "$w" -lt 500 ]; do
+        sleep 0.01
+        w=$((w + 1))
+    done
+}
+
+# Files of its own for each form: the job of the form before may not be done.
+fresh() {
+    n=$((n + 1))
+    f="$d/$n"
+    mkdir -p "$f"
+}
+
+# The subshell that calls it, on a bash with no $BASHPID too.
+find_me() {
+    me=${BASHPID:-}
+    if [ -z "$me" ]; then
+        sh -c 'echo $PPID' > "$f/me"
+        read me < "$f/me"
+    fi
+}
+
+# A job sends it once the substitution has started, which waits until it has been sent.
+send() {
+    ( wait_for "$f/in"; kill -$1 "$me"; : > "$f/sent" ) &
+}
+body() {
+    : > "$f/in"
+    wait_for "$f/sent"
+}
+
+echo "-- it assigns, the trap runs, and what follows does not"
+fresh
+( find_me; trap 'echo "term [$x]"; exit 3' TERM; x=old; send TERM
+  x=$(body; echo y)
+  echo "no [$x]" )
+echo "rc=$?"
+
+echo "-- with an EXIT trap"
+fresh
+( find_me; trap 'echo exit-trap' EXIT; trap 'echo term; exit 3' TERM; send TERM
+  x=$(body; echo y)
+  echo "no [$x]" )
+echo "rc=$?"
+
+echo "-- a trap that does not exit"
+fresh
+( find_me; trap 'echo "term [$x] $?"' TERM; send TERM
+  x=$(body; echo y; exit 7)
+  echo "next [$x] $?" )
+echo "rc=$?"
+
+echo "-- the command runs first"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  echo "out $(body; echo y)"
+  echo no )
+echo "rc=$?"
+
+echo "-- backquotes"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  x=`body; echo y`
+  echo "no [$x]" )
+echo "rc=$?"
+
+echo "-- an if's condition"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  if x=$(body; echo y); then echo then; fi
+  echo no )
+echo "rc=$?"
+
+echo "-- a while's condition"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  while x=$(body; echo y); do echo in-body; break; done
+  echo no )
+echo "rc=$?"
+
+echo "-- a for's list"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  for i in $(body; echo a b); do echo "i $i"; done
+  echo no )
+echo "rc=$?"
+
+echo "-- a case's word"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  case $(body; echo a) in a) echo in-a ;; esac
+  echo no )
+echo "rc=$?"
+
+echo "-- arithmetic"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  echo $(( $(body; echo 1) + 1 ))
+  echo no )
+echo "rc=$?"
+
+echo "-- a redirection's word"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  echo hi > "$(body; echo "$f/out")"
+  echo no )
+echo "rc=$?"
+echo "file [$(cat "$f/out")]"
+
+echo "-- a word for the command's environment"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  A=$(body; echo y) sh -c 'echo "A=$A"'
+  echo no )
+echo "rc=$?"
+
+echo "-- a here document"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  cat <<EOT
+$(body; echo y)
+EOT
+  echo no )
+echo "rc=$?"
+
+echo "-- a pipeline"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  echo "$(body; echo y)" | cat
+  echo no )
+echo "rc=$?"
+
+echo "-- export and a function's local"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  export x=$(body; echo y)
+  echo no )
+echo "rc=$?"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  g() { local x=$(body; echo y); echo "g $x"; }
+  g
+  echo no )
+echo "rc=$?"
+
+echo "-- in a function"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  g() { x=$(body; echo y); echo "g [$x]"; }
+  g
+  echo no )
+echo "rc=$?"
+
+echo "-- a function in it"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  x=$(body; g() { echo y; }; g)
+  echo "no [$x]" )
+echo "rc=$?"
+
+echo "-- one in another"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  x=$(y=$(body; echo z); echo "$y")
+  echo "no [$x]" )
+echo "rc=$?"
+
+echo "-- a subshell and a pipeline in it"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  x=$( (body; echo y) )
+  echo "no [$x]" )
+echo "rc=$?"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  x=$(body | cat; echo y)
+  echo "no [$x]" )
+echo "rc=$?"
+
+echo "-- eval and a sourced file"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  eval 'x=$(body; echo y); echo "no [$x]"'
+  echo no )
+echo "rc=$?"
+fresh
+echo 'x=$(body; echo y); echo "no [$x]"' > "$f/src"
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  . "$f/src"
+  echo no )
+echo "rc=$?"
+
+echo "-- its own exit"
+fresh
+( find_me; trap 'echo term; exit 5' TERM; send TERM
+  x=$(body; echo in; exit 2)
+  echo "no $? [$x]" )
+echo "rc=$?"
+
+echo "-- errexit"
+fresh
+( set -e; find_me; trap 'echo term' TERM; send TERM
+  x=$(body; echo y)
+  echo "next [$x]" )
+echo "rc=$?"
+fresh
+( set -e; find_me; trap 'echo "term $?"' TERM; send TERM
+  x=$(body; false)
+  echo no )
+echo "rc=$?"
+
+echo "-- return and break in the trap"
+fresh
+( find_me; trap 'echo term; return 4' TERM; send TERM
+  g() { x=$(body; echo y); echo "no [$x]"; }
+  g
+  echo "after $?" )
+echo "rc=$?"
+fresh
+( find_me; trap 'echo term; break' TERM; send TERM
+  for i in 1 2 3; do x=$(body; echo y); echo "body $i"; done
+  echo "after $i" )
+echo "rc=$?"
+
+echo "-- a loop of them"
+fresh
+( find_me; trap 'echo term; exit 3' TERM; send TERM
+  for i in 1 2 3; do x=$(body; echo "$i"); done
+  echo "no [$x]" )
+echo "rc=$?"
+
+echo "-- a loop with little else in it"
+for rep in 1 2 3 4 5 6; do
+    fresh
+    ( find_me; trap 'echo term; exit 3' TERM
+      ( sleep 0.05; kill -TERM "$me"; sleep 0.3; : > "$f/stop" ) &
+      while [ ! -e "$f/stop" ]; do x=$(echo y); done
+      echo "survived [$x]" )
+    echo "rc=$?"
+done
+
+echo "-- the trap's own substitution"
+fresh
+( find_me; trap 'x=$(echo t); echo "$x"; exit 3' TERM
+  ( sleep 0.05; kill -TERM "$me" ) &
+  w=0; while [ "$w" -lt 300 ]; do sleep 0.01; w=$((w + 1)); done
+  echo survived )
+echo "rc=$?"
+
+echo "-- sent from inside, to the shell"
+trap 'echo outer' USR1
+x=$(kill -USR1 $$; sleep 0.05; echo in)
+echo "[$x]"
+trap 'echo first' USR1
+trap 'echo second' USR2
+x=$(kill -USR1 $$; kill -USR2 $$; sleep 0.05; echo in)
+echo "[$x]"
+trap - USR2
+
+echo "-- wait in it goes on"
+trap 'echo outer' USR1
+x=$(sleep 0.2 & kill -USR1 $$; wait $!; echo "w$?")
+echo "[$x]"
+
+echo "-- a trap it sets itself is its own"
+x=$(trap 'echo sub; exit 4' USR1; sh -c 'kill -USR1 $PPID'; sleep 0.1; echo no)
+echo "rc $? [$x]"
+trap 'echo outer' USR1
+x=$(trap 'echo sub' USR1; sh -c 'kill -USR1 $PPID'; sleep 0.1; echo after)
+echo "rc $? [$x]"
+kill -USR1 $$
+sleep 0.05
+
+echo "-- what it does to a trap stays in it"
+trap 'echo outer' USR1
+x=$(trap - USR1; echo in)
+echo "[$x]"
+kill -USR1 $$
+sleep 0.05
+x=$(trap '' USR1; kill -USR1 $$; sleep 0.05; echo in)
+sleep 0.05
+echo "[$x]"
+x=$(trap - USR1; kill -USR1 $$; sleep 0.05; echo in)
+echo "[$x]"
+trap > "$f/traps"
+grep -c USR1 "$f/traps"
+trap - USR1
+fresh
+( find_me
+  x=$(trap 'echo sub' USR1; echo in)
+  echo "[$x]"
+  kill -USR1 "$me"
+  sleep 0.05
+  echo alive )
+echo "rc=$?"
+
+echo "-- the trap comes during break or continue, and its commands go by with the rest of the body"
+trap 'echo got; echo got2' USR1
+for n in 1 2; do break $(kill -USR1 $$; echo 1); echo no; done
+echo "after $n"
+for n in 1 2; do continue $(kill -USR1 $$; echo 1); echo no; done
+echo "after $n"
+n=0
+while [ $n -lt 2 ]; do n=$((n + 1)); break $(kill -USR1 $$; echo 1); echo no; done
+echo "after $n"
+for a in 1 2; do for b in 1 2; do continue $(kill -USR1 $$; echo 1); echo no; done; echo "a$a"; done
+echo after
+fresh
+( find_me; trap 'echo term; exit 3' USR1; trap 'echo bye' EXIT
+  for n in 1 2; do break $(kill -USR1 $me; echo 1); echo no; done
+  echo "goes on" )
+echo "rc=$?"
+g() { for n in 1 2; do return $(kill -USR1 $$; echo 5); echo no; done; echo no2; }
+g
+echo "after $?"
+trap - USR1
+
+echo "-- it lists the shell's"
+trap 'echo outer' USR1
+x=$(trap -p USR1)
+echo "[$x]"
+trap - USR1
+
+echo "-- a command dying of it says nothing about the shell"
+trap 'echo trapped' TERM
+sh -c 'kill -TERM $$'
+echo "next $?"
+x=$(sh -c 'kill -TERM $$'; echo "y $?")
+echo "next $? [$x]"
+x=$(sh -c 'kill -TERM $$')
+echo "next $? [$x]"
+trap - TERM
+
+rm -rf "$d"
