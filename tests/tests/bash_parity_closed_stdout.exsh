@@ -1,0 +1,50 @@
+#!/usr/bin/env exsh
+# Writing to a closed stdout or stderr fails the command, and the text goes with it. On iOS the
+# text reached the real stdout with status 0. Forms where stdout opens again are in
+# closed_stdout_bash5: bash 3.2 keeps the text and writes it there.
+
+try() { eval "( exec >&-; $1 ) 2>/dev/null"; echo "$1: $?"; }
+
+try 'echo small'
+try 'echo -n small'
+try "printf 'x\n'"
+try 'pwd'
+try 'type echo'
+try 'umask'
+try 'command echo small'
+try 'builtin echo small'
+try 'builtin pwd'
+try 'eval "echo small"'
+try '{ echo small; }'
+try '( echo small )'
+try 'f() { echo small; }; f'
+try 'for i in 1; do echo small; done'
+try 'if true; then echo small; fi'
+try 'echo first; echo second'
+
+# No text, no failure.
+try 'true'
+try ':'
+try 'x=1'
+try 'cd .'
+try "printf ''"
+try "echo -n ''"
+try 'set -- a'
+true >&-; echo "true $?"
+: >&-; echo ": $?"
+
+# A descriptor that is closed cannot be copied.
+( exec >&-; echo x 2>&1; echo "copy stdout $?" >&2 ) 2>/dev/null
+( exec >&-; true 2>&1; echo "copy stdout, no text $?" >&2 ) 2>/dev/null
+( exec 2>&-; echo err >&2; echo "copy stderr $?" )
+
+# A background body and the last stage have what the shell has.
+( exec >&-; { echo bg; } 2>/dev/null & wait $!; echo "bg $?" >&2 ) 2>&1
+( exec >&-; true | { echo stage; } 2>/dev/null; echo "stage $?" >&2 ) 2>&1
+
+# Closed stderr: the same, with nothing to say it on, and stdout still works.
+tmp=closed_stdout.$$
+( exec 2>&-; exec >&-; echo small; echo "both $?" >> "$tmp" )
+echo "both [$(tail -n 1 "$tmp")]"
+( exec 2>&-; printf 'x\n'; echo "stdout still works $?" )
+rm -f "$tmp"

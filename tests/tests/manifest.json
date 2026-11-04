@@ -1489,6 +1489,23 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_closed_stdout",
+            "name": "Writing to a closed stdout fails the command",
+            "category": "parity",
+            "description": "Builtins with a closed stdout or stderr fail with a write error when they have text to write and succeed when they have none. A closed descriptor cannot be copied. Bodies, groups, functions, stages and background bodies have what the shell has.",
+            "script": "Tests/exsh/tests/bash_parity_closed_stdout.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "closed_stdout_bash5",
+            "name": "A closed stdout, what only bash 5 checks",
+            "category": "parity",
+            "description": "Every builtin that prints fails on a closed stdout and leaves nothing in the buffer. Answers are bash 5's: bash 3.2 writes the kept text once stdout opens again.",
+            "script": "Tests/exsh/tests/closed_stdout_bash5.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "declare -p OPTIND: 1\nexport -p: 1\ntrap true USR1; trap: 1\nshopt: 1\ndirs: 1\npushd .: 0\npopd 0\ncd - 1\nwrite error: Bad file descriptor\nprintf says 1\nwrite error: Bad file descriptor\npwd says 1\nafter printf 1\nafter type 1\necho 1\ntrue 0\ncommand 1\nprintf 1\npwd 1\ngroup 1\nfunction 1\nback\ntop 1 1\nfile [kept]"
+        },
+        {
             "id": "bash_parity_big_here",
             "name": "Here documents larger than a pipe, and small substitutions",
             "category": "parity",

@@ -1,0 +1,45 @@
+#!/usr/bin/env exsh
+# What bash 5 does with a closed stdout that bash 3.2 does not: every builtin that prints checks
+# the write, and the text does not stay in a buffer for the next flush, wherever stdout is by
+# then. The answers in the manifest are bash 5's.
+
+try() { eval "( exec >&-; $1 ) 2>/dev/null"; echo "$1: $?"; }
+
+try 'declare -p OPTIND'
+try 'export -p'
+try 'trap true USR1; trap'
+try 'shopt'
+try 'dirs'
+# pushd and popd have moved by then: they say so and succeed.
+try 'pushd .'
+( pushd . > /dev/null; exec >&-; popd 2>/dev/null; echo "popd $?" >&2 ) 2>&1
+( OLDPWD=/tmp; exec >&-; cd - 2>/dev/null; echo "cd - $?" >&2 ) 2>&1
+
+# What it says, without the script's name and line.
+( exec >&-; printf 'x\n'; echo "printf says $?" >&2 ) 2>&1 | sed 's/.*printf: //'
+( exec >&-; pwd; echo "pwd says $?" >&2 ) 2>&1 | sed 's/.*pwd: //'
+
+( exec >&-; printf 'lost\n' 2>/dev/null; pwd 2>/dev/null; echo "after printf $?" >&2 ) 2>&1
+( exec >&-; type echo 2>/dev/null; echo "after type $?" >&2 ) 2>&1
+( exec >&-; false; echo small 2>/dev/null; echo "echo $?" >&2; true; echo "true $?" >&2 ) 2>&1
+
+echo small >&- 2>/dev/null; echo "command $?"
+printf 'x\n' >&- 2>/dev/null; echo "printf $?"
+pwd >&- 2>/dev/null; echo "pwd $?"
+{ echo small; } >&- 2>/dev/null; echo "group $?"
+f() { echo small; }; f >&- 2>/dev/null; echo "function $?"
+echo back
+
+# Closed at the top and opened again.
+exec 8>&1
+exec >&-
+echo small 2>/dev/null; s1=$?
+printf 'x\n' 2>/dev/null; s2=$?
+exec >&8 8>&-
+echo "top $s1 $s2"
+
+# Into a file again, in the same body.
+tmp=closed_stdout5.$$
+( exec >&-; echo lost 2>/dev/null; exec > "$tmp"; echo kept )
+echo "file [$(cat "$tmp")]"
+rm -f "$tmp"
