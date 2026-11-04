@@ -151,7 +151,8 @@ extends it with orchestration helpers implemented in
   but not functions, since a function keeps no source to print. A script with no `#!`
   goes to the system's `sh` on a host where bash would read it itself. A failed
   assignment with no command, such as `readonly r=1; r=2`, ends the script where bash
-  goes on with the next line. `set -o posix` does not make a
+  goes on with the next line. A syntax error stops a script before any of it runs, where
+  bash runs the lines before it. `set -o posix` does not make a
   failing special builtin end the script, `set -v` is accepted but prints nothing,
   `set -x` does not show compound commands, a `DEBUG` trap runs only for top-level
   commands, and `[[ ]]` expands all of its operands first. On iOS, where nothing
@@ -169,8 +170,8 @@ extends it with orchestration helpers implemented in
   the substitution, `exec 3> f` in one lasts until it ends, and its background jobs are not
   the shell's afterwards. It reads to end of file, so it waits for a job that still holds
   its output, as bash does, and an interrupt ends that wait. Still different: an `EXIT`
-  trap set in a substitution does not run, and a signal sent to the shell runs its trap
-  inside the substitution. On iOS `x=$(a | b > f &)` also waits for the job, whose last
+  trap set in a substitution does not run, and a trap it sets takes that signal even when
+  it was sent to the shell. On iOS `x=$(a | b > f &)` also waits for the job, whose last
   stage keeps a copy of the pipe.
 - Shell control builtins (`cd`, `pwd`, `exit`, `alias`, `export`, `setenv`,
   `unset`, `unsetenv`) and an interactive `help` builtin for listing and
