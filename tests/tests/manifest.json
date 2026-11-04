@@ -1216,6 +1216,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_loops_start_together",
+      "name": "Loops that start at the same moment do not mix up what each one is",
+      "category": "parity",
+      "description": "Pipeline stages and background jobs that begin with a loop, many times over: every until, for and redirection stays its own, and nothing hangs.",
+      "script": "Tests/exsh/tests/bash_parity_loops_start_together.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_background_starter",
       "name": "A background job outlives what started it, with what that had at the &",
       "category": "parity",

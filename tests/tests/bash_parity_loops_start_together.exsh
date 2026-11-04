@@ -1,0 +1,38 @@
+#!/usr/bin/env exsh
+# Loops that start at the same moment do not mix up what each one is. On iOS the stages of a
+# pipeline and background jobs are threads, and their loops read each other's description
+# through one process-wide strtok: an until never ended, and a loop lost its redirection.
+# A mix-up is a matter of timing, so each form runs many times. No form depends on the timing.
+d="${TMPDIR:-/tmp}/exsh_parity_loops_together.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+n=0
+while [ "$n" -lt 300 ]; do
+  for f in 1 2; do echo "$f"; done | while read -r x; do echo "$x" >> pipe.out; done
+  n=$((n + 1))
+done
+wc -l < pipe.out | tr -d ' '
+
+n=0
+while [ "$n" -lt 300 ]; do
+  for f in 1; do echo "$f" >> job.out; done > /dev/null 2>&1 &
+  i=0
+  until [ "$i" -ge 1 ]; do i=$((i + 1)); done
+  n=$((n + 1))
+done
+wait
+wc -l < job.out | tr -d ' '
+
+n=0
+while [ "$n" -lt 300 ]; do
+  for f in 1; do echo "$f" >> two.out; done &
+  for g in 1; do echo "$g" >> two.out; done &
+  n=$((n + 1))
+done
+wait
+wc -l < two.out | tr -d ' '
+
+cd /
+rm -rf "$d"
