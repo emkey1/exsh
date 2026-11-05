@@ -1,0 +1,166 @@
+#!/usr/bin/env exsh
+# [ and test compare strings. A pattern is for [[ and case, and so is nocasematch.
+d="${TMPDIR:-/tmp}/exsh_parity_test_literal.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# Every operator, both spellings of the command, these two values.
+c() {
+  for op in = == !=; do
+    [ "$1" "$op" "$2" ]; a=$?
+    test "$1" "$op" "$2"; b=$?
+    echo "[$1] $op [$2]: $a $b"
+  done
+}
+t() { "$@"; echo "$? : $*"; }
+
+echo "== as written"
+[ abc = "a*" ] && echo matched || echo no
+[ "[5]" = "[5]" ] && echo same || echo no
+[ "[5]" != "[5]" ] && echo differ || echo no
+test "[5]" = "[5]" && echo same || echo no
+
+echo "== values that look like patterns"
+c abc 'a*'; c 'a*' 'a*'; c abc '*'; c '*' '*'; c abc 'a?c'; c 'a?c' 'a?c'
+c '[5]' '[5]'; c 5 '[5]'; c a '[abc]'; c a '[!b]'; c '[' '['; c ']' ']'; c '[a' '[a'
+c a '@(a)'; c '@(a)' '@(a)'; c a '+(a)'; c a '!(b)'; c '!(b)' '!(b)'
+c 'a\*' 'a\*'; c 'a*' 'a\*'; c abc 'a\*'
+
+echo "== empty strings"
+c '' ''; c '' '*'; c '*' ''; c '' '?'; c x ''; c '' x
+[ "" = "" ]; echo $?; [ "" != "" ]; echo $?; [ "" ]; echo $?; [ "*" ]; echo $?
+[ -z "*" ]; echo $?; [ -n "*" ]; echo $?; [ -z "" ]; echo $?; [ -n "" ]; echo $?
+e=
+t [ $e = y ]; t [ y = $e ]; t [ $e != y ]; t [ $e ]; t [ -z $e ]; t [ -n $e ]; t [ ! $e ]
+t [ '' '' ]; t [ '' = ]; t [ = '' ]
+
+echo "== a variable holding one"
+for v in '*' '?' '[' 'a*' '[ab]' 'a?'; do
+  [ "$v" = "$v" ]; a=$?
+  [ "$v" != "$v" ]; b=$?
+  [ abc = "$v" ]; e=$?
+  [ a = "$v" ]; f=$?
+  test "$v" = "$v"; g=$?
+  test a != "$v"; h=$?
+  echo "[$v] $a $b $e $f $g $h"
+done
+
+echo "== unquoted, nothing to match"
+[ abc = a* ]; echo $?; [ abc != a* ]; echo $?; [ abc = ab? ]; echo $?
+[ "[5]" = [5] ]; echo $?; [ 5 = [5] ]; echo $?
+[ abc = a\* ]; echo $?; [ 'a*' = a\* ]; echo $?; [ 'a*' = a* ]; echo $?
+v='a*'; [ abc = $v ]; echo $?; [ 'a*' = $v ]; echo $?
+v='?'; [ a = $v ]; echo $?; [ '?' = $v ]; echo $?
+v='['; [ '[' = $v ]; echo $?
+v='*'; [ '*' = $v ]; echo $?
+
+echo "== unquoted, a file matches: the word expands first"
+touch abc 5
+[ abc = a* ]; echo $?; [ abc != a* ]; echo $?; [ abc = ab? ]; echo $?
+[ 5 = [5] ]; echo $?; [ "[5]" = [5] ]; echo $?; [ 'a*' = a* ]; echo $?; [ 'a*' = "a*" ]; echo $?
+v='a*'; [ abc = $v ]; echo $?; [ abc = "$v" ]; echo $?
+set -f; [ abc = a* ]; echo $?; [ 'a*' = a* ]; echo $?; set +f
+
+echo "== unquoted, two files match"
+touch abd
+[ abc = a* ] 2>/dev/null; echo $?; test abc = a* 2>/dev/null; echo $?; [ abc = "a*" ]; echo $?
+rm -f abc abd 5
+
+echo "== nocasematch is not for them"
+shopt -s nocasematch
+c ABC abc; c abc ABC; c ABC 'a*'; c A '[a]'; c 'É' 'é'
+[ ABC = "abc" ]; echo $?; test ABC = abc; echo $?
+
+echo "== it is for [[ and case"
+[[ ABC = abc ]]; echo $?; [[ ABC != abc ]]; echo $?; [[ ABC = "abc" ]]; echo $?; [[ ABC = a* ]]; echo $?
+[[ ABC = "a*" ]]; echo $?; [[ ABC != a* ]]; echo $?; [[ A = [a] ]]; echo $?
+case ABC in abc) echo case1;; *) echo no1;; esac
+case ABC in a*) echo case2;; *) echo no2;; esac
+case ABC in "a*") echo case3;; *) echo no3;; esac
+shopt -u nocasematch
+[ ABC = abc ]; echo $?; [[ ABC = abc ]]; echo $?
+
+echo "== [[ keeps its patterns"
+[[ abc = a* ]]; echo $?; [[ abc == a* ]]; echo $?; [[ abc != a* ]]; echo $?
+[[ abc = "a*" ]]; echo $?; [[ abc != "a*" ]]; echo $?; [[ abc == "a*" ]]; echo $?
+[[ "[5]" = "[5]" ]]; echo $?; [[ "[5]" != "[5]" ]]; echo $?; [[ 5 = [5] ]]; echo $?; [[ 5 = "[5]" ]]; echo $?
+[[ abc = a\* ]]; echo $?; [[ 'a*' = a\* ]]; echo $?
+p='a*'; [[ abc = $p ]]; echo $?; [[ abc = "$p" ]]; echo $?; [[ 'a*' = "$p" ]]; echo $?; [[ abc != $p ]]; echo $?; [[ abc != "$p" ]]; echo $?
+p='?'; [[ a = $p ]]; echo $?; [[ a = "$p" ]]; echo $?; [[ '?' = "$p" ]]; echo $?
+p='['; [[ '[' = "$p" ]]; echo $?; [[ '[' = $p ]]; echo $?
+p='*'; [[ '' = $p ]]; echo $?; [[ '' = "$p" ]]; echo $?; [[ "" = "" ]]; echo $?; [[ "" != "" ]]; echo $?
+[[ a = a* && b = "b*" ]]; echo $?; [[ a = "a*" || b = b* ]]; echo $?
+case abc in "a*") echo q;; a*) echo u;; esac
+case 'a*' in "a*") echo q;; a*) echo u;; esac
+
+echo "== more than three words"
+[ abc = "a*" -o x = y ]; echo $?; [ abc = "a*" -a x = x ]; echo $?; [ ! abc = "a*" ]; echo $?
+[ "[5]" = "[5]" -a 1 = 1 ]; echo $?; [ \( "[5]" = "[5]" \) ]; echo $?; [ \( abc = "a*" \) -o 1 = 2 ]; echo $?
+test ! abc = "a*"; echo $?; ! [ abc = "a*" ]; echo $?; [ "[5]" != "[5]" -o a != a ]; echo $?; [ ! "[5]" != "[5]" ]; echo $?
+
+echo "== wherever it runs"
+if [ abc = "a*" ]; then echo y; else echo n; fi
+if test "[5]" = "[5]"; then echo y; else echo n; fi
+# Each loop stops itself: with the old answer these never end.
+n=0; i=0; while [ "$n" != "[5]" ]; do n="[5]"; i=$((i+1)); [ $i -ge 3 ] && break; done; echo "$n $i"
+n=0; i=0; until [ "$n" = "[5]" ]; do n="[5]"; i=$((i+1)); [ $i -ge 3 ] && break; done; echo "$n $i"
+while [ abc = "a*" ]; do echo bad; break; done; echo w
+until [ "[5]" = "[5]" ]; do echo bad; break; done; echo u
+while test abc = "a*"; do echo bad; break; done; echo w2
+x=$( [ abc = "a*" ] && echo y || echo n); echo "$x"
+( [ abc = "a*" ]; echo $? )
+{ [ abc = "a*" ]; echo $?; } | cat
+eval '[ abc = "a*" ]'; echo $?
+command [ abc = "a*" ]; echo $?; builtin [ abc = "a*" ]; echo $?
+command test abc = "a*"; echo $?; builtin test abc = "a*"; echo $?
+builtin [ "[5]" = "[5]" ]; echo $?; builtin [ a '!=' a ]; echo $?; builtin [ a = a ] x 2>/dev/null; echo $?
+f() { [ "$1" = "$2" ]; }; f abc 'a*'; echo $?; f '[5]' '[5]'; echo $?
+env test abc = 'a*'; echo env $?; env test '[5]' = '[5]'; echo env $?; env test '[5]' != '[5]'; echo env $?
+env test a == a; echo env $?; env test a == b; echo env $?
+
+echo "== a value that looks like an operator is a value"
+t [ '!' = x ]; t [ '!' = '!' ]; t [ '!' != '!' ]; t [ '!' != x ]; t test '!' = x; t test '!' != '!'
+v='!'; [ "$v" = x ]; echo "v $?"; [ "$v" = "$v" ]; echo "v $?"; [ "$v" != "$v" ]; echo "v $?"
+env test '!' = x; echo env $?; env test '!' != '!'; echo env $?
+builtin test '!' = x; echo $?; command [ '!' = x ]; echo $?
+t [ '(' = '(' ]; t [ '(' = ')' ]; t [ ')' = ')' ]; t [ '-a' = '-a' ]; t [ '-o' = '-o' ]; t [ '-z' = '-z' ]
+t [ '-n' = x ]; t [ '=' = '=' ]; t [ '=' != '=' ]; t [ = ]; t [ '!' ]; t [ '-z' ]; t [ '-n' ]
+t [ -n = -n -a x = x ]; t [ -z = -z -o x = y ]; t [ ')' = ')' -a x = x ]; t [ x = x -a ')' = ')' ]
+v=-n; t [ "$v" = x -a 1 = 1 ]; t [ "$v" = "$v" -a 1 = 1 ]
+t [ ! ! = x ]; t [ '!' -nt nosuch ]; t [ '!' '<' a ]; t [ '!' '>' a ]; t [ ! -z '' ]; t [ ! -n '' ]
+
+echo "== the wrong number of words is an error"
+t [ a b ]; t [ a = ]; t [ = a ]; t [ a != ]; t [ != a ]; t test a b; t test a =; t [ ! a b ]; t [ ! ! a b ]
+t [ a x b ]; t test a x b; t [ a = b = c ]; t [ a = a -a ]; t [ a = a -o ]; t [ a = b c ]; t [ a b c d ]
+t [ '(' a ]; t [ ')' a ]; t [ '(' a ')' ]; t [ -- ]; t [ -- a ]; t [ a -- ]; t [ -e ]; t [ -x ]; t [ -f ]; t [ '(' ]; t [ ')' ]
+t [ -z a b ]; t [ -n a b ]; t [ '(' a b ]; t [ a b ')' ]; t [ ! a b c ]; t [ ! a = b c ]
+t [ x = x -a ')' ]; t [ x = x -o ')' ]; t [ ')' -a x = x ]; t [ ! ')' -a x = x ]; t [ '(' -a x = x ]; t [ x = x -a '(' ]; t [ '(' x ')' -a y ]; t [ '(' x = x ')' ]
+t test; t [ ]; t [ '' ]
+shopt -s nullglob; t [ abc = z* ]; t [ abc != z* ]; [ abc = "z*" ]; echo "nullglob $?"; shopt -u nullglob
+[ a x b ]; echo "next $?"
+[ a b ]; echo "next $?"
+eval '[ a b ]'; echo "eval $?"
+x=$( [ a b ] 2>&1 ); echo "[${x##*: line }]"
+( [ a b ] ); echo "subshell $?"
+[ a b ] | cat; echo "stage ${PIPESTATUS[0]}"
+builtin test a b; echo "builtin $?"
+if [ a b ]; then echo y; else echo "else $?"; fi
+{ i=0; while [ a x b ]; do echo bad; break; done; echo "while $?"; } 2>/dev/null
+{ i=0; until [ a x b ]; do i=$((i+1)); [ $i -ge 2 ] && break; done; echo "until $i"; } 2>/dev/null
+{ while [ $e_unset = y ]; do echo bad; break; done; echo "while $?"; } 2>/dev/null
+{ while test a b; do echo bad; break; done; echo "while $?"; } 2>/dev/null
+{ [ a -eq 3 ]; echo "integer $?"; [ 3 -eq a ]; echo "integer $?"; [ ! -eq 3 ]; echo "integer $?"; [ a -eq 3 -a 1 = 1 ]; echo "integer $?"; } 2>/dev/null
+
+echo "== -a and -o"
+touch f
+t [ -a f ]; t [ -a nosuch ]; t [ ! -a nosuch ]; t [ -a f -a -e f ]; t [ x = x -a -a f ]; t [ x = x -o -o nosuch ]
+t [ -a -a -a ]; t [ -o -o -o ]; t [ '' -a x ]; t [ '' -o x ]; t [ x -a '' ]; t [ x -o '' ]; t [ '!' -a f ]; t [ '!' -o '' ]
+t [ -o errexit ]; t [ -o nosuch ]; t [ -o noglob -o x = x ]
+set -o noglob; t [ -o noglob ]; t test -o noglob; [[ -o noglob ]]; echo "cond $?"; set +o noglob
+t [ -o noglob ]; [[ -o noglob ]]; echo "cond $?"; [[ -o nosuch ]]; echo "cond $?"
+[[ -a f ]]; echo "cond $?"; [[ -a nosuch ]]; echo "cond $?"
+set -e; [ -o errexit ]; echo "set -e $?"; set +e
+
+cd /
+rm -rf "$d"

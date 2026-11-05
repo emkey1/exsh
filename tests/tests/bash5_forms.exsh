@@ -65,6 +65,7 @@ echo "too many $?"
 (trap 'echo r1' RETURN; f() { trap 'echo r2' RETURN; }; f; . /dev/null; echo "a function's own stays")
 time -- echo dashes 2>/dev/null
 printf '%S|%C|\n' abc def
+vset=1; [ -v vset ]; echo "[ -v ] $?"; [ -v vnone ]; echo "[ -v ] $?"; test -v vset; echo "test -v $?"; [ -v '' ]; echo "[ -v ] $?"; [ -v '#' ]; echo "[ -v ] $?"; [[ -v '' ]]; echo "[[ -v ]] $?"; [ x = x -a -z ]; echo "last word $?"
 # {name}> f: the shell picks a descriptor from 10 up, and it stays until the script closes it.
 d="${TMPDIR:-/tmp}/exsh_fdvar.$$"; rm -rf "$d"; mkdir -p "$d"; cd "$d"
 exec {fd}> /dev/null; echo "ok ${fd:+set}"; [ "$fd" -ge 10 ] && echo high; exec {fd}>&-
