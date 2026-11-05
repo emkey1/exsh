@@ -1,0 +1,68 @@
+#!/usr/bin/env exsh
+# A fatal signal a subshell sends itself ends it then and there, with 128 + the signal, wherever in
+# the subshell that is. On iOS a subshell is a thread that used to run on with its task marked dead.
+# Bash 3.2 has no BASHPID, so there the subshell asks a child who its parent is. What bash reports
+# on stderr for a killed subshell differs by version, so it is not compared. Each form has `echo no`
+# after the kill. Not here because exsh differs on every flavour: INT and QUIT, where a status of
+# 130 or 131 ends the shell too, and BASHPID in a substitution, which has no task of its own. Nor
+# HUP: a queued run starts the harness under nohup, and bash keeps HUP ignored where exsh doesn't.
+exec 2> /dev/null
+
+D="${TMPDIR:-/tmp}/exsh-kill-self.$$"
+rm -rf "$D"
+mkdir -p "$D"
+mine() {
+  p=$BASHPID
+  if [ -z "$p" ]; then
+    sh -c 'echo $PPID' > "$D/me"
+    read p < "$D/me"
+  fi
+}
+
+( mine; kill -TERM $p; echo no ); echo "term $?"
+( mine; kill -KILL $p; echo no ); echo "kill $?"
+( mine; kill -USR1 $p; echo no ); echo "usr1 $?"
+( mine; kill -ALRM $p; echo no ); echo "alrm $?"
+( mine; kill -PIPE $p; echo no ); echo "pipe $?"
+( mine; kill -s TERM $p; echo no ); echo "named $?"
+( mine; kill -15 $p; echo no ); echo "number $?"
+
+# With a trap or ignored, it goes on.
+( trap 'echo caught' TERM; mine; kill -TERM $p; echo goes on ); echo "trapped $?"
+( trap '' TERM; mine; kill -TERM $p; echo goes on ); echo "ignored $?"
+( mine; kill -CHLD $p; echo goes on ); echo "default ignored $?"
+
+# Wherever in it the signal is sent.
+( mine; kill -USR2 $p && echo no || echo no ); echo "list $?"
+( mine; if kill -TERM $p; then echo no; fi; echo no ); echo "if $?"
+( for i in 1 2; do mine; kill -TERM $p; echo no; done; echo no ); echo "loop $?"
+( mine; while kill -TERM $p; do echo no; break; done; echo no ); echo "while $?"
+( f() { mine; kill -TERM $p; echo no; }; f; echo no ); echo "function $?"
+( eval 'mine; kill -TERM $p; echo no'; echo no ); echo "eval $?"
+( mine; { kill -TERM $p; echo no; }; echo no ); echo "group $?"
+f() { ( mine; kill -TERM $p; echo no ); echo "in a function $?"; }; f
+( ( mine; kill -TERM $p; echo no ); echo "inner $?" ); echo "outer $?"
+( mine; ( kill -TERM $p ); echo no ); echo "by its own subshell $?"
+( exec 3>&1; mine; kill -TERM $p; echo no ); echo "after exec $?"
+
+# However the subshell was started.
+( mine; kill -TERM $p; echo no ) & wait $!; echo "job $?"
+( mine; kill -TERM $p ) & wait $!; echo "job, last command $?"
+( mine; kill -TERM $p; echo no ) | cat; echo "piped ${PIPESTATUS[0]}"
+{ mine; kill -TERM $p; echo no; } | cat; echo "first stage ${PIPESTATUS[0]}"
+echo a | { mine; kill -TERM $p; echo no; }; echo "last stage $?"
+
+# A shell run as a command.
+sh -c 'kill -TERM $$; echo no'; echo "sh -c $?"
+printf '%s\n' 'kill -TERM $$' 'echo no' > "$D/s"
+sh "$D/s"; echo "sh file $?"
+printf '%s\n' '#!/bin/sh' 'kill -TERM $$' 'echo no' > "$D/x"
+chmod +x "$D/x"
+"$D/x"; echo "script $?"
+
+# From another of its children, at the command it is in at the time.
+( mine; kill -TERM $p & wait $!; echo no ); echo "by a job $?"
+( mine; ( sleep 0.2; kill -TERM $p ) & wait; echo no ); echo "in wait $?"
+( mine; ( sleep 0.2; kill -TERM $p ) & sleep 1; echo no ); echo "in a command $?"
+
+rm -rf "$D"

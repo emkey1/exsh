@@ -1,0 +1,36 @@
+#!/usr/bin/env exsh
+# Bash catches the signals that would end it, so that its EXIT trap runs, except KILL. A trap's `exit`
+# doesn't change what it dies of. The iOS flavour's shell acts on a signal itself, so it can do this;
+# on a host exsh leaves the signal's default action to the host, and no trap runs. Only a signal it
+# sends itself: on iOS one from another thread cancels a subshell's thread, and that runs no trap.
+case $BASH_VERSION in
+  *exsh*)
+    case $(type which) in
+      *builtin*) ;;
+      *) exit 77 ;;
+    esac
+    ;;
+esac
+exec 2> /dev/null
+
+D="${TMPDIR:-/tmp}/exsh-kill-self-trap.$$"
+rm -rf "$D"
+mkdir -p "$D"
+mine() {
+  p=$BASHPID
+  if [ -z "$p" ]; then
+    sh -c 'echo $PPID' > "$D/me"
+    read p < "$D/me"
+  fi
+}
+
+( trap 'echo bye' EXIT; mine; kill -TERM $p; echo no ); echo "term $?"
+( trap 'echo bye' EXIT; mine; kill -USR1 $p; echo no ); echo "usr1 $?"
+( trap 'echo bye' EXIT; mine; kill -KILL $p; echo no ); echo "kill $?"
+( trap 'exit 3' EXIT; mine; kill -TERM $p; echo no ); echo "exit in the trap $?"
+
+sh -c 'trap "echo bye" EXIT; kill -TERM $$; echo no'; echo "sh term $?"
+sh -c 'trap "echo bye" EXIT; kill -KILL $$; echo no'; echo "sh kill $?"
+sh -c 'trap "exit 3" EXIT; kill -TERM $$; echo no'; echo "sh exit in the trap $?"
+
+rm -rf "$D"

@@ -980,6 +980,38 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_kill_self",
+            "name": "A fatal signal a subshell sends itself ends it there",
+            "category": "builtins",
+            "description": "128 + the signal and nothing more run, wherever in the subshell it is sent and however the subshell started; with a trap or ignored it goes on. On iOS the thread used to run on with its task marked dead.",
+            "script": "Tests/exsh/tests/bash_parity_kill_self.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_kill_self_exit_trap",
+            "name": "A shell dying of a signal runs its EXIT trap, keeping the signal's status",
+            "category": "builtins",
+            "description": "Every fatal signal but KILL, and an exit in the trap changes nothing. iOS flavour only: on a host exsh leaves the default action to the host.",
+            "script": "Tests/exsh/tests/bash_parity_kill_self_exit_trap.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_kill_ended",
+            "name": "A signal to a process that has ended succeeds and does nothing",
+            "category": "builtins",
+            "description": "Until it is reaped, as kill -0 already said; reaped it is gone, and wait still has the status.",
+            "script": "Tests/exsh/tests/bash_parity_kill_ended.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exit_trap_program",
+            "name": "A shell run as a command runs its own EXIT trap",
+            "category": "parity",
+            "description": "sh -c, sh file and a script, on their own, in a pipe, a subshell and a substitution, and beside the caller's own trap. On iOS it never ran.",
+            "script": "Tests/exsh/tests/bash_parity_exit_trap_program.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_set_posix",
             "name": "set -o posix mirrors POSIXLY_CORRECT",
             "category": "parity",

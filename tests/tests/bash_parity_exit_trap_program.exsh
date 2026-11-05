@@ -1,0 +1,28 @@
+#!/usr/bin/env exsh
+# A shell run as a command has an EXIT trap of its own, which runs when its script ends. On iOS it
+# shares the process with its caller, and the depth it took over made its script look nested.
+exec 2> /dev/null
+
+D="${TMPDIR:-/tmp}/exsh-exit-trap-program.$$"
+rm -rf "$D"
+mkdir -p "$D"
+
+sh -c 'trap "echo bye" EXIT; echo a'; echo "sh -c $?"
+sh -c 'trap "echo bye \$?" EXIT; exit 3'; echo "sh -c exit $?"
+sh -c 'trap "exit 4" EXIT; echo a'; echo "sh -c exit in the trap $?"
+sh -c 'trap "echo bye" EXIT; trap - EXIT; echo a'; echo "sh -c reset $?"
+printf '%s\n' 'trap "echo bye" EXIT' 'echo a' > "$D/s"
+sh "$D/s"; echo "sh file $?"
+printf '%s\n' '#!/bin/sh' 'trap "echo bye" EXIT' 'echo a' > "$D/x"
+chmod +x "$D/x"
+"$D/x"; echo "script $?"
+"$D/x" | cat; echo "script in a pipe ${PIPESTATUS[0]}"
+( "$D/x" ); echo "script in a subshell $?"
+y=$("$D/x"); echo "script in a substitution [$y] $?"
+
+# Only its own: the caller's stays for the caller, and runs once.
+trap 'echo mine' EXIT
+sh -c 'echo inner'; echo "beside the caller's $?"
+"$D/x"; echo "script beside the caller's $?"
+
+rm -rf "$D"

@@ -1,0 +1,30 @@
+#!/usr/bin/env exsh
+# A process that has ended stays until it is reaped, and a signal to it succeeds and does nothing.
+# Bash reaps its own children as they end, so the one here belongs to a parent that never will. The
+# iOS flavour used to say No such process to the signal and 0 to the probe.
+exec 2> /dev/null
+
+D="${TMPDIR:-/tmp}/exsh-kill-ended.$$"
+rm -rf "$D"
+mkdir -p "$D"
+
+( sleep 0.1 & echo $! > "$D/z"; exec sleep 5 ) &
+j=$!
+sleep 1
+read z < "$D/z"
+kill -TERM $z; echo "term $?"
+kill -KILL $z; echo "kill $?"
+kill -USR1 $z; echo "usr1 $?"
+kill -CONT $z; echo "cont $?"
+kill -0 $z; echo "probe $?"
+kill $j
+wait $j; echo "its parent $?"
+
+# Reaped, it is gone. The shell itself has reaped this one, and wait still has its status.
+sleep 0 & p=$!
+sleep 0.3
+kill -TERM $p; echo "reaped $?"
+kill -0 $p; echo "reaped probe $?"
+wait $p; echo "wait $?"
+
+rm -rf "$D"
