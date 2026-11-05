@@ -1311,6 +1311,15 @@
       "expect": "match_bash"
     },
     {
+      "id": "trap_chld_children",
+      "name": "A CHLD trap's own commands do not run it again",
+      "category": "parity",
+      "description": "A pipeline, a subshell, a program or a substitution in a CHLD trap: the shell goes on. They used to run the trap again for ever.",
+      "script": "Tests/exsh/tests/trap_chld_children.exsh",
+      "expect": "runtime_ok",
+      "expected_stdout": "a pipeline\nwith a pipeline going\na subshell\na program\na substitution\nwith set -m\n"
+    },
+    {
       "id": "bash_parity_wait_killed",
       "name": "wait gives a killed job's signal, and killing a job harms nothing else",
       "category": "parity",

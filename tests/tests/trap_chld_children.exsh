@@ -1,0 +1,12 @@
+#!/usr/bin/env exsh
+# What a CHLD trap's own commands start and finish does not run it again. It used to, for ever, and the
+# shell never got past its next command. Not compared with bash: 5.3 warns about its trap list on these
+# and can crash on them, and 3.2 runs such a trap only with job control.
+{
+trap 'true | true' CHLD; ( exit 0 ) & wait; trap - CHLD; echo "a pipeline"
+trap 'true | true' CHLD; ( exit 0 ) & sleep 0.01 | cat; wait; trap - CHLD; echo "with a pipeline going"
+trap '( true )' CHLD; ( exit 0 ) & wait; trap - CHLD; echo "a subshell"
+trap '/usr/bin/true' CHLD; ( exit 0 ) & wait; trap - CHLD; echo "a program"
+trap 'x=$(true)' CHLD; ( exit 0 ) & wait; trap - CHLD; echo "a substitution"
+set -m; trap 'true | true' CHLD; ( exit 0 ) & wait; trap - CHLD; set +m; echo "with set -m"
+} 2>/dev/null
