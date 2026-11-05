@@ -1,0 +1,16 @@
+#!/usr/bin/env exsh
+# A debug switch turned on and off at the prompt, or in a script, takes effect at once.
+log="${TMPDIR:-/tmp}/debug_switch.$$"
+count() { grep -c "$1" "$log"; }
+exec 3>&2
+exec 2> "$log"
+: one
+export PSCALI_REDIR_DEBUG=1
+: two
+unset PSCALI_REDIR_DEBUG
+: three
+exec 2>&3
+echo "redir-build lines: $(count 'redir-build.*arg_count')"
+grep -c 'two' "$log"
+grep -c 'three' "$log"
+rm -f "$log"

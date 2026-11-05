@@ -2410,6 +2410,32 @@
             "script": "Tests/exsh/tests/ifs_literal_bash5.exsh",
             "expect": "runtime_ok",
             "expected_stdout": "1:<a:m:b>\n2:<ca><b:d>\n3:<a><b:c:d><a:b:e>\nfive\n1:<a:b>\n2:<a><b>\n1:<a'b>\nmatches\n2:<fa><fb>\n2:<fa><fb>\n2:<fa><fb>\n1:<f*>\n1:<f*x>\n1:<>\n1:<>\n"
+        },
+        {
+            "id": "bash_parity_nested_calls",
+            "name": "Functions calling functions, at any depth",
+            "category": "parity",
+            "description": "Calls share VMs from a pool, deeper than the pool holds too. Arguments, status, locals, loops, eval, source, exit, set -e, traps, pipes and jobs come out as they should at every depth.",
+            "script": "Tests/exsh/tests/bash_parity_nested_calls.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "exsh_status_variable",
+            "name": "EXSH_LAST_STATUS mirrors the status whatever else is done with it",
+            "category": "builtins",
+            "description": "Set by hand, unset, local, as an array, read-only, under allexport, in a subshell and a substitution. It is only written when it changes.",
+            "script": "Tests/exsh/tests/exsh_status_variable.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "true: 0\nfalse: 1\n42: 42\n200: 200\nagain: 0\nset by hand, then the assignment's own status: 0\nunset, then unset's status: 0\nback: 1\n0\nin a program: \nlocal: 0\nlocal after false: 1\nafter the function: 0\nin g: 1\nallexport: 1\narray: 0 1\nread-only: 0, status 1\nstill: 0\noutside: 0\nsubshell sees: 1\nsubshell: 0\nafter: 0\nsubstitution: 1\nafter: 0\n"
+        },
+        {
+            "id": "exsh_debug_switch",
+            "name": "A debug switch takes effect as soon as the shell sets it",
+            "category": "builtins",
+            "description": "PSCALI_REDIR_DEBUG is kept between commands, and read again after export and unset.",
+            "script": "Tests/exsh/tests/exsh_debug_switch.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "redir-build lines: 2\n1\n0\n"
         }
     ]
 }

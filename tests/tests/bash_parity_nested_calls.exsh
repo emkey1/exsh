@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Functions, eval and source share VMs from a pool, deeper than the pool holds too, so what one
+# call leaves may not reach the next, at any depth.
+set -u
+
+inner() { echo "inner $# ${1-none}"; return "${2-0}"; }
+outer() { inner "$1" 3; echo "after inner: $?"; inner; echo "again: $?"; }
+outer a
+echo "outer: $?"
+
+a() { b "$@" x; echo "a sees $#"; }
+b() { c "$@" y; echo "b sees $#"; }
+c() { echo "c sees $# $*"; return 7; }
+a 1 2
+echo "status $?"
+
+echo "recursion"
+down() { local n=$1; if [ "$n" -gt 0 ]; then down $(( n - 1 )); fi; echo "$n"; }
+down 3 | tr '\n' ' '; echo
+down 12 | tr '\n' ' '; echo
+down 40 | tr '\n' ' '; echo
+sum() { if [ "$1" -le 0 ]; then echo 0; else echo $(( $1 + $(sum $(( $1 - 1 ))) )); fi; }
+sum 10
+depth=0
+count() { depth=$(( depth + 1 )); [ "$depth" -lt 30 ] && count; }
+count
+echo "depth $depth, status $?"
+
+echo "state"
+shadow() { local v=inner; nested; echo "shadow $v"; }
+nested() { v=changed; echo "nested $v"; }
+v=outer
+shadow
+echo "global $v"
+loops() { for i in 1 2 3; do pick "$i" && break; done; echo "stopped at $i"; }
+pick() { [ "$1" = 2 ]; }
+loops
+early() { for i in 1 2 3; do inner_return "$i"; echo "got $?"; done; }
+inner_return() { return "$1"; }
+early
+
+echo "with eval and source"
+viaeval() { eval "inner in-eval 4"; echo "eval: $?"; }
+viaeval
+echo 'inner sourced 5; echo "in file: $?"; return 6' > "${TMPDIR:-/tmp}/nested_calls.$$"
+viasource() { . "${TMPDIR:-/tmp}/nested_calls.$$"; echo "source: $?"; }
+viasource
+rm -f "${TMPDIR:-/tmp}/nested_calls.$$"
+evalfn() { eval 'evalfn2() { echo "made inside $1"; }'; evalfn2 first; }
+evalfn
+evalfn2 second
+
+echo "exit, traps and failures"
+( leave() { exit 9; }; through() { leave; echo "not here"; }; through; echo "not here" ); echo "exit: $?"
+( set -e; fails() { false; echo "not here"; }; fails; echo "not here" ); echo "set -e: $?"
+withtrap() { trap 'echo "trap in $1"' USR1; kill -USR1 $$; :; trap - USR1; }
+withtrap one
+withtrap two
+retrap() { trap 'echo "returned"' RETURN 2> /dev/null; }
+tail_status() { inner x 2; }
+tail_status; echo "tail: $?"
+! inner x 1; echo "negated: $?"
+inner x 1 || echo "or: $?"
+inner x 0 && echo "and: $?"
+if inner x 1; then echo yes; else echo "else: $?"; fi
+
+echo "pipes and jobs"
+piped() { inner p 0 | tr p q; }
+piped
+sub=$(inner s 5); echo "$sub: $?"
+inner b 0 &
+wait $!
+echo "job: $?"
+
+echo "many"
+i=0
+while [ "$i" -lt 2000 ]; do a2() { :; }; a2; i=$(( i + 1 )); done
+echo "$i"

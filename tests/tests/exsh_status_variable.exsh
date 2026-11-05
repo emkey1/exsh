@@ -1,0 +1,53 @@
+#!/usr/bin/env exsh
+# EXSH_LAST_STATUS mirrors $?, whatever else has been done with the name.
+true; echo "true: $EXSH_LAST_STATUS"
+false; echo "false: $EXSH_LAST_STATUS"
+(exit 42); echo "42: $EXSH_LAST_STATUS"
+(exit 200); echo "200: $EXSH_LAST_STATUS"
+true; true; echo "again: $EXSH_LAST_STATUS"
+
+EXSH_LAST_STATUS=5
+echo "set by hand, then the assignment's own status: $EXSH_LAST_STATUS"
+unset EXSH_LAST_STATUS
+echo "unset, then unset's status: $EXSH_LAST_STATUS"
+false
+echo "back: $EXSH_LAST_STATUS"
+true
+
+# It stays out of what a program gets, and out of the export list.
+printenv EXSH_LAST_STATUS
+export | grep -c EXSH_LAST_STATUS
+false
+sh -c 'echo "in a program: $EXSH_LAST_STATUS"'
+true
+
+# In a function, as a local, and after one.
+f() { local EXSH_LAST_STATUS=9; echo "local: $EXSH_LAST_STATUS"; false; echo "local after false: $EXSH_LAST_STATUS"; }
+f
+echo "after the function: $EXSH_LAST_STATUS"
+g() { false; echo "in g: $EXSH_LAST_STATUS"; }
+g
+true
+
+# With everything exported.
+set -a
+false
+sh -c 'echo "allexport: $EXSH_LAST_STATUS"'
+set +a
+true
+
+# As an array, which the next status replaces.
+EXSH_LAST_STATUS=(1 2 3)
+echo "array: ${EXSH_LAST_STATUS[0]} ${#EXSH_LAST_STATUS[@]}"
+true
+
+# Read-only. Nothing after this sets it, and nothing fails over it.
+( readonly EXSH_LAST_STATUS; false; echo "read-only: $EXSH_LAST_STATUS, status $?"; true; echo "still: $EXSH_LAST_STATUS" )
+echo "outside: $EXSH_LAST_STATUS"
+
+# In a subshell and a substitution, which keep theirs.
+false
+( echo "subshell sees: $EXSH_LAST_STATUS"; true; echo "subshell: $EXSH_LAST_STATUS" )
+echo "after: $EXSH_LAST_STATUS"
+v=$(false; echo "substitution: $EXSH_LAST_STATUS"); echo "$v"
+echo "after: $EXSH_LAST_STATUS"

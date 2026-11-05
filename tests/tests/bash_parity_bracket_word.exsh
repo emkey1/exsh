@@ -69,6 +69,30 @@ echo z[
 echo \[z]
 shopt -u nullglob
 
+# A slash after a pattern takes only directories.
+echo "slashes"
+echo */
+echo ?/
+echo [ab]/
+echo [a]*/
+mkdir dir
+echo */
+echo ?ir/
+echo [d]ir/
+echo [d]*/
+rmdir dir
+
+# An expansion that holds a separator, and one that doesn't.
+echo "fields"
+old_ifs=$IFS
+IFS=:
+x=a:b
+y=ab
+echo $x
+echo $y
+for w in $x $y; do echo "for: $w"; done
+IFS=$old_ifs
+
 # From an expansion, split or not.
 x='['
 y='[ ['

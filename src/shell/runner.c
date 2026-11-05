@@ -680,7 +680,8 @@ int shellRunSource(const char *source,
     if (!source || !options) {
         return EXIT_FAILURE;
     }
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    const bool prompt_debug = getenv("PSCALI_PROMPT_DEBUG") != NULL;
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] enter path=%s source='%s'\n",
                 path ? path : "(null)",
                 source ? source : "(null)");
@@ -722,11 +723,11 @@ int shellRunSource(const char *source,
     } else {
         current_procedure_table = procedure_table;
     }
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] symbols-ready\n");
     }
     registerAllBuiltins();
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] builtins-registered\n");
     }
 
@@ -737,11 +738,7 @@ int shellRunSource(const char *source,
     BytecodeChunk chunk;
     bool chunk_initialized = false;
     /* eval, source and a trap work on the shell's own state and a script may call them in a loop,
-     * where building and freeing a VM was 40% of an eval. They keep one, as functions do, and
-     * one that runs inside another has to make its own. */
-    static VM shared_vm;
-    static bool shared_vm_ready = false;
-    static bool shared_vm_in_use = false;
+     * where building and freeing a VM was 40% of an eval. They use the shell's pool, as functions do. */
     bool using_shared_vm = false;
     VM *vm = NULL;
     bool vm_initialized = false;
@@ -761,7 +758,7 @@ int shellRunSource(const char *source,
     const char *parse_src = source;
 
     ShellParser parser;
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] parsing\n");
     }
     program = shellParseStringAtLine(parse_src, &parser, options->first_line);
@@ -772,7 +769,7 @@ int shellRunSource(const char *source,
     if (!syntax_error_later) {
         shellParserFree(&parser);
     }
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] parsed had_error=%d program=%p\n",
                 (int)parser.had_error,
                 (void *)program);
@@ -798,11 +795,11 @@ int shellRunSource(const char *source,
 
     shellInitSemanticContext(&sem_ctx);
     sem_ctx_initialized = true;
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] semantic-analyze\n");
     }
     ShellSemanticResult sem_result = shellAnalyzeProgram(&sem_ctx, program);
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] semantic-done err=%d warn=%d\n",
                 sem_result.error_count,
                 sem_result.warning_count);
@@ -817,7 +814,7 @@ int shellRunSource(const char *source,
 
     initBytecodeChunk(&chunk);
     chunk_initialized = true;
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] chunk-init\n");
     }
     bool used_cache = false;
@@ -829,7 +826,7 @@ int shellRunSource(const char *source,
         ShellOptConfig opt_config = { false };
         shellRunOptimizations(program, &opt_config);
         shellCompile(program, &chunk);
-        if (getenv("PSCALI_PROMPT_DEBUG")) {
+        if (prompt_debug) {
             fprintf(stderr, "[shell-run] compile-done\n");
         }
         if (!options->no_cache && path && path[0]) {
@@ -866,24 +863,20 @@ int shellRunSource(const char *source,
         goto cleanup;
     }
 
-    if (options->share_runtime_context && !__atomic_test_and_set(&shared_vm_in_use, __ATOMIC_ACQUIRE)) {
-        if (!shared_vm_ready) {
-            initVM(&shared_vm);
-            shared_vm_ready = true;
-        } else {
-            vmResetExecutionState(&shared_vm);
-        }
-        vm = &shared_vm;
-        using_shared_vm = true;
+    if (options->share_runtime_context) {
+        vm = shellVmAcquire();
+        using_shared_vm = vm != NULL;
     } else {
         vm = (VM *)calloc(1, sizeof(VM));
-        if (!vm) {
-            fprintf(stderr, "shell: failed to allocate VM instance.\n");
-            goto cleanup;
+        if (vm) {
+            initVM(vm);
         }
-        initVM(vm);
     }
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (!vm) {
+        fprintf(stderr, "shell: failed to allocate VM instance.\n");
+        goto cleanup;
+    }
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] vm-init\n");
     }
     vm_initialized = true;
@@ -931,7 +924,7 @@ int shellRunSource(const char *source,
         result = shellRunAfterDiscard(vm, program, options, redirect_scope_depth, &discard_base, result);
     }
     shellRuntimeSubstitutionTrapsBack(substitution_traps);
-    if (getenv("PSCALI_PROMPT_DEBUG")) {
+    if (prompt_debug) {
         fprintf(stderr, "[shell-run] interpret-done result=%d\n", (int)result);
     }
     if (result == INTERPRET_RUNTIME_ERROR) {
@@ -1031,11 +1024,8 @@ cleanup:
         gShellThreadOwnerVm = previous_thread_owner;
     }
     if (using_shared_vm) {
-        pscalRuntimeVmFlushOutput();
-        vmResetExecutionState(vm);
-        vm->frontendContext = NULL;
+        shellVmRelease(vm);
         vm = NULL;
-        __atomic_clear(&shared_vm_in_use, __ATOMIC_RELEASE);
     } else if (vm_initialized && vm && !left_stages) {
         freeVM(vm);
     }
