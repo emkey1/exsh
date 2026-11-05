@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Substitutions inside substitutions, past the four frames their stack starts with. From five levels
+# down this wrote into freed memory, which aborted most runs.
+sum() { if [ "$1" -le 0 ]; then echo 0; else echo $(( $1 + $(sum $(( $1 - 1 ))) )); fi; }
+for depth in 1 4 5 6 8 12; do
+    echo "sum $depth: $(sum "$depth")"
+done
+
+echo $(echo $(echo $(echo $(echo $(echo $(echo $(echo seven)))))))
+a=$(b=$(c=$(d=$(e=$(f=$(echo six); echo "$f+"); echo "$e+"); echo "$d+"); echo "$c+"); echo "$b+")
+echo "$a"
+
+# With a status, a failure and a variable at each level.
+level() {
+    local n=$1
+    if [ "$n" -gt 0 ]; then
+        local below
+        below=$(level $(( n - 1 )))
+        echo "$n:$? $below"
+    else
+        echo bottom
+        return 3
+    fi
+}
+level 9
+out=$(level 0); echo "$out $?"
+
+# Many in a row at that depth, so freed memory gets used again.
+i=0
+while [ "$i" -lt 40 ]; do
+    i=$(( i + 1 ))
+    x=$(echo $(echo $(echo $(echo $(echo $(echo "$i"))))))
+done
+echo "$x"

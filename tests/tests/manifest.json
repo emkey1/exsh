@@ -2174,6 +2174,14 @@
             "description": "After a group, loop, function, builtin or process substitution redirects stdout, stderr or stdin that were closed, they are closed again.",
             "script": "Tests/exsh/tests/bash_parity_stdout_stays_closed.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_substitution_depth",
+            "name": "Command substitutions nested past four levels",
+            "category": "parity",
+            "description": "Through a function or written out, with status and locals at each level. A frame kept across a nested substitution wrote into freed memory, and most runs aborted.",
+            "script": "Tests/exsh/tests/bash_parity_substitution_depth.exsh",
+            "expect": "match_bash"
         }
     ]
 }
