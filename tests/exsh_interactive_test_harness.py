@@ -47,6 +47,18 @@ class Result:
     output_tail: str
 
 
+def _session_members(session: int) -> List[int]:
+    listing = subprocess.run(["ps", "-A", "-o", "pid="], capture_output=True, text=True).stdout
+    members: List[int] = []
+    for word in listing.split():
+        try:
+            if os.getsid(int(word)) == session:
+                members.append(int(word))
+        except OSError:
+            pass
+    return members
+
+
 class PtyShell:
     def __init__(
         self,
@@ -95,19 +107,8 @@ class PtyShell:
         if self.selector is not None:
             self.selector.close()
             self.selector = None
-        if self.proc is not None and self.proc.poll() is None:
-            try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except OSError:
-                pass
-            try:
-                self.proc.wait(timeout=0.5)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(self.proc.pid, signal.SIGKILL)
-                except OSError:
-                    pass
-                self.proc.wait(timeout=0.5)
+        if self.proc is not None:
+            self._end_session()
         self.proc = None
         if self.master_fd is not None:
             try:
@@ -115,6 +116,28 @@ class PtyShell:
             except OSError:
                 pass
             self.master_fd = None
+
+    def _end_session(self) -> None:
+        """End the shell and whatever it started, even if the shell has already gone.
+
+        Each job has a process group of its own, so a signal to the shell's group misses it,
+        and with no controlling terminal nothing tells it the shell has gone. `watch -n 3 top`
+        then runs for good. Only the session still ties a job to the shell. A stopped job
+        takes no SIGTERM, which is why SIGKILL gets a turn too.
+        """
+        for sig, grace in ((signal.SIGTERM, 0.5), (signal.SIGKILL, 5.0)):
+            end = time.monotonic() + grace
+            while time.monotonic() < end:
+                self.proc.poll()
+                members = _session_members(self.proc.pid)
+                if not members:
+                    return
+                for pid in members:
+                    try:
+                        os.kill(pid, sig)
+                    except OSError:
+                        pass
+                time.sleep(0.05)
 
     def _normalise(self, data: bytes) -> str:
         text = data.decode("utf-8", errors="replace")
@@ -1783,7 +1806,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _stop_run(signum: int, frame: object) -> None:
+    raise SystemExit(128 + signum)
+
+
 def main() -> int:
+    # The default action would skip the finally that ends a scenario's shell and its jobs.
+    signal.signal(signal.SIGTERM, _stop_run)
     args = parse_args()
     scenarios = SCENARIOS
     if args.only:
