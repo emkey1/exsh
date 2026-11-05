@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+# A standalone exsh clone has no frontends beside it (exit 77 = skip).
+clike -v > /dev/null 2>&1 || exit 77
+
 echo "pipeline-clike-head:start"
 count=$(clike -v | head -n 1 | wc -l)
 count=$((count + 0))

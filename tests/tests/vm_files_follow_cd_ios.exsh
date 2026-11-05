@@ -2,6 +2,8 @@
 # On iOS cd moves the vproc's directory, not the process's, and a program's own file calls
 # used the process's, with no error. Each directory has its own copy of each name, so the
 # output tells which were read, written, appended to, renamed and erased.
+# A standalone exsh clone has no frontends beside it (exit 77 = skip).
+for f in pascal clike rea aether; do "$f" -v > /dev/null 2>&1 || exit 77; done
 echo "vm-files-follow-cd:start"
 d="${TMPDIR:-/tmp}/exsh_vm_files_cd.$$"
 rm -rf "$d"

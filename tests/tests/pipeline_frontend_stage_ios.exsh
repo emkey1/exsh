@@ -4,6 +4,8 @@
 # through a read or write that blocks, so this waited for a reader that was itself waiting
 # for this stage's end of the pipe, or for a writer stuck on a full pipe. It also wrote
 # another stage's buffered output to this stage's stdout.
+# A standalone exsh clone has no frontends beside it (exit 77 = skip).
+for f in pascal clike rea; do "$f" -v > /dev/null 2>&1 || exit 77; done
 echo "pipeline-frontend-stage:start"
 d="${TMPDIR:-/tmp}/exsh_frontend_stage.$$"
 mkdir -p "$d" || exit 1

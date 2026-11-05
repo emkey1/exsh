@@ -3,6 +3,8 @@
 # compile state was process-wide, so two frontends at once crashed the app or reported each
 # other's names as undefined or redefined. Each program declares variables and routines, or it
 # hides: a program with no names has nothing to collide.
+# A standalone exsh clone has no frontends beside it (exit 77 = skip).
+for f in pascal clike rea; do "$f" -v > /dev/null 2>&1 || exit 77; done
 echo "frontends-at-once:start"
 d="${TMPDIR:-/tmp}/exsh_frontends_at_once.$$"
 mkdir -p "$d" || exit 1
