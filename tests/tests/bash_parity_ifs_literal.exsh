@@ -1,0 +1,330 @@
+#!/usr/bin/env exsh
+# IFS splits only what an expansion produced. Text a word itself holds stays whole, command
+# names and paths included, and an expansion beside it is still split. Every form here gives
+# the same answer on bash 3.2 and 5. What only 5 gets right is in ifs_literal_bash5.
+show() { printf '%s:' "$#"; printf '<%s>' "$@"; echo; }
+d="${TMPDIR:-/tmp}/exsh_parity_ifs_literal.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+: > fa; : > fb; : > a-1; : > x.txt; mkdir sub; : > sub/x
+printf '#!/bin/sh\necho "script $#"\n' > s.sh; chmod +x s.sh
+restore() { unset IFS; }
+
+echo '--- a word with no expansion'
+IFS=:; show a:b; restore
+IFS=,; show a,b c,d; restore
+IFS=/; show /dev/null; ls /dev/null; restore
+IFS=e; echo hello; restore
+IFS=x; echo axb; restore
+IFS=e; printf '%s\n' here; restore
+IFS=:; show :; show ::; show :a; show a:; restore
+IFS=' :'; show a:b; restore
+f() { echo "$#"; }; IFS=:; f a:b; restore
+IFS=:; x=$(echo c:d); show "$x"; restore
+IFS=:; x=`echo c:d`; show "$x"; restore
+
+echo '--- quotes beside literal text'
+IFS=:; show a:"b:c"; show "a:b":c; show a:'b:c'; show a\:b; restore
+IFS=:; show ""a:b; show a:b""; restore
+IFS=:; show a:"*"; show a:"*":b; show "*":b:"?"; show '[':']'; restore
+IFS=b; show a"*"b; show a'?'b"["; restore
+IFS=a; show "*"a; restore
+IFS=/; show "sub"/x; show sub/"x"; show "./"sub/x; restore
+IFS=:; show \*:\?; show a:\[b\]; restore
+
+echo '--- what an expansion made is still split'
+IFS=:; x=a:b; show $x; show "$x"; show ${x}; restore
+IFS=:; x=a:b; show $(echo $x); show "$(echo $x)"; restore
+IFS=1; show $((215)); restore
+IFS=:; p=a:b:c; for w in $p; do echo "$w"; done; restore
+old=$IFS; IFS=:; p=a:b; set -- $p; IFS=$old; show "$@"; set --
+IFS=$'\n'; x=$(printf 'a b\nc'); show $x; restore
+IFS=$'\t'; x=$(printf 'a b\tc'); show $x; show $'a\tb'; restore
+IFS=$'\n'; show $'a\nb'; show "a
+b"; restore
+IFS=; x='a b'; show $x; show a:b; restore
+unset IFS; x='a b'; show $x; show a:b; restore
+IFS=e; show $(echo hello)x; show x$(echo hello); show x"$(echo hello)"; restore
+
+echo '--- the word of a ${...} is what an expansion made'
+unset x
+IFS=:; show ${x:-a:b}; show "${x:-a:b}"; x=; show ${x:-c:d}; show ${x:-"c:d"}; unset x; restore
+IFS=:; y=v; show ${y:+p:q}; show "${y:+p:q}"; show ${y:+"p:q"}; restore
+IFS=:; unset z; show ${z:=r:s}; show "$z"; unset z; restore
+IFS=:; n=abc:def; show ${n%:*}; show ${n#*:}; show ${n/c:d/g:h}; restore
+IFS=e; show ${x-hello}; show "${x-hello}"; show ${x-"hello"}; show ${x-${y2-hello}}; show ${x-he$(echo llo)}; restore
+IFS=:; show ${x:-"a:b"}x; show ${x:-a\:b}; restore
+IFS=e; v=abc; show ${#v}; show ${v/b/e}; show ${v/b/"e"}; restore
+
+echo '--- quotes beside an expansion'
+x='a b'; e=; y='a '; g='f*'
+show "c"$x; show $x"c"; show "c"$x"d"; show ""$x; show $x""; show ""$e; show $e""
+show "$e"$e; show $x"$e"; show "$e"$x; show "$e"$y; show ""$y
+show 'c'$x; show $x'c'; show 'c'$x'd'; show ''$x; show $x''; show $'c'$x; show $x$'c'
+show "c"$(echo a b); show $(echo a b)"c"; show 'c'$(echo a b); show "c"`echo a b`; show `echo a b`"c"
+show "c"${x}; show ${x}"c"; show "c"${x:-p q}; show "c"${nope:-p q}; show ${nope:-p q}"c"
+show "$x"$x; show $x"$x"; show "$x"$x"$x"
+show \c$x; show $x\c
+IFS=:; p=a:b; show "c"$p; show $p"c"; restore
+
+echo '--- delimiters'
+IFS=' :'; y=' a : b '; show $y; show "c"$y; show $y"c"; w='a : '; show $w; show $w"q"; show "q"$w; v=' : a'; show $v; show "q"$v; restore
+IFS=' :'; y='a  :  :  b'; show $y; y=':::'; show $y; y=' : '; show $y; y=' '; show $y; y=':'; show $y; restore
+IFS=' :'; y='a b:c'; show $y; y='a: b :c'; show $y; show "$y"; show "q"$y"r"; restore
+IFS=:; y=:a::b:; show $y; show q$y; show "q"$y; show $y"q"; restore
+IFS=$' \t\n'; y=$'a \t\n b'; show $y; show "q"$y; restore
+IFS=,; y=a,b,; show $y; y=,; show $y; y=,,; show $y; show "q"$y; show $y"q"; restore
+
+echo '--- $@ and $*'
+IFS=:; set -- a:b c; show $@; show "$@"; show $*; show "$*"; restore
+IFS=:; set -- a:b c; show x"$@"y; show "$@"z; restore
+set -- a '' b; show $@; show "$@"; show $*; show z$@; show z"$@"
+IFS=:; set -- a '' b; show $@; show x$@y; show x"$@"y; show $*; restore
+IFS=:; set -- a: b; show $@; show $*; set -- :a b; show $@; set -- a :b; show $@; set -- a b:; show $@; restore
+IFS=:; set -- '' ''; show $@; set -- '' '' ''; show $@; set -- ''; show $@; set -- a ''; show $@; set -- '' a; show $@; show z$@; show $@z; show z$*; restore
+IFS=': '; set -- a '' b; show $@; set -- 'a b' c; show $@; show $*; restore
+IFS=' :'; set -- a '' b; show $@; set -- 'a b' c; show $@; show $*; restore
+unset IFS; set -- '' ''; show z$@; show $@z; show z$@z
+IFS=; set -- a '' b; show $@; show "$@"; show $*; show "$*"; show z$@; set -- 'a b' c; show $@; show $*; show z$@z; x2=; show $x2; show ""$x2; restore
+set -- 'a b' c
+x='p q'
+show "$@"$x; show $x"$@"; show "z"$@; show $@"z"; show "z"$*; show $*"z"; show "$*"$x; show 'z'$@; show $@'z'; show "$@"; show "$@""$@"; show "$@"'z'; show 'z'"$@"
+show ""$@; show $@""; show ""$*; show $*""
+set -- a ''; e=
+show "$@"; show $@; show "z"$@; show $@"z"; show "$@"z; show z"$@"; show "$@"$e
+set -- '' a
+show "$@"; show $@; show "z"$@; show $@"z"; show "$@"z; show z"$@"
+set -- ''
+show "$@"; show $@; show "z"$@; show $@"z"; show "$@"z; show ""$@; show $@""
+set -- '' ''
+show "$@"; show $@; show "z"$@; show $@"z"; show "$@"z
+set --
+show "$@"; show $@; show "z"$@; show $@"z"; show ""$@; show $@""; show ""$*; show $*""; show "$@"$e; show $e"$@"; show "$e"$@; show $@"$e"; show "$@"$@
+set --
+
+echo '--- arrays'
+IFS=:; a=(p:q r); show ${a[@]}; show "${a[@]}"; show x${a[@]}y; show "${a[*]}"; show ${a[*]}; restore
+IFS=:; arr=("a:b" c\:d 'e:f' g:h); show "${#arr[@]}" "${arr[@]}"; restore
+IFS=:; arr=([0]=a:b [1]=c:d); show "${#arr[@]}" "${arr[@]}"; restore
+IFS=:; declare -a q=(a:b c); show "${#q[@]}"; restore
+f() { local -a l=(a:b c); show "${#l[@]}"; }; IFS=:; f; restore
+IFS=:; arr=(x); arr+=(y:z); show "${#arr[@]}"; restore
+IFS=:; arr=(a:b c:d); show "${#arr[@]}" "${arr[0]}"; restore
+IFS=:; arr=(a:b {x:y,z}); show "${#arr[@]}" "${arr[@]}"; restore
+IFS=:; v=p:q; arr=($v r:s); show "${#arr[@]}" "${arr[@]}"; restore
+x='a b'; z=(""$x "q"$x); show "${#z[@]}" "${z[@]}"
+e=; z=(""$e); show "${#z[@]}"; z=($e); show "${#z[@]}"
+a=('p q' r); show "z"${a[@]}; show ${a[@]}"z"; show "z"${a[*]}; show "${a[@]}"$x; show "${a[@]}"
+a=(); show "z"${a[@]}; show ${a[@]}"z"; show "${a[@]}"; show ""${a[@]}; show ${a[@]}""; show "$e"${a[@]}
+a=(''); show ${a[@]}; show "${a[@]}"; show "z"${a[@]}
+a=(p '' q); show ${a[@]}; show "${a[@]}"; show ${a[*]}
+a=(x '' y); IFS=:; show ${a[@]}; show ${a[*]}; show q${a[@]}r; restore
+
+echo '--- for, while, until'
+IFS=:; for w in a:b; do echo "[$w]"; done; restore
+IFS=:; for w in a:b c:d; do echo "[$w]"; done; restore
+IFS=:; v=a:b; for w in $v; do echo "[$w]"; done; restore
+IFS=:; v=a:b; for w in "$v"; do echo "[$w]"; done; restore
+IFS=:; for w in {a:b,c}; do echo "[$w]"; done; restore
+IFS=:; c=0; for w in a:b; do c=$((c+1)); done; echo "$c"; restore
+IFS=:; i=0; while [ a:b = a:b ] && [ $i -lt 1 ]; do echo same; i=1; done; restore
+IFS=:; i=0; until [ a:b != a:b ] || [ $i -ge 1 ]; do echo same2; i=1; done; restore
+IFS=e; i=0; while test $i -lt 1; do echo loop; i=1; done; restore
+IFS=o; for w in foo bar; do echo "$w"; done; restore
+IFS=o; while [ foo = bar ]; do :; done; echo done1; restore
+IFS=o; n=0; while [ foo = foo ]; do n=$((n+1)); [ $n -ge 2 ] && break; done; echo $n; restore
+IFS=o; n=0; until [ foo != foo ]; do n=$((n+1)); [ $n -ge 2 ] && break; done; echo $n; restore
+IFS=2; n=0; while [ $n -lt 12 ]; do n=$((n+5)); done; echo "$n"; restore
+IFS=:; n=0; while test a:b = a:b && [ "$n" != 2 ]; do n=$((n+1)); done; echo "$n"; restore
+IFS=:; f() { show "$@"; for w; do echo "$w"; done; }; f a:b c:d; restore
+x='a b'; g='f*'; e=
+for w in "c"$x; do echo "[$w]"; done
+for w in ""$g; do echo "[$w]"; done
+for w in ""$e; do echo "[$w]"; done
+for w in $e""; do echo "[$w]"; done
+for w in $e; do echo "[$w]"; done
+while [ f* = 'f*' ] 2>/dev/null; do echo w0; break; done
+while [ fa* = fa ]; do echo w1; break; done
+i=0; while [ ""$e = "" ] && [ $i = 0 ]; do echo w2; i=1; done
+i=0; while [ $e"" = "" ] && [ $i = 0 ]; do echo w3; i=1; done
+i=0; until [ "$e"$e != "" ] || [ $i = 1 ]; do echo w4; i=1; done
+i=0; while test ""$e = "" && test $i = 0; do echo w6; i=1; done
+i=0; while [ "a"$e = a ] && [ $i = 0 ]; do i=1; echo w7; done
+
+echo '--- case and tests'
+IFS=:; case a:b in a:b) echo y;; *) echo n;; esac; restore
+IFS=:; v=a:b; case $v in a:b) echo y;; *) echo n;; esac; restore
+IFS=:; case a:b in a:*) echo y;; *) echo n;; esac; restore
+IFS=:; case x in x|a:b) echo y;; *) echo n;; esac; restore
+IFS=o; case foo in f*) echo y;; esac; case foo in foo) echo y;; esac; x=foo; case $x in foo) echo y;; esac; restore
+IFS=:; [ a:b = a:b ] && echo t1; test a:b = a:b && echo t2; [[ a:b == a:b ]] && echo t3; restore
+IFS=:; [[ a:b =~ a:b ]] && echo t4; restore
+IFS=o; [ foo = foo ] && echo y; if [ foo = foo ]; then echo y; fi; restore
+IFS=:; [[ a:b == a:b ]] && echo c1; [[ a:b == a* ]] && echo c2; [[ a:b =~ ^a:b$ ]] && echo c3; [[ a.b =~ a.b ]] && echo c4; [[ axb =~ a.b ]] && echo c5; restore
+IFS=.; [[ axb == a?b ]] && echo c7; restore
+IFS=:; (( 1 + 1 )) && echo c8; echo $(( 2 + 3 )); restore
+IFS=+; echo $(( 2+3 )); (( 2+3 )) && echo c9; restore
+x='a b'; e=
+case "a"$x in "aa b") echo cs1;; *) echo cs2;; esac
+case "x" in ""$g) echo cs3;; "x"$e) echo cs4;; esac
+[ "c"$e = c ] && echo t5
+
+echo '--- braces'
+IFS=,; show {a,b}; show {a,b}c,d; show {a,b},c; show {1,2}{3,4}; x=a,b; show {$x,c}; restore
+IFS=:; show {a:b,c:d}; show x{1,2}:y; restore
+IFS=.; show {1..3}; show a.{b,c}; restore
+IFS='{'; show {a,b}; restore
+IFS='}'; show {a,b}; show a}b; restore
+
+echo '--- globs still match'
+IFS=/; show sub/*; show ./sub/x; show /de*/nul*; show sub/f*; show sub/?; restore
+IFS=:; show nomatch:*; restore
+IFS=a; show f*; show f[ab]; restore
+IFS=.; show *.txt; show x.*; restore
+IFS=-; show a-*; show a-?; restore
+IFS=:; set -f; show a:*; set +f; restore
+g='f*'; e=
+show $g; show "$g"; show "x"$g; show ""$g; show $g""; show "f"*; show f"*"; show "f"?; show f"?"; show "f"$e*
+show ""*; show "$e"f*; show "$e"$g; show 'f'*; show ''$g; show $g''; show "f"$e?
+set -f; show ""$g; show "f"*; set +f
+
+echo '--- redirection targets'
+IFS=:; echo one > r:1; cat r:1; restore
+IFS=/; echo two > ./sub/r2; cat ./sub/r2; restore
+IFS=e; echo three > here; cat here; restore
+IFS=:; v=m:n; echo four > "$v"; cat "m:n"; restore
+IFS=/; echo x >> ./f; cat < ./f; restore
+IFS=/; echo y >| ./f2; cat ./f2; restore
+IFS=/; echo z &> ./f3; cat ./f3; restore
+IFS=/; echo w > ./f4 2>&1; cat ./f4; restore
+IFS=/; cat <<< a/b; restore
+IFS=/; { echo g; } > ./g1; cat ./g1; restore
+IFS=/; ( echo h ) > ./g2; cat ./g2; restore
+IFS=/; for i in 1; do echo j; done > ./g3; cat ./g3; restore
+IFS=/; while read -r l; do echo "$l"; done < ./g3; restore
+IFS=/; exec 3> ./g4; echo k >&3; exec 3>&-; cat ./g4; restore
+IFS=/; v=x; echo l > ./"$v"; cat ./x; restore
+IFS=/; echo cz | cat > ./g5; cat ./g5; restore
+IFS=/; f() { echo m; } > ./g6; f; cat ./g6; unset -f f; restore
+IFS=E; cat <<EOF
+heredoc E
+EOF
+restore
+IFS=1; echo x >&1; restore
+IFS=2; echo x 2>&1; restore
+IFS=1; echo x > /dev/null 2>&1; echo $?; restore
+IFS=2; echo err 1>&2 2>/dev/null; restore
+x='a b'; e=
+echo am 2>/dev/null > $x; echo "am $?"
+IFS=:; y=c:d; echo am 2>/dev/null > $y; echo "am $?"; restore
+echo x > "o"$e; cat o
+echo x 2>/dev/null > "o"$x; echo "am $?"
+echo x 2>/dev/null > ""$x; echo "am $?"
+echo x 2>/dev/null > $x""; echo "am $?"
+echo x 2>/dev/null > ""$e; echo "em $?"
+echo x 2>/dev/null > $e""; echo "em $?"
+echo x 2>/dev/null > "$e"$e; echo "em $?"
+echo x 2>/dev/null > $e; echo "em $?"
+set --; echo x 2>/dev/null > "$@"; echo "at $?"; echo x 2>/dev/null > $@; echo "at $?"
+set -- u v; echo x 2>/dev/null > $@; echo "at $?"; echo x 2>/dev/null > "$@"; echo "at $?"; echo x 2>/dev/null > z$@; echo "at $?"; [ -e 'u v' ] && echo made
+set -- u; echo x > $@; cat u; echo y > "$@"; cat u; IFS=:; set -- u w; echo z > "$*"; cat u:w; restore
+set --
+
+echo '--- assignments and declarations'
+IFS=:; a=b:c; show "$a"; restore
+IFS=:; a=b:c show2=1; show "$a"; restore
+IFS=:; export e1=b:c; show "$e1"; restore
+IFS=:; declare d1=b:c; show "$d1"; restore
+IFS=:; readonly ro1=b:c; show "$ro1"; restore
+IFS=:; p1=b:c env | grep '^p1='; restore
+IFS=:; show x=a:b; restore
+IFS='='; show a=b; a=b; echo "$a"; export q1=1; show "$q1"; env q2=1 sh -c 'echo "$q2"'; restore
+x='a b'; e=
+x3="a"$x; show "$x3"
+export x4="a"$x; show "$x4"
+x5="a"$e"b"; show "$x5"
+a="("$e; echo "[$a]"; b="(x)"$e; echo "[$b]"; c=$e"(x)"; echo "[$c]"
+IFS=_; x_y=1; echo $x_y; show x_y; restore
+IFS=a; a=1; echo $a; echo ${a}; echo $((a+1)); restore
+IFS=:; p=$PATH; export PATH=$PATH:/x; PATH=$p; restore
+IFS=:; PATH=$PATH:/x show ok; restore
+IFS=:; printf -v v '%s' a:b; show "$v"; restore
+
+echo '--- commands'
+IFS=/; ./s.sh; ./s.sh a/b; /bin/echo ok; ./s.sh | cat; restore
+IFS=.; ./s.sh; restore
+IFS=-; ls -d /dev/null; echo -n x; echo; set -- -a -b; show "$@"; restore
+set --
+IFS=n; echo -n x; echo; restore
+IFS=h; hf() { echo fn; }; hf; restore
+IFS=:; a:b() { echo fnc; }; a:b; restore
+"ec"ho hi; e"ch"o hi; ec$e"ho" hi; "echo" hi; 'echo' hi; "ech"$'o' hi
+ew=echo; "$ew" hi; $ew hi; ""$ew hi; "$e"$ew hi
+IFS=:; command echo a:b; builtin echo a:b; restore
+IFS=e; command echo hello; env echo hello; restore
+IFS=e; command -v echo; type echo; restore
+IFS=:; eval 'show a:b'; eval show a:b; restore
+IFS=e; eval echo hello; eval "echo hello"; restore
+IFS=:; eval 'for k in a:b; do show "$k"; done'; restore
+IFS=:; echo c:d | cat; echo c:d | { read l; show "$l"; }; restore
+IFS=:; ( show a:b ); { show a:b; }; show a:b | cat; restore
+IFS=:; sh -c 'echo "$1"' s a:b; restore
+IFS=e; sh -c 'echo x'; sh -c 'echo hello'; restore
+IFS=:; set -- a:b; show "$1"; show $1; restore
+set --
+IFS=:; g2() { local q=a:b; show "$q"; show $q; show c:d; }; g2; restore
+IFS=:; h2() { local IFS=,; show a,b; show a:b; }; h2; restore
+IFS=e; cat <<EOF
+here e
+EOF
+restore
+IFS=:; x=$(IFS=,; echo a,b); show "$x"; restore
+IFS=:; trap 'show t:u' USR1; kill -USR1 $$; trap - USR1; restore
+IFS=:; printf '%s\n' $(printf 'p:q\n'); restore
+IFS=/; cd sub; cd ..; restore
+IFS=/; . /dev/null; echo sourced; restore
+IFS=, show a,b; x=a,b; IFS=, show $x
+IFS=: eval 'show a:b; y=c:d; show $y'; restore
+IFS=, read -r q r <<< 'a,b'; show "$q" "$r"
+IFS=:; set -- x:y z; shift; show "$@"; restore
+set --
+IFS=:; unset nope; show "${nope:-a:b}"; restore
+IFS=:; getopts a:b o -a v; show "$o" "$OPTARG"; OPTIND=1; restore
+x='a b'
+f() { show "$@"; }; f "c"$x
+eval show '"c"$x'
+eval 'show "c"$x'
+sh -c 'echo "$#"' s "c"$x
+( show "c"$x ); { show "c"$x; }
+show "c"$x | cat
+y2=$(show "c"$x); echo "$y2"
+cat <<< "a"$x
+
+echo '--- jobs and stages'
+IFS=e; echo hello & wait; restore
+IFS=e; echo hello $(true) & wait; restore
+IFS=e; echo hello | cat & wait; restore
+IFS=e; echo $(echo hello) & wait; restore
+IFS=e; ( echo hello ) & wait; restore
+IFS=e; { echo hello; } & wait; restore
+IFS=e; echo hello | cat; echo hello | { cat; }; restore
+IFS=e; x=hello; echo $x | cat; echo "$x" | cat; restore
+IFS=e; echo hello > ./o1 & wait; cat ./o1; restore
+IFS=e; echo hello | tr h H; restore
+IFS=e; x=$(echo hello | cat); show "$x"; restore
+IFS=e; ( exec echo hello ); restore
+IFS=e; echo hello | xargs echo; restore
+x='a b'; show "c"$x & wait
+
+echo '--- bytes a word can hold'
+IFS='$'; show a$; show $; restore
+IFS='~'; show a~b; show ~q~; restore
+IFS='#'; show a#b; restore
+IFS='!'; show a!; restore
+IFS='%'; show a%b; printf '%s\n' a; restore
+IFS='\'; show 'a\b'; x='a\b'; show $x; restore
+IFS='"'; show a\"b; x='a"b'; show $x; restore
+
+cd /
+rm -rf "$d"

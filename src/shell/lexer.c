@@ -686,6 +686,10 @@ static ShellToken scanWord(ShellLexer *lexer) {
                 continue;
             }
             hasParam = true;
+            /* "a"$x is not a quoted word: IFS splits the $x, and a glob in its value matches. */
+            if (!doubleQuoted) {
+                sawUnquotedSegment = true;
+            }
             if (!appendWordByte(&buffer, &bufLen, &bufCap, (char)c)) {
                 free(buffer);
                 return makeErrorToken(lexer, "Out of memory while scanning word");

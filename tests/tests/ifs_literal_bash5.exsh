@@ -1,0 +1,27 @@
+#!/usr/bin/env exsh
+# Literal text beside an expansion, where bash 3.2 still splits and bash 5 does not. exsh
+# follows 5, so the answers are fixed here and were read off bash 5.3.
+show() { printf '%s:' "$#"; printf '<%s>' "$@"; echo; }
+d="${TMPDIR:-/tmp}/exsh_ifs_literal_bash5.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+: > fa; : > fb
+
+IFS=:; x=m; show a:$x:b; unset IFS
+IFS=:; p=a:b; show "c"$p:d; unset IFS
+IFS=:; set -- a b; show "$@":c:d "$*":e; unset IFS
+IFS=:; v=m; echo five > $v:o; cat m:o; unset IFS
+IFS=:; read -r l <<< a:b; show "$l"; unset IFS
+IFS=:; read -r l1 l2 <<< a:b; show "$l1" "$l2"; unset IFS
+IFS="'"; show a\'b; unset IFS
+IFS=.; [[ axb =~ a.b ]] && echo matches; unset IFS
+IFS='*'; show f*; unset IFS
+IFS='?'; show f?; unset IFS
+IFS='['; show f[ab]; unset IFS
+IFS='*'; show "f*"; show 'f*'x; unset IFS
+set --; show "$@"""; show """$@"
+set --
+
+cd /
+rm -rf "$d"

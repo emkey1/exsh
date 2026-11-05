@@ -2350,6 +2350,23 @@
             "description": "A FIFO's open waits for the other end, usually the shell's next command, so the shell must not make it. Every kind of job and stage as writer and reader, a job killed while it waits, under a trap too, and each redirection in its turn: what follows a failure is not opened, and a number on the list is not there before its turn. Ends itself if a form blocks.",
             "script": "Tests/exsh/tests/bash_parity_fifo_job.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_ifs_literal",
+            "name": "IFS splits only what an expansion produced",
+            "category": "parity",
+            "description": "Text a word itself holds stays whole, command names and paths included, an expansion beside it or beside quotes is still split, and $@ joins with IFS's first character before it is split.",
+            "script": "Tests/exsh/tests/bash_parity_ifs_literal.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "ifs_literal_bash5",
+            "name": "IFS and literal text where bash 3.2 and 5 differ",
+            "category": "parity",
+            "description": "Literal text beside an expansion, here strings and an IFS that holds a glob character, with bash 5's answers fixed.",
+            "script": "Tests/exsh/tests/ifs_literal_bash5.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "1:<a:m:b>\n2:<ca><b:d>\n3:<a><b:c:d><a:b:e>\nfive\n1:<a:b>\n2:<a><b>\n1:<a'b>\nmatches\n2:<fa><fb>\n2:<fa><fb>\n2:<fa><fb>\n1:<f*>\n1:<f*x>\n1:<>\n1:<>\n"
         }
     ]
 }
