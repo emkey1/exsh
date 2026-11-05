@@ -1441,6 +1441,61 @@ def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
     return True, "a genuine syntax error reported without waiting for more input"
 
 
+def _ends_the_shell(shell: PtyShell, test_id: str, lines: list[str]) -> tuple[bool, str]:
+    """On iOS these end the session, wherever they run. Each line's {out} takes only what must not run."""
+    # On a host they signal the real pid 1, which a run as root in a container would feel.
+    if "ios-host" not in str(shell.executable):
+        return True, "only the iOS flavour"
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path(test_id)
+    _unlink_if_exists(marker)
+    out = _shell_path(marker)
+    _type_lines(shell, [f"trap 'echo ended >> {out}' EXIT"] + [line.format(out=out) for line in lines])
+    shell.wait_for_path(marker)
+    shell._pump(0.5)
+    got = marker.read_text().split() if marker.exists() else []
+    _unlink_if_exists(marker)
+    _unlink_if_exists(Path(f"{marker}.sh"))
+    if got != ["ended"]:
+        return False, f"got {got}, want only the shell's end"
+    try:
+        status = shell.proc.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        return False, "the shell's process did not end"
+    if status != 0:
+        return False, f"status {status}, want 0: it ended as it was asked to"
+    return True, ""
+
+
+def scenario_halt_ends_the_shell(shell: PtyShell) -> tuple[bool, str]:
+    return _ends_the_shell(shell, "halt_ends", ["halt; echo same_line >> {out}", "echo next_line >> {out}"])
+
+
+def scenario_reboot_ends_a_sourced_file(shell: PtyShell) -> tuple[bool, str]:
+    return _ends_the_shell(shell, "reboot_sourced", [
+        "printf 'reboot\\necho in_file >> {out}\\n' > {out}.sh",
+        ". {out}.sh; echo same_line >> {out}",
+        "echo next_line >> {out}",
+    ])
+
+
+def scenario_poweroff_in_a_stage_ends_the_shell(shell: PtyShell) -> tuple[bool, str]:
+    return _ends_the_shell(shell, "poweroff_stage", ["poweroff | cat; echo same_line >> {out}", "echo next_line >> {out}"])
+
+
+def scenario_halt_in_a_subshell_ends_the_shell(shell: PtyShell) -> tuple[bool, str]:
+    return _ends_the_shell(shell, "halt_subshell", ["( halt ); echo same_line >> {out}", "echo next_line >> {out}"])
+
+
+def scenario_halt_ends_its_callers(shell: PtyShell) -> tuple[bool, str]:
+    return _ends_the_shell(shell, "halt_callers", [
+        "f() {{ halt; echo in_function >> {out}; }}; for i in 1 2; do f; echo in_loop >> {out}; done; echo same_line >> {out}",
+        "echo next_line >> {out}",
+    ])
+
+
 SCENARIOS: List[Scenario] = [
     Scenario(
         test_id="interactive_history_file_limit",
@@ -1656,6 +1711,31 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_read_d",
         name="read -d ends at its delimiter with no Return",
         run=scenario_read_d_ends_at_its_delimiter,
+    ),
+    Scenario(
+        test_id="interactive_halt_ends_shell",
+        name="halt at the prompt ends the shell, and the rest of its line stays unrun",
+        run=scenario_halt_ends_the_shell,
+    ),
+    Scenario(
+        test_id="interactive_reboot_sourced",
+        name="reboot in a sourced file ends the shell there",
+        run=scenario_reboot_ends_a_sourced_file,
+    ),
+    Scenario(
+        test_id="interactive_poweroff_stage",
+        name="poweroff in a pipeline stage ends the shell",
+        run=scenario_poweroff_in_a_stage_ends_the_shell,
+    ),
+    Scenario(
+        test_id="interactive_halt_subshell",
+        name="halt in a subshell ends the shell, not only the subshell",
+        run=scenario_halt_in_a_subshell_ends_the_shell,
+    ),
+    Scenario(
+        test_id="interactive_halt_callers",
+        name="halt in a function in a loop ends them and the shell",
+        run=scenario_halt_ends_its_callers,
     ),
 ]
 
