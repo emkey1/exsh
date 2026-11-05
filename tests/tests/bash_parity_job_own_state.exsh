@@ -1,0 +1,191 @@
+#!/usr/bin/env exsh
+# What a simple background command changes stays in the job, as in a forked child, and it has
+# what the shell had at the `&`. On iOS every command shares one process, and a job's builtins
+# and functions used to reach the shell's variables and directory, where a compound job had
+# its own all along.
+d="${TMPDIR:-/tmp}/exsh_parity_job_state.$$"
+rm -rf "$d"
+mkdir -p "$d/w/sub" || exit 1
+cd "$d/w" || exit 1
+
+here() { p=$(pwd); echo "  dir [${PWD##*/}] [${p##*/}]"; }
+
+echo "variables"
+f() { v=2; echo "  in [$v]"; }
+v=1; f & wait; echo "  [$v]"
+v=1; read v <<< x & wait; echo "  [$v]"
+echo y > infile; v=1; read v < infile & wait; echo "  [$v]"
+v=1; eval v=2 & wait; echo "  [$v]"
+echo 'v=2' > src; v=1; . ./src & wait; echo "  [$v]"
+v=1; printf -v v x & wait; echo "  [$v]"
+v=1; let v=2 & wait; echo "  [$v]"
+v=1; export v=2 & wait; echo "  [$v]"
+v=1; declare v=2 & wait; echo "  [$v]"
+v=1; unset v & wait; echo "  [$v]"
+v=1; v=2 & wait; echo "  [$v]"
+v=1; readonly v=2 & wait; v=3; echo "  [$v]"
+w=5; export w & wait; sh -c 'echo "  [${w-unset}]"'
+a=(1 2); s() { a[0]=9; a[2]=3; }; s & wait; echo "  [${a[*]}]"
+s() { IFS=:; }; s & wait; x='a b'; set -- $x; echo "  $#"
+declare -i n & wait; n=1+1; echo "  [$n]"
+
+echo "a prefix"
+f() { echo "  in [$p]"; p=3; }
+p=0; p=1 f & wait; echo "  [$p]"
+unset P; P=1 read r <<< y & wait; echo "  [$r] [${P-unset}]"
+
+echo "the directory"
+g() { cd sub; here; echo x > made; }
+g & wait; here
+if [ -e sub/made ]; then echo "  the job moved"; fi
+cd sub & wait; here
+eval 'cd sub' & wait; here
+echo 'cd sub' > src; . ./src & wait; here
+command cd sub & wait; here
+builtin cd sub & wait; here
+g() { cd /; }; g & wait; here
+cd nosuch 2>/dev/null & wait $!; echo "  rc $?"; here
+pushd sub > /dev/null & wait; here; dirs > dl; read -r one two < dl; echo "  [${two-}]"
+pushd sub > /dev/null; popd > /dev/null & wait; here; popd > /dev/null
+pwd > pw & cd sub; wait; sed 's,.*/,  job in ,' ../pw; cd ..
+g() { sleep 0.2; pwd > pw2; }; g & cd sub; wait; sed 's,.*/,  job in ,' ../pw2; cd ..
+
+echo "parameters"
+set -- a b c; shift & wait; echo "  $# $1"
+set -- a b c; set -- x & wait; echo "  $# $1"
+s() { shift; echo "  in $# $1"; }; set -- a b; s p q & wait; echo "  $# $1"
+
+echo "definitions"
+d1() { h() { echo h; }; }; d1 & wait; type h > /dev/null 2>&1; echo "  rc $?"
+k() { echo "  k"; }; unset -f k & wait; k
+shopt -s expand_aliases; alias al=b & wait; alias al > /dev/null 2>&1; echo "  rc $?"
+alias al=b; unalias al & wait; alias al > /dev/null 2>&1; echo "  rc $?"; unalias al
+touch g1; set -f & wait; echo "  "g*
+shopt -s nullglob & wait; echo "  "nomatch*
+( set -e & wait; false; echo "  survived" )
+( set -u & wait; echo "  [$nosuch]" )
+trap 'echo t' USR1 & wait; trap > tf; grep -c USR1 tf | tr -d ' '
+hash -r & wait; echo "  hash $?"
+
+echo "what it has is what the shell had at the &"
+f() { sleep 0.2; echo "  job [$v]"; }; v=1; f & v=5; wait; echo "  [$v]"
+f() { echo "  old"; }; for i in 1 2 3 4 5; do f & f() { echo "  new"; }; wait; f() { echo "  old"; }; done
+f() { echo "  still here"; }; for i in 1 2 3 4 5; do f & unset -f f; wait; f() { echo "  still here"; }; done
+{ f; } & unset -f f; wait; f() { echo "  still here"; }
+b() { sleep 0.2; echo "  $# $1"; }; set -- a; b "$@" & set -- x y z; wait
+
+echo "a function's locals"
+f() { local l=1; echo "  $l" & wait; g2() { echo "  g2 $l"; l=2; }; g2 & wait; echo "  [$l]"; }; f
+f() { local l=1; read l <<< x & wait; echo "  [$l]"; }; f; echo "  [${l-unset}]"
+f() { local l=1; l=2 & wait; echo "  [$l]"; }; f
+
+echo "the mask"
+perm() { ls -ld "$@" | while read -r m rest; do echo "  ${m%%[@+.]*} ${rest##* }"; done; }
+umask 022; umask 077 & wait; umask
+umask 022; s() { sleep 0.2; }; s & umask 077; wait; umask
+umask 022; { sleep 0.2; } & umask 077; wait; umask
+umask 022; ( sleep 0.2 ) & umask 077; wait; umask
+umask 022; { umask 077; } & wait; umask
+umask 022; ( umask 077 ); umask
+umask 022; x=$(umask 077); umask
+umask 022; sh -c 'umask 077'; umask
+umask 022; umask 077 | cat; umask
+mkdir m; cd m
+# What a job with its own mask makes, and what the shell makes while that job runs.
+umask 022; s() { umask 077; : > jf; mkdir jd; sleep 0.3; : > jg; }; s & sleep 0.1; : > sf; mkdir sd; wait; perm jf jd jg sf sd
+rm -rf jf jd jg sf sd
+# A job keeps the mask it had at the &, whatever the shell does next.
+umask 022; s() { sleep 0.2; : > jf; mkdir jd; }; s & umask 077; : > sf; mkdir sd; wait; perm jf jd sf sd
+rm -rf jf jd sf sd
+# Looser than the shell's, tighter, and from every way of making something.
+umask 077; s() { umask 000; : > jf; mkdir jd; }; s & wait; perm jf jd
+rm -rf jf jd
+umask 022; ( umask 027; : > a; mkdir b; echo x | tee c > /dev/null; cp a e; touch f; ln -s a g 2>/dev/null ); perm a b c e f; rm -rf a b c e f g
+umask 022; ( umask 000; : > a; mkdir b; echo x | tee c > /dev/null; cp a e; touch f ); perm a b c e f; rm -rf a b c e f
+umask 022; ( umask 077; echo x >> a; sh -c ': > b'; x=$(: > c); { : > d; } & wait ); perm a b c d; rm -rf a b c d
+umask 022; x=$(umask 077; : > a); : > b; perm a b; rm -rf a b
+umask 022; sh -c 'umask 077; : > a'; : > b; perm a b; rm -rf a b
+# An existing file keeps its mode, and what is made through a job's redirection obeys the job's.
+umask 022; : > a; ( umask 077; : > a; echo x > a ); perm a; rm -f a
+umask 077; : > jf & wait; perm jf; rm -f jf
+umask 022; umask 077 & : > jf; wait; perm jf; rm -f jf
+umask 022
+cd ..
+
+echo "the status"
+f() { return 3; }; f & wait $!; echo "  rc $?"
+f() { exit 4; }; f & wait $!; echo "  rc $?"
+exit 5 & wait $!; echo "  rc $?"
+f() { return 6 & wait $!; echo "  rc $?"; }; f; echo "  rc $?"
+false & wait $!; echo "  rc $?"
+true & wait $!; echo "  rc $?"
+false; f() { echo "  last $?"; }; f & wait
+set -- 1; f() { false; echo "  went on"; }; ( set -e; f & wait $!; echo "  rc $?" )
+g() { cd sub; v=2; sleep 1; }; v=1; g & q=$!; sleep 0.1; kill "$q"; { wait "$q"; } 2> /dev/null; echo "  rc $?"; echo "  [$v]"; here
+
+echo "wherever it starts"
+g() { cd sub; v=2; }
+v=1; ( g & wait; echo "  [$v]"; here ); echo "  [$v]"; here
+v=1; x=$(g & wait; echo "[$v]"; here); echo "  $x"; here
+v=1; eval 'g &'; wait; echo "  [$v]"; here
+v=1; { g & wait; }; echo "  [$v]"; here
+v=1; if :; then g & wait; fi; echo "  [$v]"; here
+v=1; for i in 1 2; do g & done; wait; echo "  [$v]"; here
+v=1; s() { g & wait; echo "  in [$v]"; }; s; here
+sh -c 'g() { cd sub; v=2; }; v=1; g & wait; echo "  [$v] [${PWD##*/}]"'; here
+echo 'cd sub; v=2' > js; v=1; sh js & wait; echo "  [$v]"; here
+v=1; sh -c 'cd sub; v=2' & wait; echo "  [$v]"; here
+v=1; g | cat; echo "  [$v]"; here
+
+echo "a pipeline stage"
+cd sub | cat; here
+true | cd sub; here
+eval 'cd sub' | cat; here
+pushd sub > /dev/null | cat; here
+cd sub; cd .. | cat; here; cd ..
+v=1; echo x | read v; echo "  [$v]"
+v=1; read v <<< x | cat; echo "  [$v]"
+v=1; let v=2 | cat; echo "  [$v]"
+v=1; printf -v v x | cat; echo "  [$v]"
+v=1; export v=2 | cat; echo "  [$v]"
+v=1; unset v | cat; echo "  [$v]"
+v=1; true | v=2; echo "  [$v]"
+set -- a b; shift | cat; echo "  $#"
+alias q=r | cat; alias q > /dev/null 2>&1; echo "  rc $?"
+shopt -s nullglob | cat; echo "  "nomatch*
+set -f | cat; echo "  "g*
+trap 'echo t' USR2 | cat; trap > tf; grep -c USR2 tf | tr -d ' '
+umask 022; umask 077 | cat; umask
+umask 022; true | umask 077; umask
+true | exit 3; echo "  next ${PIPESTATUS[1]}"
+exit 3 | cat; echo "  next ${PIPESTATUS[0]}"
+f() { return 3 | cat; echo "  next ${PIPESTATUS[0]}"; }; f; echo "  rc $?"
+for i in 1 2; do true | break; echo "  $i"; done
+for i in 1 2; do break | cat; echo "  $i"; done
+for i in 1 2; do continue | cat; echo "  $i"; done
+cd nosuch 2>/dev/null | cat; echo "  ${PIPESTATUS[*]}"
+echo x | read v; echo "  rc $?"
+pushd sub > /dev/null; dirs | sed 's,.*/,  ,'; popd > /dev/null
+f() { local l=1; read l <<< x | cat; echo "  [$l]"; true | read l; echo "  [$l]"; }; f
+i=0; while [ $i -lt 30 ]; do cd sub | cat; i=$((i+1)); done; here
+
+echo "what called it"
+n() { echo "  ${FUNCNAME[*]}"; }
+f() { n & wait; }; f
+f() { { n; } & wait; }; f
+f() { ( n ); }; f
+f() { n | cat; }; f
+f() { true | n; }; f
+f() { x=$(n); echo "$x"; }; f
+f() { caller > /dev/null & wait $!; echo "  rc $?"; }; f
+f() { { caller > /dev/null; echo "  rc $?"; } & wait; }; f
+f() { caller > /dev/null | cat; echo "  rc ${PIPESTATUS[0]}"; }; f
+f() { true | caller > /dev/null; echo "  rc $?"; }; f
+echo '{ echo "  ${BASH_SOURCE[0]##*/}"; } & wait; echo "  ${BASH_SOURCE[0]##*/}" | cat' > lib; . ./lib
+
+echo "many"
+i=0; n=0; s() { n=$1; }; while [ $i -lt 100 ]; do s $i & i=$((i+1)); done; wait; echo "  [$n] $i"
+i=0; while [ $i -lt 100 ]; do cd sub & i=$((i+1)); done; wait; here
+
+cd /
+rm -rf "$d"

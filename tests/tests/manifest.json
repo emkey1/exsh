@@ -1272,6 +1272,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_job_own_state",
+      "name": "What a simple background command changes stays in the job",
+      "category": "parity",
+      "description": "Variables, the directory, parameters, definitions, options, a function's locals and the mask, from builtins and functions as jobs, started anywhere. The job has what the shell had at the &, whatever the shell does next.",
+      "script": "Tests/exsh/tests/bash_parity_job_own_state.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_wait_killed",
       "name": "wait gives a killed job's signal, and killing a job harms nothing else",
       "category": "parity",
