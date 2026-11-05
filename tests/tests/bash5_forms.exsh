@@ -167,3 +167,75 @@ cd /; rm -rf "$d"
 sleep 0.2 & ( wait -n; echo "a subshell has none $?" ); wait
 sleep 0.2 & ( x=$(wait -n; echo "rc $?"); echo "nor one inside it [$x]" ); wait
 sleep 0.2 & x=$(echo a | { wait -n; echo "rc $?"; }); echo "nor a stage [$x]"; wait
+unset a b fd v
+# wait -n with operands, and wait's options.
+( ( exit 3 ) & p=$!; ( sleep 0.2; exit 4 ) & q=$!; wait -n $q; echo "named $?"; wait $p; echo "other $?" )
+( ( sleep 0.3; exit 3 ) & p=$!; ( sleep 0.1; exit 4 ) & q=$!; wait -n $p $q; echo "first of two $?" )
+( ( sleep 0.1; exit 5 ) & sleep 0.3 & wait -n %1; echo "by job $?" )
+( ( sleep 0.1; exit 7 ) & q=$!; wait -n 99999 $q 2>/dev/null; echo "past an unknown $?" )
+( ( sleep 0.1; exit 7 ) & q=$!; wait -n %9 abc $q 2>/dev/null; echo "past bad ones $?" )
+( wait -n 99999 2>/dev/null; echo "unknown $?"; wait -n abc 2>/dev/null; echo "not a number $?"; wait -n %9 2>/dev/null; echo "no job $?" )
+( ( exit 12 ) & q=$!; wait -n -- $q; echo "dashes $?"; wait --; echo "bare dashes $?" )
+( ( sleep 0.1; exit 8 ) & q=$!; wait -n -p v; r=$?; [ "$v" = "$q" ]; echo "-p $r $?" )
+( ( sleep 0.1; exit 8 ) & q=$!; wait -n -p v $q; r=$?; [ "$v" = "$q" ]; echo "-p named $r $?" )
+( ( exit 9 ) & q=$!; wait -p v $q; r=$?; [ "$v" = "$q" ]; echo "-p plain $r $?" )
+( ( exit 9 ) & q=$!; wait -p v %1; r=$?; [ "$v" = "$q" ]; echo "-p job $r $?" )
+( ( exit 9 ) & q=$!; wait -np v $q; r=$?; [ "$v" = "$q" ]; echo "-np $r $?" )
+( v=x; wait -n -p v; echo "-p none $? [${v-unset}]"; v=x; wait -p v; echo "-p bare $? [${v-unset}]" )
+( ( exit 10 ) & q=$!; wait -f $q; echo "-f $?"; ( exit 10 ) & q=$!; wait -fn $q; echo "-fn $?" )
+( wait -x 2>/dev/null; echo "bad option $?"; wait -p 2>/dev/null; echo "no name $?" )
+( ( exit 3 ) & wait -p 1x %1 2>/dev/null; echo "bad name $?"; readonly v=1; wait -n -p v 2>/dev/null; echo "readonly $?"; wait %1; echo "left $?" )
+# The redirections before a word have acted when it expands.
+d=${TMPDIR:-/tmp}/exsh_fdv2.$$; rm -rf "$d"; mkdir -p "$d"; cd "$d" || exit 1
+( exec {a}> f {b}>&$a; echo x >&$b; echo "[${a:+set}] [${b:+set}]"; cat f; [ "$a" != "$b" ]; echo "two $?" )
+( echo x {a}> g >&$a; echo "[${a:+set}]"; cat g )
+( sh -c 'echo prog' {a}> g >&$a; echo "[${a:-none}]"; cat g )
+( sh -c 'echo job' {a}> g >&$a & wait; echo "[${a:-none}]"; cat g )
+( sh -c 'echo stage' {a}> g >&$a | cat; echo "[${a:-none}]"; cat g )
+( f3() { echo "in [${a:+set}]" >&2; echo out; }; f3 {a}> g >&$a; cat g; echo "after [${a:+set}]" )
+( a=keep; sh -c 'echo was' {a}> g >&$a; echo "[$a]"; cat g )
+( exec {a}> g {b}< g; [ -n "$b" ]; echo "read side $?" )
+( : {a}> g > ${nope:?bad} 2>/dev/null; echo "not reached" ) 2>/dev/null; echo "failed word $?"
+# command prog: a process has the name and the descriptor, under bash, and they go with it.
+( command sh -c 'exit 0' {fd}> g; echo "[${fd:-none}]"; ( : >&10 ) 2>/dev/null; echo "closed $?" )
+( command -p sh -c 'exit 0' {fd}> g; echo "[${fd:-none}]"; ( : >&10 ) 2>/dev/null; echo "closed $?" )
+( command command sh -c 'exit 0' {fd}> g; echo "[${fd:-none}]"; ( : >&10 ) 2>/dev/null; echo "closed $?" )
+( command nosuchprog {fd}> g 2>/dev/null; echo "$? [${fd:-none}]"; ( : >&10 ) 2>/dev/null; echo "closed $?" )
+( f4() { :; }; command f4 {fd}> g 2>/dev/null; echo "$? [${fd:-none}]" )
+( command sh -c 'echo x' {a}> g >&$a; echo "[${a:-none}]"; cat g )
+( command echo x {fd}> g > /dev/null; echo "[${fd:+set}]"; ( : >&$fd ) 2>/dev/null; echo "stays $?" )
+( command -v sh {fd}> g > /dev/null; echo "[${fd:+set}]" )
+# What a function sees of a name given to it as a job or a stage, and the shell does not.
+( f5() { echo "[${fd:+set}]"; echo x >&$fd; }; f5 {fd}> g & wait; echo "[${fd:-none}]"; cat g )
+( f5() { echo "[${fd:+set}]"; echo y >&$fd; }; f5 {fd}> g | cat; echo "[${fd:-none}]"; cat g )
+( f5() { echo "[${fd:+set}]"; echo z >&$fd; }; : | f5 {fd}> g; echo "[${fd:-none}]"; cat g )
+( f5() { echo "[${fd:+set}]"; }; : | f5 {fd}> g | cat; echo "[${fd:-none}]" )
+( eval 'echo "[${fd:+set}]"' {fd}> g & wait; echo "[${fd:-none}]" )
+( eval 'echo "[${fd:+set}]"' {fd}> g | cat; echo "[${fd:-none}]" )
+( echo 'echo "[${fd:+set}]"' > s; . ./s {fd}> g | cat; echo "[${fd:-none}]" )
+( f6() { echo "[${a[1]:+set}]"; }; f6 {a[1]}> g & wait; echo "[${a[1]:-none}]" )
+# shopt varredir_close: the descriptor goes with the command, and the name stays. Not for exec.
+( shopt varredir_close > /dev/null; echo "off $?"; shopt -q varredir_close; echo "-q $?"; shopt -s varredir_close; shopt -q varredir_close; echo "on $?"; shopt -u varredir_close; shopt -q varredir_close; echo "off again $?" )
+( shopt -p varredir_close )
+( shopt -s varredir_close; { echo a >&$a; } {a}> g; cat g; echo "[${a:+set}]"; ( : >&$a ) 2>/dev/null; echo "closed $?" )
+( shopt -s varredir_close; echo x {a}> g > /dev/null; echo "[${a:+set}]"; ( : >&$a ) 2>/dev/null; echo "closed $?" )
+( shopt -s varredir_close; f7() { echo b >&$a; }; f7 {a}> g; cat g; echo "[${a:+set}]"; ( : >&$a ) 2>/dev/null; echo "closed $?" )
+( shopt -s varredir_close; exec {a}> g; echo c >&$a; cat g; ( : >&$a ) 2>/dev/null; echo "open $?" )
+( shopt -s varredir_close; sh -c 'exit 0' {a}> g; echo "[${a:-none}]" )
+cd /; rm -rf "$d"
+# A process substitution sees the shell's jobs as copies, as a command substitution does.
+( sleep 0.2 & cat <(wait -n; echo "procsub $?") )
+( sleep 0.2 & sleep 0.2 & cat <(wait -n; echo "procsub $?"; wait -n; echo "procsub $?"; wait -n; echo "procsub $?") )
+( cat <(wait -n; echo "none $?") )
+( cat <(( exit 4 ) & wait -n; echo "own $?") )
+( sleep 0.2 & cat <(wait -n %1 2>/dev/null; echo "by job $?") )
+( sleep 0.2 & q=$!; x=$(wait -n $q 2>/dev/null; echo "named in a substitution $?"); echo "$x"; wait $q; echo "still its own $?" )
+# Bash 5 stops where the words do not make one name, and rejects these before they run.
+( set -- a b; a=1; b=2; echo "[${!@}]"; echo "not reached" ) 2>/dev/null; echo "two names $?"
+( set -- a b; a=1; b=2; echo "[${!*}]"; echo "not reached" ) 2>/dev/null; echo "two names $?"
+( set -- 1a; echo "[${!@}]"; echo "not reached" ) 2>/dev/null; echo "not a name $?"
+( set -- ''; echo "[${!@}]"; echo "not reached" ) 2>/dev/null; echo "empty $?"
+( set -- a; a='x y'; echo "[${!@@Q}] [${!*@Q}]" )
+eval '[[ {a}>b ]]' 2>/dev/null; [ $? -gt 1 ] && echo "name rejected"
+eval '[[ {a[1]}<b ]]' 2>/dev/null; [ $? -gt 1 ] && echo "element rejected"
+[[ {a} > b ]]; echo "spaced $?"

@@ -1310,6 +1310,10 @@ static void parseDoubleBracketWords(ShellParser *parser, ShellCommand *command) 
             parserErrorAt(parser, &parser->current, parser->current.lexeme);
             break;
         }
+        if (shellLexerAtRedirectionWord(&parser->lexer, &parser->current)) {
+            parserUnexpectedToken(parser);
+            break;
+        }
         bool closing = tokenIsBareWord(&parser->current, "]]");
         if (closing) {
             parser->lexer.dbracket = false;

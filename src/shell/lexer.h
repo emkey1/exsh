@@ -131,6 +131,7 @@ void shellInitLexer(ShellLexer *lexer, const char *source);
 void shellFreeToken(ShellToken *token);
 ShellToken shellNextToken(ShellLexer *lexer);
 const char *shellTokenTypeName(ShellTokenType type);
+bool shellLexerAtRedirectionWord(const ShellLexer *lexer, const ShellToken *token);
 void shellLexerSetRuleMask(ShellLexer *lexer, unsigned int mask);
 unsigned int shellLexerGetRuleMask(const ShellLexer *lexer);
 

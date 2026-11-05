@@ -1264,6 +1264,33 @@ const char *shellTokenTypeName(ShellTokenType type) {
     return "UNKNOWN";
 }
 
+/* The token just read is a number or {name} touching `<` or `>`. Inside `[[ ]]` the lexer hands the
+ * operator over as a word, and bash's grammar still takes these for redirections, so they are an
+ * error there. */
+bool shellLexerAtRedirectionWord(const ShellLexer *lexer, const ShellToken *token) {
+    if (!lexer || !token || !token->lexeme || token->length == 0 || token->single_quoted || token->double_quoted ||
+        lexer->pos < token->length || lexer->pos >= lexer->length) {
+        return false;
+    }
+    char next = lexer->src[lexer->pos];
+    if (next != '<' && next != '>') {
+        return false;
+    }
+    if (lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(') {
+        return false;
+    }
+    bool digits = true;
+    for (size_t i = 0; i < token->length && digits; ++i) {
+        digits = isdigit((unsigned char)token->lexeme[i]) != 0;
+    }
+    if (digits) {
+        return true;
+    }
+    ShellLexer at_word = *lexer;
+    at_word.pos -= token->length;
+    return redirectionVariableLength(&at_word) == token->length;
+}
+
 void shellLexerSetRuleMask(ShellLexer *lexer, unsigned int mask) {
     if (!lexer) {
         return;

@@ -1,0 +1,33 @@
+#!/usr/bin/env exsh
+# ${!@} and ${!*}: the one positional parameter names the variable.
+a=hello; b=(x y); v=1
+set -- a
+echo "[${!@}] [${!*}]"
+printf '<%s>' "${!@}"; echo
+x=${!@}; echo "[$x]"
+echo "[${!@:-z}] [${!*:-z}]"
+echo "[${!@:1:2}]"
+echo "[${!@#h}] [${!@%o}] [${!@/l/L}]"
+echo "[${!@+z}]"
+set -- nope
+echo "[${!@}] [${!@:-z}] [${!@+z}]"
+set -- 1
+echo "[${!@}]"
+set -- 'b[1]'
+echo "[${!@}]"
+f() { echo "[${!@}]"; }; f v
+set --
+echo "[${!@}] [${!*}] $?"
+echo "[${!@:-z}] [${!*-z}] [${!@+z}]"
+# These are bad substitutions, not operators on the name.
+set -- a
+for form in '${!@Q}' '${!@U}' '${!*Q}' '${!@^}' '${!@,,}'; do
+  ( eval "echo $form" ) 2>/dev/null; echo "rc $?"
+done
+( eval 'echo ${!@=q}' ) 2>/dev/null; echo "rc $?"
+( eval 'echo ${!@:=q}' ) 2>/dev/null; echo "rc $?"
+( set -- nope; eval 'echo ${!@=q}'; echo "not reached" ) 2>/dev/null; echo "rc $?"
+( set -- nope; eval 'echo ${!*:=q}'; echo "not reached" ) 2>/dev/null; echo "rc $?"
+# The names with a prefix and the last parameter are as they were.
+ab1=1; ab2=2; echo "[${!ab@}] [${!ab*}]"
+set -- x a; x=1; a=2; echo "[${!#}]"

@@ -1,0 +1,15 @@
+#!/usr/bin/env exsh
+# A redirection's word expands when its turn comes, with what came before it done.
+d=${TMPDIR:-/tmp}/exsh_turn.$$; rm -rf "$d"; mkdir -p "$d"; cd "$d" || exit 1
+echo old > a; echo y > a 2> "b.$(cat a)"; echo b.*; rm -f b.*; cat a
+echo old > a; sh -c 'echo y' > a 2> "b.$(cat a)x"; echo b.*; rm -f b.*; cat a
+echo hi > a 3> "b.$(wc -c < a | tr -d ' ')"; echo b.*; rm -f b.*
+echo old > a; { echo y; } > a 2> "b.$(cat a)"; echo b.*; rm -f b.*; cat a
+f() { echo y; }; echo old > a; f > a 2> "b.$(cat a)"; echo b.*; rm -f b.*; cat a
+echo old > a; echo y > a 2> "b.`cat a`"; echo b.*; rm -f b.*
+# What comes after one that fails does not run.
+{ : > /nonexistent/x > "$(echo ran > r; echo c)"; } 2>/dev/null; echo "failed $?"; echo c* r*
+{ sh -c 'exit 0' > /nonexistent/x > "$(echo ran > r; echo c)"; } 2>/dev/null; echo "failed $?"; echo c* r*
+# Plain words are as they were.
+x=p; y=q; echo z > $x 2> $y; echo p*; cat p; rm -f p q
+cd /; rm -rf "$d"

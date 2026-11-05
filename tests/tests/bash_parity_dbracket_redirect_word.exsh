@@ -1,0 +1,13 @@
+#!/usr/bin/env exsh
+# A number touching < or > is a redirection to bash's grammar, and [[ ]] has no place for one.
+for form in '[[ 3>2 ]]' '[[ 3<2 ]]' '[[ 12>2 ]]' '[[ a == 3>2 ]]' '[[ 3> 2 ]]'; do
+  eval "$form && echo ran || echo ran" 2>/dev/null; echo "next"
+done
+[[ 3 > 2 ]]; echo "spaced $?"
+[[ 3 < 2 ]]; echo "spaced $?"
+[[ x3>2 ]]; echo "word $?"
+[[ 3x>2 ]]; echo "word $?"
+[[ "3">2 ]]; echo "quoted $?"
+n=3; [[ $n>2 ]]; echo "expanded $?"
+[[ a>b ]]; echo "word $?"
+[[ {a} > b ]]; echo "spaced braces $?"

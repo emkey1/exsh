@@ -184,10 +184,12 @@ extends it with orchestration helpers implemented in
   function and a compound command. On a program, a stage or a job it ends with them and
   the shell never hears of the number, as under bash, where each of those is a process;
   with no command at all it only makes the file. In a substitution it ends with the
-  substitution. Still different: the words of a command's redirections expand before any
-  of them acts, so `exec {a}> f {b}>&$a` finds `a` empty; `command prog {fd}> f` sets `fd`
-  in the shell; and on iOS a function given `{fd}> f` as a job or a stage does not see
-  `fd`. `shopt varredir_close` is not there.
+  substitution. `command prog` counts as the program, and `shopt -s varredir_close` closes
+  the descriptor when the command ends, all but `exec`'s, and leaves the name set. A
+  word that a `{name}` before it can change, or that holds `$(...)`, expands when its
+  redirection's turn comes, so `exec {a}> f {b}>&$a` works. Other words still expand
+  before any redirection acts, and that only shows through `${x:=...}`, whose assignment
+  stays in the shell on a program, where under bash the process has it.
 - Shell control builtins (`cd`, `pwd`, `exit`, `alias`, `export`, `setenv`,
   `unset`, `unsetenv`) and an interactive `help` builtin for listing and
   describing available commands. The directory-stack helpers (`dirs`, `pushd`,
