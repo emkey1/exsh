@@ -865,6 +865,28 @@ def scenario_trap_runs_on_a_later_line(shell: PtyShell) -> tuple[bool, str]:
     return True, ""
 
 
+def scenario_exec_empty_at_the_prompt(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("exec_empty")
+    _unlink_if_exists(marker)
+    out = _shell_path(marker)
+    # The prompt outlives it, and a substitution does not.
+    _type_lines(shell, [
+        f"exec '' 2>/dev/null; echo \"prompt $?\" >> {out}",
+        f"x=$(exec '' 2>/dev/null; echo no); echo \"substitution [$x] $?\" >> {out}",
+        f"x=$(shopt -s execfail; exec '' 2>/dev/null; echo no); echo \"execfail [$x] $?\" >> {out}",
+    ])
+    shell._pump(1.0)
+    got = marker.read_text() if marker.exists() else ""
+    _unlink_if_exists(marker)
+    want = "prompt 127\nsubstitution [] 127\nexecfail [] 127\n"
+    if got != want:
+        return False, f"got {got!r}, want {want!r}"
+    return True, ""
+
+
 def scenario_set_e_survives_ctrl_c_at_the_prompt(shell: PtyShell) -> tuple[bool, str]:
     ok, reason = _wait_for_prompt(shell)
     if not ok:
@@ -1676,6 +1698,11 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_trap_later_line",
         name="A trap from an earlier line runs when its signal comes",
         run=scenario_trap_runs_on_a_later_line,
+    ),
+    Scenario(
+        test_id="interactive_exec_empty",
+        name="exec of an empty name ends a substitution and not the prompt",
+        run=scenario_exec_empty_at_the_prompt,
     ),
     Scenario(
         test_id="interactive_exit_trap_eof",

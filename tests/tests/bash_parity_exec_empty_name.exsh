@@ -9,6 +9,7 @@
 ( command exec ""; echo not-reached ) 2>/dev/null; echo "under command rc=$?"
 ( builtin exec ""; echo not-reached ) 2>/dev/null; echo "under builtin rc=$?"
 x=$(exec "" 2>/dev/null; echo not-reached); echo "in a substitution [$x] rc=$?"
+x=$(shopt -s execfail; exec "" 2>/dev/null; echo not-reached); echo "execfail in a substitution [$x] rc=$?"
 ( exec "" 2>/dev/null; echo not-reached ); echo "its own redirection rc=$?"
 ( shopt -s execfail; exec ""; echo "execfail goes on $?" ) 2>/dev/null; echo "execfail rc=$?"
 shopt -s execfail; exec "" 2>/dev/null; echo "execfail at the top $?"; shopt -u execfail
