@@ -1569,6 +1569,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_deep_nesting",
+            "name": "Nested eval and source leave the shell where it was",
+            "category": "parity",
+            "description": "After eval or source nested past 16 levels, relative paths, redirections, cd, descriptors, jobs and traps all stay in the shell's directory; state set at the bottom reaches the top; return and exit from the bottom unwind cleanly. Writes to no relative path until a read has shown the directory is right.",
+            "script": "Tests/exsh/tests/bash_parity_deep_nesting.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_fd_above_stdio",
             "name": "Descriptors above stdio reach what the shell starts",
             "category": "parity",

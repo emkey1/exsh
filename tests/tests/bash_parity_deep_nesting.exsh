@@ -1,0 +1,98 @@
+#!/usr/bin/env exsh
+# Nesting leaves the shell where it was. On iOS each eval and sourced file runs under a vproc
+# stacked on the shell's thread. That stack held 16: past that it dropped entries, and on the
+# way out the thread ended with no vproc at all, so relative paths and redirections went to
+# the directory the process started in. pwd still printed the old one, and cd did not help.
+#
+# The harness runs this from the checkout, which is where that directory would be, so nothing
+# here writes to a relative path until a read has shown the shell is in the right place. The
+# depths stop at 20: on iOS each eval holds descriptors, and 256 of them run out near 25.
+d="${TMPDIR:-/tmp}/exsh_parity_deep_nesting.$$"
+mkdir -p "$d/a" "$d/b" || exit 1
+printf 'in a\n' > "$d/a/mark"
+printf 'in b\n' > "$d/b/mark"
+cd "$d/a" || exit 1
+
+there() {
+    p=$(pwd)
+    echo "$1: pwd ${p##*/}, PWD ${PWD##*/}, mark [$(cat mark 2>/dev/null)]"
+}
+e() { if [ "$1" -gt 0 ]; then eval "e $(( $1 - 1 ))"; fi; }
+
+# The form it was found in, either side of the limit.
+for n in 1 15 16 17 20; do
+    e "$n"
+    there "eval $n"
+done
+
+# A write lands here, and only once a read has shown this is the place.
+if [ "$(cat mark 2>/dev/null)" = "in a" ]; then
+    echo written > w
+    [ -f "$d/a/w" ] && echo "write landed in a"
+    ls
+    rm -f w
+fi
+
+# cd goes where it says, and comes back.
+cd "$d/b"; there "cd b after eval 20"
+cd "$d/a"; there "cd a after eval 20"
+
+# Other ways down. A function alone stacks nothing, as a control.
+g() { if [ "$1" -gt 0 ]; then g $(( $1 - 1 )); fi; }
+g 60; there "function 60"
+printf 'n=$(( n - 1 ))\nif [ "$n" -gt 0 ]; then . "$self"; fi\n' > "$d/self.sh"
+self="$d/self.sh"
+n=20; . "$self"; there "source 20"
+printf 'if [ "$1" -gt 0 ]; then sh "$0" $(( $1 - 1 )); else cat mark; fi\n' > "$d/nest.sh"
+sh "$d/nest.sh" 8; there "sh 8"
+
+# Every level on the way out is in the right place, not only the last.
+l() {
+    if [ "$1" -gt 0 ]; then
+        eval "l $(( $1 - 1 ))"
+        [ "$(cat mark 2>/dev/null)" = "in a" ] && levels=$((levels + 1))
+    fi
+}
+levels=0; l 20; echo "levels that read their mark: $levels"
+
+# The shell's state set at the bottom reaches the top.
+c() { if [ "$1" -gt 0 ]; then eval "c $(( $1 - 1 ))"; else cd "$d/b"; fi; }
+c 20; there "cd at the bottom of 20"; cd "$d/a"
+u() { if [ "$1" -gt 0 ]; then eval "u $(( $1 - 1 ))"; else umask 027; fi; }
+old=$(umask); u 20; echo "umask at the bottom of 20: $(umask)"; umask "$old"
+x() { if [ "$1" -gt 0 ]; then eval "x $(( $1 - 1 ))"; else exec 3> "$d/three"; fi; }
+x 20; echo three >&3; exec 3>&-; echo "exec at the bottom of 20: $(cat "$d/three")"
+
+# A descriptor opened before going down is still there after.
+exec 4> "$d/four"; e 20; echo four >&4; exec 4>&-; echo "descriptor kept: $(cat "$d/four")"
+
+# What the bottom starts runs where the bottom is.
+s() {
+    if [ "$1" -gt 0 ]; then
+        eval "s $(( $1 - 1 ))"
+    else
+        cat mark | cat
+        ( cat mark )
+        v=$(cat mark); echo "substitution $v"
+        cat mark > "$d/job" & wait $!; echo "job $(cat "$d/job")"
+        { cat mark; } > "$d/group"; echo "group $(cat "$d/group")"
+    fi
+}
+s 18; there "commands at the bottom of 18"
+
+# Ways out other than the end.
+r() { if [ "$1" -gt 0 ]; then eval "r $(( $1 - 1 ))"; return $?; else return 3; fi; }
+r 20; echo "return from 20: $?"; there "return from 20"
+q() { if [ "$1" -gt 0 ]; then eval "q $(( $1 - 1 ))"; else exit 7; fi; }
+( q 20; echo not here ); echo "exit from 20 in a subshell: $?"; there "exit in a subshell"
+sh -c 'q() { if [ "$1" -gt 0 ]; then eval "q $(( $1 - 1 ))"; else exit 8; fi; }; q 20; echo not here'
+echo "exit from 20 in sh -c: $?"; there "exit in sh -c"
+
+# Up and down again, with a trap's text at the bottom.
+i=0; while [ "$i" -lt 5 ]; do e 18; i=$((i + 1)); done; there "down 18 five times"
+trap 'echo "trap reads $(cat mark 2>/dev/null)"' USR1
+k() { if [ "$1" -gt 0 ]; then eval "k $(( $1 - 1 ))"; else kill -USR1 $$; fi; }
+k 18; trap - USR1; there "trap at the bottom of 18"
+
+cd /
+rm -rf "$d"
