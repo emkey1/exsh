@@ -735,26 +735,10 @@ static const char *redirTypeName(ShellRedirectionType type) {
     return "";
 }
 
-static bool commandIsCompound(const ShellCommand *command);
-
-/* A DEBUG trap comes before each simple command. In a pipeline of several they all run when it
- * starts, before any stage does: a stage's thread uses the pipeline's state, which a trap sets
- * aside while it runs. */
-static size_t pipelineDebugTraps(const ShellPipeline *pipeline) {
-    size_t count = 0;
-    for (size_t i = 0; pipeline && pipeline->command_count > 1 && i < pipeline->command_count; ++i) {
-        if (!commandIsCompound(pipeline->commands[i])) {
-            count++;
-        }
-    }
-    return count;
-}
-
 static char *buildPipelineMetadata(const ShellPipeline *pipeline) {
     size_t stage_count = pipeline ? pipeline->command_count : 0;
     bool negated = pipeline ? shellPipelineHasExplicitNegation(pipeline) : false;
     size_t merge_len = stage_count;
-    size_t debug_traps = pipelineDebugTraps(pipeline);
 
     char *merge = (char *)malloc(merge_len + 1);
     if (!merge) {
@@ -765,21 +749,19 @@ static char *buildPipelineMetadata(const ShellPipeline *pipeline) {
     }
     merge[merge_len] = '\0';
 
-    size_t meta_len = (size_t)snprintf(NULL, 0, "stages=%zu;negated=%d;merge=%s;dbg=%zu",
+    size_t meta_len = (size_t)snprintf(NULL, 0, "stages=%zu;negated=%d;merge=%s",
                                       stage_count,
                                       negated ? 1 : 0,
-                                      merge,
-                                      debug_traps);
+                                      merge);
     char *meta = (char *)malloc(meta_len + 1);
     if (!meta) {
         free(merge);
         return NULL;
     }
-    snprintf(meta, meta_len + 1, "stages=%zu;negated=%d;merge=%s;dbg=%zu",
+    snprintf(meta, meta_len + 1, "stages=%zu;negated=%d;merge=%s",
              stage_count,
              negated ? 1 : 0,
-             merge,
-             debug_traps);
+             merge);
     free(merge);
     return meta;
 }
@@ -1721,10 +1703,14 @@ static void compileCommandFinal(BytecodeChunk *chunk, const ShellCommand *comman
             /* A stage can run apart from the shell only as a thread the shell joins. */
             if ((command->exec.runs_in_background || runs_in_background) &&
                 command->data.pipeline && command->data.pipeline->command_count > 1) {
-                /* The body's copy of the trap is not the shell's. */
+                /* The body's copy of a DEBUG trap is not the shell's, which runs for each simple
+                 * command here. */
+                size_t debug_traps = 0;
+                for (size_t i = 0; i < command->data.pipeline->command_count; ++i) {
+                    debug_traps += commandIsCompound(command->data.pipeline->commands[i]) ? 0 : 1;
+                }
                 char wrapper_meta[64];
-                snprintf(wrapper_meta, sizeof(wrapper_meta), "stages=1;negated=0;merge=0;dbg=%zu",
-                         pipelineDebugTraps(command->data.pipeline));
+                snprintf(wrapper_meta, sizeof(wrapper_meta), "stages=1;negated=0;merge=0;dbg=%zu", debug_traps);
                 emitPushString(chunk, wrapper_meta, command->line);
                 emitBuiltinProc(chunk, "__shell_pipeline", 1, command->line);
                 compileBody(chunk, command, true);

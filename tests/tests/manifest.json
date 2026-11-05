@@ -1288,6 +1288,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_stage_word_fails",
+      "name": "A stage's or job's word that fails is that command's failure",
+      "category": "parity",
+      "description": "${v:?x}, $((1/0)), a bad substitution and set -u in a later stage or a job: the rest of the pipeline runs and the shell goes on, in functions, eval, sourced files and shells of their own. On iOS the shell ended under a running stage, which crashed the app.",
+      "script": "Tests/exsh/tests/bash_parity_stage_word_fails.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_wait_killed",
       "name": "wait gives a killed job's signal, and killing a job harms nothing else",
       "category": "parity",

@@ -1,0 +1,100 @@
+#!/usr/bin/env exsh
+# A word of a pipeline stage or a job that fails to expand is that command's failure, as under bash,
+# which has forked by then. The rest of the pipeline runs and the shell goes on. On iOS the shell used
+# to end right there, pulling the pipeline's state from under a stage already started, and that
+# crashed the app.
+d="${TMPDIR:-/tmp}/exsh_parity_stage_word.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+t() { sleep 0.01; echo "  first"; }
+
+echo "every way a word can fail"
+{
+t | cat ${v:?gone}; echo "  question ${PIPESTATUS[1]}"
+t | cat ${v?gone}; echo "  question, set or not ${PIPESTATUS[1]}"
+t | cat $((1/0)); echo "  arithmetic ${PIPESTATUS[1]}"
+t | cat ${x!y}; echo "  bad substitution ${PIPESTATUS[1]}"
+set -u
+t | cat $nope; echo "  unset ${PIPESTATUS[1]}"
+t | cat "$nope"; echo "  quoted ${PIPESTATUS[1]}"
+t | cat ${nope}; echo "  brace ${PIPESTATUS[1]}"
+t | cat $9; echo "  positional ${PIPESTATUS[1]}"
+t | x=$nope cat; echo "  prefix ${PIPESTATUS[1]}"
+t | cat > $nope; echo "  redirection ${PIPESTATUS[1]}"
+set +u
+} 2>/dev/null
+
+echo "which stage"
+{
+set -u
+echo x | cat $nope | cat; echo "  middle ${PIPESTATUS[0]} ${PIPESTATUS[1]} ${PIPESTATUS[2]}"
+cat $nope | cat; echo "  first ${PIPESTATUS[0]} ${PIPESTATUS[1]}"
+t | cat | cat $nope; echo "  last of three ${PIPESTATUS[2]}"
+cat $nope | cat $nope; echo "  both ${PIPESTATUS[0]} ${PIPESTATUS[1]}"
+set +u
+} 2>/dev/null
+
+echo "the status decides"
+{
+set -u
+t | true $nope; echo "  $?"
+true $nope | t; echo "  $?"
+! t | true $nope; echo "  $?"
+if t | true $nope; then echo "  yes"; else echo "  no"; fi
+t | true $nope || echo "  or"
+set -o pipefail; true $nope | t; echo "  pipefail $?"; set +o pipefail
+set +u
+} 2>/dev/null
+
+echo "inside everything"
+{
+( set -u; t | cat $nope; echo "  subshell $?" )
+( set -u; f() { t | cat $nope; echo "  in $?"; }; f; echo "  function $?" )
+( set -u; eval 't | cat $nope; echo "  in $?"'; echo "  eval $?" )
+echo 't | cat $nope; echo "  in $?"' > s
+( set -u; . ./s; echo "  source $?" )
+( set -u; while :; do t | cat $nope; echo "  loop $?"; break; done )
+( set -u; { t | cat $nope; echo "  group $?"; } )
+( set -u; if :; then t | cat $nope; echo "  if $?"; fi )
+x=$(set -u; t | cat $nope; echo "  substitution $?"); echo "$x"
+( set -u; t | cat $nope; echo "  stage $?" ) | cat
+( set -u; t | cat $nope; echo "  job $?" ) & wait
+} 2>/dev/null
+
+echo "a shell of its own"
+# `sh` is not the shell under test on a plain build, and the status of these differs by shell.
+sh -c 'sleep 0.01 | cat ${v:?gone}; echo "  question"' 2>/dev/null
+sh -c 'set -u; sleep 0.01 | cat $nope; echo "  unset"' 2>/dev/null
+sh -c 'set -u; f() { sleep 0.01 | cat $nope; echo "  in"; }; f; echo "  function"' 2>/dev/null
+sh -c 'set -u; sleep 0.01 | cat | cat $nope; echo "  of three"' 2>/dev/null
+
+echo "a job"
+{
+: ${v:?gone} & wait $!; echo "  question $?"
+echo $((1/0)) & wait $!; echo "  arithmetic $?"
+set -u
+echo $nope & wait $!; echo "  unset $?"
+x=$nope & wait $!; echo "  assignment $?"
+: $nope > u1 & wait $!; echo "  redirected $?"; [ -e u1 ] || echo "  no file"
+echo $nope & p=$!; [ -n "$p" ] && echo "  it has a pid"; wait $p; echo "  $?"
+set +u
+} 2>/dev/null
+
+echo "the message"
+set -u
+( t | cat $nope ) 2>&1 | sed 's/^.*: line [0-9]*: //'
+( t | cat $1 ) 2>&1 | sed 's/^.*: line [0-9]*: //'
+( t | cat ${1} ) 2>&1 | sed 's/^.*: line [0-9]*: //'
+set +u
+
+echo "and no later than that"
+{
+set -u
+v=1; t | cat $v; echo "  ${PIPESTATUS[1]}"
+set +u
+} 2>&1
+
+cd /
+rm -rf "$d"

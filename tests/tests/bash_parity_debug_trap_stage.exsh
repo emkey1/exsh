@@ -1,7 +1,7 @@
 #!/usr/bin/env exsh
 # A DEBUG trap comes before each simple command, and before none of a compound one's own. In a pipeline
-# on iOS it ran on the shell's thread between stages, which set aside the state the stages were
-# reading, and that crashed the app.
+# on iOS it ran on the shell's thread between stages, which cleared the state the stages were reading,
+# and that crashed the app. Each stage has its trap just before its words, so they see what it did.
 n=0
 
 echo "a pipeline"
@@ -32,6 +32,22 @@ trap 'n=$((n+1))' DEBUG; true | cat & wait; trap - DEBUG; echo "  $n"; n=0
 trap 'n=$((n+1))' DEBUG; { true; } & wait; trap - DEBUG; echo "  $n"; n=0
 trap 'n=$((n+1))' DEBUG; ( true ) & wait; trap - DEBUG; echo "  $n"; n=0
 trap 'n=$((n+1))' DEBUG; ( true ); trap - DEBUG; echo "  $n"; n=0
+
+echo "words see what their own stage's trap did, and no later one"
+unset v; trap 'v=$((v+1))' DEBUG; echo "  first $v" | cat; trap - DEBUG
+unset v; trap 'v=$((v+1))' DEBUG; true | echo "  second $v"; trap - DEBUG
+unset v; trap 'v=$((v+1))' DEBUG; echo "  $v" | cat; echo "  $v" | cat | cat; trap - DEBUG
+unset v; n=0; trap 'n=$((n+1)); v=$n' DEBUG; echo "  $v" | cat; trap - DEBUG; echo "  [$v]"
+unset v; trap 'v=$((v+1))' DEBUG; true | true | echo "  third $v"; trap - DEBUG
+
+echo "where it runs"
+unset n; trap 'n=$((n+1))' DEBUG; eval 'true | cat'; trap - DEBUG; echo "  eval $n"
+unset n; trap 'n=$((n+1))' DEBUG; if true | true; then :; fi; trap - DEBUG; echo "  if $n"
+unset n; trap 'n=$((n+1))' DEBUG; x=$(true | cat); trap - DEBUG; echo "  substitution $n"
+unset n; trap 'n=$((n+1))' DEBUG; true | cat && false | cat || true | cat; trap - DEBUG; echo "  list $n"
+unset n; set -T; f() { :; }; trap 'n=$((n+1))' DEBUG; f | cat; trap - DEBUG; set +T; echo "  functrace $n"
+trap 'trap - DEBUG; echo "  once"' DEBUG; true | cat | cat; echo "  end"
+( trap 'exit 4' DEBUG; true | cat; echo no ); echo "  exit $?"
 
 echo "output"
 trap 'echo dbg' DEBUG; true | cat; trap - DEBUG
