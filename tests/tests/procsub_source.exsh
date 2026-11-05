@@ -1,0 +1,4 @@
+#!/usr/bin/env exsh
+# A file sourced from <(cmd), which bash 3.2 reads as empty, so this has an answer of its own.
+. <(echo 'sourced=1; echo in the file'); echo "sourced=$sourced"
+source <(i=0; while [ "$i" -lt 2000 ]; do echo ": $i"; i=$((i + 1)); done; echo 'big=yes'); echo "big=$big"

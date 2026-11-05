@@ -167,9 +167,7 @@ extends it with orchestration helpers implemented in
   execs, `./f` runs without the execute bit and `cd` resolves links at once; `/bin/x`
   means `x`, so `/bin/cd` moves the shell, and `which` names builtins and applets, since
   they have no file; `exec` and `env` run a program as a call, and `exec -a` and `-l`
-  do not change its name. `>(cmd)` is a file that the command reads when the command
-  naming it is done, so under `exec 3> >(cmd)` or `exec > >(cmd)` it runs at once, finds
-  the file empty, and what the script writes afterwards is lost.
+  do not change its name.
   A signal that would end the shell there takes effect at its next command, after any
   foreground command or `wait`, and its caller sees status 128 + the signal rather than a death by
   signal; and a foreground applet is not a child, so `trap ... CHLD` runs only for

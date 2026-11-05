@@ -1,0 +1,51 @@
+#!/usr/bin/env exsh
+# <(cmd) and >(cmd) run beside the command, on a pipe: every place a word can be, what can open the
+# name, and the commands ending when what they read from or write to does.
+d="${TMPDIR:-/tmp}/exsh_parity_procsub_forms.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+appears() { i=0; while [ ! -s "$1" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done; sleep 0.1; }
+show() { appears "$1"; echo "$1=[$(tr '\n' ' ' < "$1")]"; rm -f "$1"; }
+
+while read l; do echo "r:$l"; done < <(printf 'a\nb\n')
+paste <(echo l) <(echo r)
+sort <(echo b) <(echo a)
+{ echo a; echo b; } > >(cat > g); show g
+tee >(cat > g) >(cat > h) < <(echo fan) > /dev/null; show g; show h
+ls /nonexistent-x 2> >(wc -l | tr -d ' ' > g); show g
+f() { cat > g; }; echo infn > >(f); show g
+( echo insub > >(cat > g) ); show g
+x=$(echo insubst > >(cat > g)); show g
+echo job > >(cat > g) & wait; show g
+echo stage | cat > >(cat > g); show g
+eval 'echo ev > >(cat > g)'; show g
+sh -c 'cat "$1"' _ <(echo nested)
+
+# It starts from what the shell has, and changes nothing there.
+v=outer; cat <(echo "$v")
+y=0; : > >(y=1; cat > /dev/null); : <(y=2); echo "y=$y"
+false; cat <(echo s) > /dev/null; true > >(exit 3); echo "status $?"
+cat <(exit 3); echo "rc=$?"
+wait; echo "wait rc=$?"
+
+[ -r <(:) ]; echo "read test $?"
+[ -w >(:) ]; echo "write test $?"
+n=$(cat <(cat <(cat <(echo deep)))); echo "$n"
+echo deepw > >(cat > >(cat > g)); show g
+
+# On a descriptor of the script's own: copies, and what else gets it.
+exec 3> >(while read l; do echo "got $l" >> g; done); echo 1 >&3; echo 2 >&3; exec 3>&-; show g
+exec 5> >(cat > g); exec 6>&5; exec 5>&-; echo viacopy >&6; exec 6>&-; show g
+exec 7> >(cat > g); echo fromsub >&7; ( echo fromsub2 >&7 ); echo fromjob >&7 & wait; exec 7>&-; show g
+exec 7> >(cat > g); /bin/echo prog >&7; sh -c 'echo child >&7'; exec 7>&-; show g
+exec 8< <(echo a; echo b); read p <&8; cat <&8; exec 8<&-; echo "p=$p"
+exec 4>&1; exec > >(cat > g); echo o1; /bin/echo o2; (echo o3); y=$(echo o4); echo "$y"; { echo o5; }; echo o6 | cat; exec 1>&4 4>&-; show g
+
+# What never ends on its own ends with its reader, and a lot goes through.
+head -1 <(yes)
+cat <(i=0; while [ "$i" -lt 3000 ]; do echo "line $i"; i=$((i + 1)); done) | wc -l | tr -d ' '
+i=0; while [ "$i" -lt 3000 ]; do echo "line $i"; i=$((i + 1)); done > >(wc -l | tr -d ' ' > g); show g
+: >(cat); echo noop
+
+cd /
+rm -rf "$d"

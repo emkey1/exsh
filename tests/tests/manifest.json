@@ -2287,7 +2287,7 @@
             "id": "bash_parity_procsub_writer_on_fd",
             "name": ">(cmd) on a descriptor the script names",
             "category": "parity",
-            "description": "Hosts only: exec 3> >(cmd), stdout and stderr, for as long as the script keeps them.",
+            "description": "exec 3> >(cmd), stdout and stderr, for as long as the script keeps them.",
             "script": "Tests/exsh/tests/bash_parity_procsub_writer_on_fd.exsh",
             "expect": "match_bash"
         },
@@ -2495,6 +2495,23 @@
             "script": "Tests/exsh/tests/timeout_nested_shell.exsh",
             "expect": "runtime_ok",
             "expected_stdout": "a 0\nb 0\nc 124\nend"
+        },
+        {
+            "id": "bash_parity_procsub_forms",
+            "name": "<(cmd) and >(cmd) beside the command, on a pipe",
+            "category": "parity",
+            "description": "Every place a word can be, what can open the name, state kept apart, descriptors the script keeps, and a command ending with its reader.",
+            "script": "Tests/exsh/tests/bash_parity_procsub_forms.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "procsub_source",
+            "name": "A file sourced from <(cmd)",
+            "category": "parity",
+            "description": "bash 3.2 reads it as empty, so this has an answer of its own.",
+            "script": "Tests/exsh/tests/procsub_source.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "in the file\nsourced=1\nbig=yes"
         }
     ]
 }

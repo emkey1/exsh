@@ -1,6 +1,5 @@
 #!/usr/bin/env exsh
-# >(cmd) on a descriptor of the script's own, for as long as the script keeps it. Hosts only: on iOS
-# a file stands in, and the command reads it when the exec is done.
+# >(cmd) on a descriptor of the script's own, for as long as the script keeps it.
 d="${TMPDIR:-/tmp}/exsh_parity_procsub_writer.$$"
 mkdir -p "$d" || exit 1
 cd "$d" || exit 1
