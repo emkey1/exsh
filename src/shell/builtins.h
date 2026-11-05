@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 void shellRegisterBuiltins(HashTable *table);
+HashTable *shellSharedBuiltinTable(void);
 int shellGetBuiltinId(const char *name);
 const char *shellBuiltinCanonicalName(const char *name);
 bool shellIsBuiltinName(const char *name);

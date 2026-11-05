@@ -14,6 +14,7 @@
 #include "smallclue/smallclue.h"
 #endif
 #include <ctype.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -283,37 +284,79 @@ void shellRegisterBuiltins(HashTable *table) {
     }
 }
 
+static HashTable *gShellBuiltinTable = NULL;
+static pthread_once_t gShellBuiltinTableOnce = PTHREAD_ONCE_INIT;
+
+static void shellBuiltinTableInit(void) {
+    gShellBuiltinTable = createHashTable();
+    shellRegisterBuiltins(gShellBuiltinTable);
+}
+
+/* These names don't change, and eval analyses a program per call, so one table serves them all.
+ * Nothing writes to it after this. */
+HashTable *shellSharedBuiltinTable(void) {
+    pthread_once(&gShellBuiltinTableOnce, shellBuiltinTableInit);
+    return gShellBuiltinTable;
+}
+
+static HashTable *gShellBuiltinEntries = NULL;
+static pthread_once_t gShellBuiltinEntriesOnce = PTHREAD_ONCE_INIT;
+
+static void shellBuiltinEntriesAdd(const char *name, size_t index) {
+    char *lower = shellLowercase(name);
+    if (!lower) {
+        return;
+    }
+    if (hashTableLookup(gShellBuiltinEntries, lower)) {
+        free(lower);
+        return;
+    }
+    Symbol *symbol = (Symbol *)calloc(1, sizeof(Symbol));
+    if (!symbol) {
+        free(lower);
+        return;
+    }
+    symbol->name = lower;
+    symbol->bytecode_address = (int)index;
+    hashTableInsert(gShellBuiltinEntries, symbol);
+}
+
+static void shellBuiltinEntriesInit(void) {
+    gShellBuiltinEntries = createHashTable();
+    size_t builtin_count = sizeof(kShellBuiltins) / sizeof(kShellBuiltins[0]);
+    for (size_t i = 0; gShellBuiltinEntries && i < builtin_count; ++i) {
+        shellBuiltinEntriesAdd(kShellBuiltins[i].name, i);
+        shellBuiltinEntriesAdd(kShellBuiltins[i].canonical, i);
+    }
+}
+
+/* The first entry with this name or canonical name, in any case. Each command asks more than
+ * once, and scanning the list was a third of an eval. Nothing writes to the table after this. */
+static const ShellBuiltinEntry *shellFindBuiltinEntry(const char *name) {
+    pthread_once(&gShellBuiltinEntriesOnce, shellBuiltinEntriesInit);
+    Symbol *symbol = hashTableLookup(gShellBuiltinEntries, name);
+    return symbol ? &kShellBuiltins[symbol->bytecode_address] : NULL;
+}
+
 int shellGetBuiltinId(const char *name) {
     sharedRegisterExtendedBuiltins();
     if (!name) {
         return -1;
     }
-    size_t builtin_count = sizeof(kShellBuiltins) / sizeof(kShellBuiltins[0]);
-    for (size_t i = 0; i < builtin_count; ++i) {
-        if (strcasecmp(kShellBuiltins[i].name, name) == 0 ||
-            strcasecmp(kShellBuiltins[i].canonical, name) == 0) {
-            int builtin_id = getBuiltinIDForCompiler(kShellBuiltins[i].canonical);
-            if (builtin_id >= 0) {
-                return builtin_id;
-            }
-            return kShellBuiltins[i].id;
-        }
+    const ShellBuiltinEntry *entry = shellFindBuiltinEntry(name);
+    if (!entry) {
+        return -1;
     }
-    return -1;
+    int builtin_id = getBuiltinIDForCompiler(entry->canonical);
+    return builtin_id >= 0 ? builtin_id : entry->id;
 }
 
 const char *shellBuiltinCanonicalName(const char *name) {
     if (!name) {
         return "";
     }
-    size_t builtin_count = sizeof(kShellBuiltins) / sizeof(kShellBuiltins[0]);
-    for (size_t i = 0; i < builtin_count; ++i) {
-        if (strcasecmp(kShellBuiltins[i].name, name) == 0 ||
-            strcasecmp(kShellBuiltins[i].canonical, name) == 0) {
-            return kShellBuiltins[i].canonical;
-        }
-    }
-    return name;
+    const ShellBuiltinEntry *entry = shellFindBuiltinEntry(name);
+    return entry ? entry->canonical : name;
 }
 
 bool shellIsBuiltinName(const char *name) {

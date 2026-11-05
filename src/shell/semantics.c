@@ -118,22 +118,18 @@ void shellInitSemanticContext(ShellSemanticContext *ctx) {
     if (!ctx) {
         return;
     }
-    ctx->builtin_table = createHashTable();
+    ctx->builtin_table = shellSharedBuiltinTable();
     ctx->variable_table = createHashTable();
     ctx->function_table = createHashTable();
     ctx->error_count = 0;
     ctx->warning_count = 0;
-    shellRegisterBuiltins(ctx->builtin_table);
 }
 
 void shellFreeSemanticContext(ShellSemanticContext *ctx) {
     if (!ctx) {
         return;
     }
-    if (ctx->builtin_table) {
-        freeHashTable(ctx->builtin_table);
-        ctx->builtin_table = NULL;
-    }
+    ctx->builtin_table = NULL;
     if (ctx->variable_table) {
         freeHashTable(ctx->variable_table);
         ctx->variable_table = NULL;
