@@ -1,0 +1,26 @@
+#!/usr/bin/env exsh
+# A signal from one of its children ends a foreground subshell, in whatever it is doing. On iOS the
+# subshell's thread looked like the shell's, so it couldn't be cancelled: it ran to its end, and only
+# its status said 143. Bash 3.2 has no BASHPID, so there it asks a child who its parent is. What bash
+# reports on stderr for a killed subshell differs by version, so it is not compared.
+exec 2> /dev/null
+
+D="${TMPDIR:-/tmp}/exsh-kill-running.$$"
+rm -rf "$D"
+mkdir -p "$D"
+mine() {
+  p=$BASHPID
+  if [ -z "$p" ]; then
+    sh -c 'echo $PPID' > "$D/me"
+    read p < "$D/me"
+  fi
+}
+
+( mine; kill -TERM $p & wait $!; echo no ); echo "in wait for it $?"
+( mine; ( sleep 0.2; kill -TERM $p ) & wait; echo no ); echo "in wait $?"
+( mine; ( sleep 0.2; kill -TERM $p ) & sleep 1; echo no ); echo "in a command $?"
+( mine; ( sleep 0.2; kill -KILL $p ) & sleep 1; echo no ); echo "by KILL $?"
+( mine; ( sleep 0.2; kill -TERM $p ) & echo a | sleep 1; echo no ); echo "in a pipeline $?"
+( mine; ( sleep 0.2; kill -TERM $p ) & while :; do sleep 0.05; done; echo no ); echo "in a loop $?"
+
+rm -rf "$D"

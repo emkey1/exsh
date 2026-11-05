@@ -954,6 +954,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_kill_running_subshell",
+            "name": "A signal from one of its children ends a foreground subshell",
+            "category": "builtins",
+            "description": "In wait, a command, a pipeline or a loop. On iOS the subshell's thread looked like the shell's and could not be cancelled, so it ran to its end with a status of 143.",
+            "script": "Tests/exsh/tests/bash_parity_kill_running_subshell.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_set_posix",
             "name": "set -o posix mirrors POSIXLY_CORRECT",
             "category": "parity",
