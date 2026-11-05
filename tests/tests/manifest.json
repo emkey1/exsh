@@ -2190,6 +2190,14 @@
             "description": "Through a function or written out, with status and locals at each level. A frame kept across a nested substitution wrote into freed memory, and most runs aborted.",
             "script": "Tests/exsh/tests/bash_parity_substitution_depth.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_trap_exit_stages",
+            "name": "A DEBUG trap's exit, before a command and between stages",
+            "category": "parity",
+            "description": "The command it comes before doesn't run. Stages already running finish first: they used the subshell's state as it was freed, on iOS.",
+            "script": "Tests/exsh/tests/bash_parity_trap_exit_stages.exsh",
+            "expect": "match_bash"
         }
     ]
 }

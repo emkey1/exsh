@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# A DEBUG trap's exit comes before the command, which does not run. In a pipeline it can come
+# between stages: those running use the state of what the exit ends, so they finish first.
+echo "a simple command"
+( trap 'exit 4' DEBUG; echo no; echo no ); echo "  $?"
+( trap 'exit 4' DEBUG; x=1; echo "no $x" ); echo "  $?"
+( n=0; trap 'n=$((n+1)); [ "$n" = 3 ] && exit 5' DEBUG; echo one; echo two; echo no ); echo "  $?"
+
+echo "a pipeline"
+( trap 'exit 4' DEBUG; true | cat; echo no ); echo "  $?"
+( trap 'exit 4' DEBUG; echo no | cat; echo no ); echo "  $?"
+( trap 'exit 4' DEBUG; echo no | cat | cat | cat; echo no ); echo "  $?"
+( n=0; trap 'n=$((n+1)); [ "$n" = 2 ] && exit 5' DEBUG; true | cat; echo no ); echo "  $?"
+( n=0; trap 'n=$((n+1)); [ "$n" = 3 ] && exit 5' DEBUG; true | cat | cat; echo no ); echo "  $?"
+( trap 'exit 4' DEBUG; { true; } | cat; echo no ); echo "  $?"
+( trap 'exit 4' DEBUG; ( true ) | cat; echo no ); echo "  $?"
+
+echo "around a function and in eval"
+f() { true | cat; echo "in f"; }
+( trap 'exit 4' DEBUG; f; echo no ); echo "  $?"
+( n=0; trap 'n=$((n+1)); [ "$n" = 2 ] && exit 5' DEBUG; f; echo no ); echo "  $?"
+( trap 'exit 4' DEBUG; eval 'true | cat'; echo no ); echo "  $?"
+
+echo "what a substitution sets stays in there"
+x=$(trap : DEBUG; echo in); echo "  [$x] $?"
+trap -p DEBUG
+( trap 'exit 4' DEBUG; x=$(trap : DEBUG; echo in); echo no ); echo "  $?"
+
+echo "many"
+i=0
+while [ "$i" -lt 30 ]; do
+    i=$((i + 1))
+    ( trap 'exit 4' DEBUG; true | cat | cat; echo no )
+done
+echo "  $?"

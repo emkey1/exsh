@@ -736,6 +736,7 @@ int shellRunSource(const char *source,
     bool using_shared_vm = false;
     VM *vm = NULL;
     bool vm_initialized = false;
+    bool left_stages = false;
     ShellRuntimeState *vm_shell_ctx = NULL;
     VM *previous_vm_for_context = NULL;
     bool vm_context_swapped = false;
@@ -903,6 +904,7 @@ int shellRunSource(const char *source,
     size_t redirect_scope_depth = shellRuntimeRedirectScopeDepth();
     void *substitution_traps = options->inherit_locals ? shellRuntimeSubstitutionTrapsPutAside() : NULL;
     InterpretResult result = interpretBytecode(vm, &chunk, globalSymbols, constGlobalSymbols, procedure_table, 0);
+    left_stages = !options->share_runtime_context && shellRuntimeChunkLeftStages();
     /* At a prompt that waits for the line after: a known difference, listed in the release notes. */
     if (!options->keep_line_state) {
         shellRuntimeFinishChunk(vm);
@@ -1005,14 +1007,14 @@ cleanup:
         vm->frontendContext = NULL;
         vm = NULL;
         __atomic_clear(&shared_vm_in_use, __ATOMIC_RELEASE);
-    } else if (vm_initialized && vm) {
+    } else if (vm_initialized && vm && !left_stages) {
         freeVM(vm);
     }
-    if (vm_shell_ctx) {
+    if (vm_shell_ctx && !left_stages) {
         shellRuntimeDestroyContext(vm_shell_ctx);
-        vm_shell_ctx = NULL;
     }
-    if (vm) {
+    vm_shell_ctx = NULL;
+    if (vm && !left_stages) {
         free(vm);
     }
     if (chunk_initialized) {
