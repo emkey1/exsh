@@ -2110,6 +2110,22 @@
             "description": "return in an ERR or signal trap ends the function, outside one it says so and goes on, bad arguments do what bash does, too many drop the command, set -E and set -T, the time keyword, and redirections that hold for the EXIT trap.",
             "script": "Tests/exsh/tests/bash_parity_return_trap.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_bracket_word",
+            "name": "A word with a [ and no ] after it stays as it is",
+            "category": "parity",
+            "description": "Files of that name or close to it, nullglob, failglob, dotglob and nocaseglob change nothing, so the test command keeps working, and what has a ] or * or ? still expands.",
+            "script": "Tests/exsh/tests/bash_parity_bracket_word.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_eval_after_eval",
+            "name": "What one eval leaves is not in the next",
+            "category": "parity",
+            "description": "eval and source share a VM from call to call. After a failure, a break, a return, an exit in a subshell, a syntax error, deep recursion or a trap, the next one still runs as new, and one inside another still works.",
+            "script": "Tests/exsh/tests/bash_parity_eval_after_eval.exsh",
+            "expect": "match_bash"
         }
     ]
 }

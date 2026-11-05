@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# eval and source share a VM from call to call, so nothing one leaves may reach the next.
+set -u
+d="${TMPDIR:-/tmp}/eval_after_eval.$$"
+mkdir -p "$d" && cd "$d" || exit 1
+
+echo "status"
+eval 'false'; echo "false: $?"
+eval 'true'; echo "true: $?"
+eval ''; echo "empty: $?"
+eval 'false' || echo "or: $?"
+eval '(exit 7)'; echo "subshell: $?"
+eval 'true'; echo "true again: $?"
+
+echo "a syntax error, then more"
+eval 'if' 2> /dev/null || echo "the syntax error failed"
+eval 'echo "after the error: $?"'
+eval 'for' 2> /dev/null || echo "and again"
+eval 'echo fine'
+
+echo "loops"
+for i in 1 2 3; do eval 'if [ $i = 2 ]; then break; fi'; echo "for $i"; done
+for i in 1 2 3; do eval '[ $i = 2 ] && continue'; echo "continue $i"; done
+n=0; while [ $n -lt 3 ]; do n=$((n+1)); eval 'echo "while $n"'; done
+eval 'for i in a b; do for j in 1 2; do eval "[ \$j = 2 ] && break 2"; echo "$i$j"; done; done'
+eval 'echo after the loops'
+
+echo "functions"
+f() { eval 'return 3'; echo "not here"; }
+f; echo "return: $?"
+g() { local v=inner; eval 'v=changed; echo "$v"'; echo "$v"; }
+g
+eval 'h() { echo "defined in eval: $1"; }'
+h one
+eval 'h two'
+deep() { if [ "$1" -gt 0 ]; then eval "deep $(( $1 - 1 ))"; else echo "bottom"; fi; }
+deep 10
+eval 'echo after the recursion'
+r() { [ "$1" -gt 0 ] && r $(( $1 - 1 )); eval 'x=$1'; }
+r 10; echo "x=$x"
+
+echo "inside one another"
+eval 'eval "eval \"echo three deep\""'
+eval 'y=$(eval "echo in a substitution"); echo "$y"'
+echo 'eval "echo eval in a sourced file"; return 5; echo "not here"' > s.sh
+. ./s.sh; echo "source: $?"
+eval '. ./s.sh; echo "source in eval: $?"'
+echo 'echo "sourced with $# arguments, first $1"' > a.sh
+. ./a.sh one two
+eval '. ./a.sh three'
+eval 'echo "positional still: $#"'
+
+echo "exit, set -e and options"
+( eval 'exit 4'; echo "not here" ); echo "exit: $?"
+( set -e; eval 'false'; echo "not here" ); echo "set -e: $?"
+( eval 'set -e'; false; echo "not here" ); echo "set -e in eval: $?"
+eval 'set -f'; echo [a]*; eval 'set +f'
+eval 'echo still running'
+
+echo "traps"
+trap 'eval "echo in the trap"' USR1
+eval 'kill -USR1 $$; :; echo after the trap'
+trap - USR1
+trap 'eval "echo at the end of the subshell"' EXIT
+( trap 'eval "echo exit trap in a subshell"' EXIT; eval 'exit 2' ); echo "trap exit: $?"
+trap - EXIT
+
+echo "redirects and jobs"
+eval 'echo to a file' > out.txt; cat out.txt
+eval 'echo more >> out.txt'; cat out.txt
+eval 'cat' < out.txt
+eval 'echo in the background & wait'
+eval 'echo one | tr o 0'
+v=$(eval 'echo captured; false'); echo "$v $?"
+
+echo "many"
+i=0; total=0
+while [ $i -lt 3000 ]; do i=$((i+1)); eval "total=\$((total + $i))"; done
+echo "$total"
+for i in 1 2 3 4 5; do eval "w$i=$i"; done
+eval 'echo "$w1$w2$w3$w4$w5"'
+
+cd / && rm -rf "$d"

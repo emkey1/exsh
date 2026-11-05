@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# A `[` is a pattern only with a `]` after it in the same part of a path. Any other word with one
+# stays as it is, whatever files there are and whatever nullglob, failglob, dotglob or
+# nocaseglob say. The test command is one of these words.
+set -u
+d="${TMPDIR:-/tmp}/bracket_word.$$"
+mkdir -p "$d" && cd "$d" || exit 1
+
+words() {
+    printf '%s|' [ [[ a[ [a a[b ]a[ '['a [a/ [[a a[/b; echo
+}
+
+echo "no files"
+words
+echo [a/b]
+
+echo "the same names as files"
+touch '[' '[[' 'a[' 'a[b' ']a['
+mkdir '[a'
+touch '[a/b]'
+words
+echo [a/b]
+
+echo "the test command with a file named ["
+if [ a = a ]; then echo yes; fi
+[ a = b ] || echo no
+rm -rf '[' '[[' 'a[' 'a[b' ']a[' '[a'
+
+for option in nullglob dotglob nocaseglob; do
+    shopt -s "$option"
+    echo "$option, no files"
+    words
+    if [ a = a ]; then echo yes; fi
+    touch '.[' 'A[' '.[[' 'A[B'
+    echo "$option, hidden names and other cases"
+    words
+    if [ a = a ]; then echo yes; fi
+    rm -f '.[' 'A[' '.[[' 'A[B'
+    shopt -u "$option"
+done
+
+# failglob ends what it stops, so each goes in a subshell of its own.
+echo "failglob"
+( shopt -s failglob; words )
+( shopt -s failglob; if [ a = a ]; then echo yes; fi )
+( shopt -s failglob; echo [z] ) 2> /dev/null || echo "[z] stopped"
+
+# What still has a `]` is still a pattern, and what still has `*` or `?` too.
+touch a b '[a]' '[x' '[y' 'c]'
+echo "patterns"
+echo [a]
+echo [ab]
+echo [!a]
+echo *
+echo '['*
+echo [?
+echo ?]
+echo [a
+echo "[a]"
+echo \[a]
+echo [a\]
+echo [a"]"
+echo "["a]
+shopt -s nullglob
+echo "patterns, with nullglob"
+echo [z]
+echo [z
+echo z[
+echo \[z]
+shopt -u nullglob
+
+# From an expansion, split or not.
+x='['
+y='[ ['
+z='[a]'
+echo "expansions"
+echo $x
+echo $y
+echo $z
+echo "$z"
+for w in $x $y $z; do echo "for: $w"; done
+case '[' in [) echo "case matched [";; *) echo "case missed [";; esac
+case a in [a]) echo "case matched [a]";; *) echo "case missed [a]";; esac
+
+set -f
+echo "noglob"
+echo [ [a] *
+set +f
+
+cd / && rm -rf "$d"
