@@ -1,0 +1,77 @@
+#!/usr/bin/env exsh
+# A command that cannot write its output fails and says so. On iOS these are applets, whose writes
+# went past stdout's stream, so their own checks saw nothing and they gave 0. The numbers differ
+# between one system's tools and another's, so this asks only whether it failed and said so.
+d="${TMPDIR:-/tmp}/exsh_parity_applets_closed.$$"
+rm -rf "$d"
+mkdir -p "$d/d" || exit 1
+cd "$d" || exit 1
+printf 'b\na\nc\n' > f
+printf 'a\nb\n' > g
+: > d/x
+seq 1 40000 > big
+
+report() {
+  [ "$2" -ne 0 ] && r=fails || r=ok
+  [ -s err ] && r="$r, says so"
+  echo "$1: $r"
+}
+
+while IFS= read -r c; do
+  eval "$c >&-" 2> err
+  report "$c" "$?"
+  ( exec >&-; eval "$c" ) 2> err
+  report "exec, $c" "$?"
+done <<'EOF'
+ls
+ls f
+ls -l f
+cat f
+cat big
+head -1 f
+wc -l f
+grep a f
+sed -n 1p f
+awk '{print}' f
+tr a b < f
+sort f
+uniq f
+cut -c1 f
+find d
+date +%Y
+uname
+env
+basename a/b
+dirname a/b
+expr 1 + 1
+du f
+df .
+id -u
+whoami
+env echo x
+nl f
+fold f
+od -c f
+paste f f
+comm f f
+diff f g
+base64 f
+gzip -c f
+dd if=f
+xargs echo < f
+yes | head -1
+cat f | cat
+cat f | wc -l
+EOF
+
+# What it says is about that command alone.
+cat f >&- 2> /dev/null
+cat f
+echo "after a failure $?"
+ls f >&- 2> /dev/null; echo y > out; cat out
+
+# A reader that left is no failure to report.
+cat big | head -1
+echo "reader left $?"
+cd /
+rm -rf "$d"

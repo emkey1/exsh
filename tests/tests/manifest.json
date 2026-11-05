@@ -1601,6 +1601,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_applets_closed",
+            "name": "A command with a closed stdout fails and says so",
+            "category": "parity",
+            "description": "Commands that cannot write their output fail with a message, and a reader that left is not a failure. On iOS these are applets.",
+            "script": "Tests/exsh/tests/bash_parity_applets_closed.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "closed_stdout_bash5",
             "name": "A closed stdout, what only bash 5 checks",
             "category": "parity",
