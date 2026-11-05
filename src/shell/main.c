@@ -4257,6 +4257,28 @@ static char *appendContinuationLine(char *line, const char *more) {
     return joined;
 }
 
+#if defined(PSCAL_TARGET_IOS)
+/* As bash's checkwinsize: the terminal says how big it is, and the variables follow. A tab's
+ * environment is its own, so nothing else keeps them current. */
+static void shellSyncWindowVariables(void) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0 || ws.ws_row == 0) {
+        return;
+    }
+    char buffer[16];
+    snprintf(buffer, sizeof(buffer), "%u", (unsigned)ws.ws_col);
+    const char *current = getenv("COLUMNS");
+    if (!current || strcmp(current, buffer) != 0) {
+        setenv("COLUMNS", buffer, 1);
+    }
+    snprintf(buffer, sizeof(buffer), "%u", (unsigned)ws.ws_row);
+    current = getenv("LINES");
+    if (!current || strcmp(current, buffer) != 0) {
+        setenv("LINES", buffer, 1);
+    }
+}
+#endif
+
 static int runInteractiveSession(const ShellRunOptions *options) {
     ShellRunOptions exec_opts = *options;
     exec_opts.no_cache = 1;
@@ -4276,6 +4298,7 @@ static int runInteractiveSession(const ShellRunOptions *options) {
     while (true) {
 #if defined(PSCAL_TARGET_IOS)
         shellEnsureSelfVprocActive();
+        shellSyncWindowVariables();
 #endif
         pscalRuntimeConsumeSigint();
         pscalRuntimeClearInterruptFlag();
@@ -4510,6 +4533,16 @@ int exsh_main(int argc, char **argv) {
      * to the terminal, tearing that down would end the caller's session, and $1,
      * $0 and the interactive flag are the caller's too. */
     const bool nested = vprocCurrent() != NULL && vprocGetShellSelfPid() > 0;
+    /* A shell that is no one's command has an environment of its own, as a process does. libc's
+     * is the whole app's: this copy of it is what the app gave this tab to start with, and no
+     * other tab sees what changes after that. */
+    VProcEnv *own_env = NULL;
+#if defined(PSCAL_TARGET_IOS)
+    if (!nested && !vprocEnvCurrent()) {
+        own_env = vprocEnvCapture();
+        vprocEnvActivate(own_env);
+    }
+#endif
     /* Centralize SIGINT ownership: block it process-wide before any thread is
      * created, so every thread (shell VM, session readers, tool workers,
      * frontends) inherits SIGINT blocked. A foreground Ctrl-C can then never be
@@ -4576,6 +4609,10 @@ int exsh_main(int argc, char **argv) {
             gShellNestedDepth--;                       \
         } else {                                       \
             shellTeardownSelfVproc(__exsh_rc);         \
+        }                                              \
+        if (own_env) {                                 \
+            vprocEnvActivate(NULL);                    \
+            vprocEnvRelease(own_env);                  \
         }                                              \
         frontendPopKind(previousKind);                 \
         return __exsh_rc;                              \
