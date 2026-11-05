@@ -237,6 +237,7 @@ static const ShellBuiltinEntry kShellBuiltins[] = {
     {"__shell_leave_condition", "__shell_leave_condition", 1015},
     {"__shell_leave_condition_preserve", "__shell_leave_condition_preserve", 1017},
     {"__shell_exec_body", "__shell_exec_body", 1018},
+    {"__shell_job_text", "__shell_job_text", 1058},
     {"__shell_time_begin", "__shell_time_begin", 1019},
     {"__shell_time_end", "__shell_time_end", 1020}
 };

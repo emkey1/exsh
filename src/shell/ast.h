@@ -190,6 +190,8 @@ typedef struct {
     bool is_pipeline_head;
     bool is_pipeline_tail;
     bool is_async_parent;
+    /* What `cmd &` was written as, which `jobs` shows and %name looks in. */
+    char *job_text;
 } ShellExecutionMetadata;
 
 typedef struct ShellCommand {

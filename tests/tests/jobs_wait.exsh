@@ -1,3 +1,4 @@
+set -m
 echo "jobs-wait:start"
 sleep 0.4 &
 echo "jobs:before-start"

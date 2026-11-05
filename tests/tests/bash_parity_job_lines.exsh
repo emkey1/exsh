@@ -1,0 +1,81 @@
+#!/usr/bin/env exsh
+# What `jobs` prints: bash's line, what was written for the command, and a job that has ended, once.
+d="${TMPDIR:-/tmp}/exsh_parity_joblines.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# The padding differs between 3.2 and 5.
+s() { sed -E 's/  +/ /g'; }
+n() { tr -d ' '; }
+# Until a job has ended, which is the same on any machine however long that takes.
+gone() { while kill -0 "$1" 2>/dev/null; do sleep 0.02; done; }
+
+# The line: a number, + for the newest, - for the one before it.
+( sleep 9 & jobs | s; kill $!; wait ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; jobs | s; kill $a $b; wait ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; sleep 9 & c=$!; jobs | s; kill $a $b $c; wait ) 2>/dev/null
+
+# What was written, not what it became.
+( sleep 9 > /dev/null & jobs | s; kill $!; wait ) 2>/dev/null
+( sleep 9 2>&1 < /dev/null & jobs | s; kill $!; wait ) 2>/dev/null
+( x=1 sleep 9 & jobs | s; kill $!; wait ) 2>/dev/null
+( sleep "9" & jobs | s; kill $!; wait ) 2>/dev/null
+( a=9; sleep $a & jobs | s; kill $!; wait ) 2>/dev/null
+( sleep 0.2 | cat & jobs | s; wait )
+( true | sleep 0.2 | cat & jobs | s; wait )
+( ( sleep 0.2 ) & jobs | s; wait )
+( { sleep 0.2; } & jobs | s; wait )
+( f() { sleep 0.2; }; f & jobs | s; wait )
+( true && sleep 0.2 & jobs | s; wait )
+
+# A job's line in a stage, a file and a substitution.
+( sleep 9 & jobs > f; s < f; kill $!; wait ) 2>/dev/null
+( sleep 9 & x=$(jobs); echo "$x" | s; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs | cat | s; kill $!; wait ) 2>/dev/null
+
+# Ended: how, once, and it gives up its number.
+( true & gone $!; jobs > f; s < f; jobs > f; wc -l < f | n )
+( false & gone $!; jobs > f; s < f )
+( ( exit 3 ) & gone $!; jobs > f; s < f )
+( true & a=$!; false & b=$!; ( exit 3 ) & c=$!; gone $a; gone $b; gone $c; jobs > f; sed -E 's/\][-+ ]/]/; s/  +/ /g' f )
+( true & a=$!; sleep 9 & b=$!; gone $a; jobs > f; sed -E 's/\][-+ ]/]/; s/  +/ /g' f; kill $b; wait ) 2>/dev/null
+( sleep 9 & b=$!; true & a=$!; gone $a; jobs > f; sed -E 's/\][-+ ]/]/; s/  +/ /g' f; kill $b; wait ) 2>/dev/null
+( true & gone $!; jobs > /dev/null; jobs | wc -l | n; jobs > f; wc -l < f | n )
+
+# A stage and a substitution look, and what they saw is still there to see.
+( true & gone $!; jobs | wc -l | n; jobs | wc -l | n; jobs > /dev/null; jobs | wc -l | n )
+( true & gone $!; x=$(jobs); echo "$x" | s; jobs > f; s < f; jobs > f; wc -l < f | n )
+( true & gone $!; x=$(jobs | wc -l | n); echo "[$x]"; jobs > f; wc -l < f | n )
+
+# Options on one that has ended.
+( true & gone $!; jobs -r; echo r; jobs -s; echo s; jobs > f; s < f )
+( true & p=$!; gone $p; [ "$(jobs -p)" = "$p" ] && echo same pid; jobs > f; s < f )
+( true & p=$!; gone $p; jobs -l > f; sed -E "s/$p/PID/; s/  +/ /g" f )
+( sleep 9 & p=$!; jobs -l > f; sed -E "s/$p/PID/; s/  +/ /g" f; kill $p; wait ) 2>/dev/null
+
+# -n: what has not been shown yet.
+( true & gone $!; jobs -n > f; s < f; echo n; jobs -n > f; wc -l < f | n; jobs > f; wc -l < f | n )
+( sleep 9 & jobs -n > f; s < f; echo n; jobs -n > f; wc -l < f | n; jobs > f; s < f; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs > /dev/null; jobs -n > f; wc -l < f | n; kill $!; wait ) 2>/dev/null
+( true & gone $!; jobs -p > /dev/null; jobs -n > f; s < f )
+
+# wait and disown take it out of the list.
+( true & p=$!; gone $p; wait $p; echo "w $?"; jobs > f; wc -l < f | n )
+( true & gone $!; wait; echo "w $?"; jobs > f; s < f )
+( sleep 0.1 & wait; echo "w $?"; jobs > f; wc -l < f | n )
+( sleep 0.1 & wait %1; echo "w $?"; jobs > f; wc -l < f | n )
+( false & gone $!; disown; echo "d $?"; jobs > f; wc -l < f | n )
+( false & a=$!; true & b=$!; gone $a; gone $b; disown -a; jobs > f; wc -l < f | n )
+( false & a=$!; sleep 9 & b=$!; gone $a; disown -r; jobs > f; sed -E 's/\][-+ ]/]/; s/  +/ /g' f; kill $b; wait ) 2>/dev/null
+( false & gone $!; disown -h %1; jobs > f; s < f )
+
+# Numbers: one past the highest still known.
+( true & gone $!; jobs > /dev/null; sleep 9 & jobs > f; s < f; kill $!; wait ) 2>/dev/null
+( true & a=$!; true & b=$!; gone $a; gone $b; jobs %1 > /dev/null; sleep 9 & c=$!; jobs > f; cut -c1-3 f; kill $c; wait ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; disown %1; sleep 9 & c=$!; jobs > f; cut -c1-3 f; kill $a $b $c; wait ) 2>/dev/null
+( false & gone $!; wait %1; true & gone $!; jobs > f; s < f )
+( false & gone $!; wait %1; sleep 9 & p=$!; jobs > f; s < f; kill $p; wait ) 2>/dev/null
+
+cd /
+rm -rf "$d"

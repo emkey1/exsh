@@ -1,3 +1,4 @@
+set -m
 echo "jobs-foreground:start"
 sleep 0.4 &
 echo "jobs:before-start"

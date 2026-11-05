@@ -706,6 +706,7 @@ static ShellCommand *shellCreateCommandInternal(ShellCommandType type) {
     command->exec.is_pipeline_head = false;
     command->exec.is_pipeline_tail = false;
     command->exec.is_async_parent = false;
+    command->exec.job_text = NULL;
     shellRedirectionArrayInit(&command->redirections);
     if (type == SHELL_COMMAND_SIMPLE) {
         shellWordArrayInit(&command->data.simple.words);
@@ -927,6 +928,7 @@ const ShellRedirectionArray *shellCommandGetRedirections(const ShellCommand *com
 
 void shellFreeCommand(ShellCommand *command) {
     if (!command) return;
+    free(command->exec.job_text);
     switch (command->type) {
         case SHELL_COMMAND_SIMPLE:
             shellWordArrayFree(&command->data.simple.words);

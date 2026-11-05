@@ -1765,7 +1765,12 @@ static void compileProgram(BytecodeChunk *chunk, const ShellProgram *program) {
         return;
     }
     for (size_t i = 0; i < program->commands.count; ++i) {
-        compileCommand(chunk, program->commands.items[i], false);
+        const ShellCommand *command = program->commands.items[i];
+        if (command && command->exec.job_text) {
+            emitPushString(chunk, command->exec.job_text, command->line);
+            emitBuiltinProc(chunk, "__shell_job_text", 1, command->line);
+        }
+        compileCommand(chunk, command, false);
     }
 }
 

@@ -988,11 +988,24 @@ static bool parseCompleteCommand(ShellParser *parser, ShellProgram *program) {
     return true;
 }
 
+/* The text from where a command began to the `&` the parser is on. */
+static void parserKeepJobText(ShellParser *parser, ShellCommand *command, size_t start) {
+    const char *src = parser->lexer.src;
+    size_t end = parser->lexer.token_start;
+    while (end > start && isspace((unsigned char)src[end - 1])) {
+        end--;
+    }
+    if (end > start && !command->exec.job_text) {
+        command->exec.job_text = strndup(src + start, end - start);
+    }
+}
+
 static bool parseList(ShellParser *parser, ShellProgram *program) {
     if (!parser || !program) {
         return false;
     }
     while (true) {
+        size_t command_start = parser->lexer.token_start;
         ShellCommand *command = parseAndOr(parser);
         if (!command) {
             return false;
@@ -1003,6 +1016,7 @@ static bool parseList(ShellParser *parser, ShellProgram *program) {
             if (parser->current.type == SHELL_TOKEN_AMPERSAND) {
                 command->exec.runs_in_background = true;
                 command->exec.is_async_parent = true;
+                parserKeepJobText(parser, command, command_start);
             }
             parserScheduleRuleMask(parser, RULE_MASK_COMMAND_START);
             shellParserAdvance(parser);

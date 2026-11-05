@@ -340,3 +340,14 @@ ulimit -p 5 2>/dev/null; echo "ulimit pipe $?"
 ulimit -p > /dev/null; echo "ulimit pipe read $?"
 b5=${TMPDIR:-/tmp}/b5bin.$$
 printf 'ab\0c\n' > "$b5"; chmod +x "$b5"; ( exec "$b5" ) 2>/dev/null; echo "exec binary $?"; rm -f "$b5"
+# 3.2 reports a job that a signal ended as it goes, and keeps a job after `jobs`.
+b5gone() { while kill -0 "$1" 2>/dev/null; do sleep 0.02; done; }
+( sleep 9 & p=$!; kill -TERM $p; b5gone $p; jobs | sed -E 's/\[1\][-+ ] +//; s/Terminated[: 0-9]* */Terminated /; s/ .*sleep.*/ sleep/' ) 2>/dev/null
+( true & b5gone $!; jobs %1 > /dev/null; echo "rc=$?"; jobs %1 2>/dev/null; echo "rc=$?" )
+( sleep 9 & a=$!; sleep 9 & b=$!; jobs %sleep 2>/dev/null; echo "ambiguous $?"; wait %sleep 2>/dev/null; echo "ambiguous $?"; kill %sleep 2>/dev/null; echo "ambiguous $?"; disown %sleep 2>/dev/null; echo "ambiguous $?"; kill $a $b; wait ) 2>/dev/null
+( sleep 9 & p=$!; jobs 1 > /dev/null 2>&1; echo "listed $?"; jobs sleep > /dev/null 2>&1; echo "listed $?"; jobs $p > /dev/null 2>&1; echo "not a pid $?"; kill $p; wait ) 2>/dev/null
+( true & b5gone $!; jobs > /dev/null; wait %1 2>&1 | sed 's/.*: //' ) 2>&1
+( true & b5gone $!; jobs > /dev/null; wait %1 2>/dev/null; echo "waited $?" )
+# A bare wait right after kill has not heard of it. Bash's answer is a race it nearly always wins, so it is fixed here.
+( sleep 9 & kill %1; wait; sleep 9 & p=$!; jobs | sed -E 's/  +/ /g'; kill $p; wait ) 2>/dev/null
+( sleep 9 & a=$!; kill $a; wait; sleep 9 & p=$!; jobs | sed -E 's/  +/ /g'; kill $p; wait ) 2>/dev/null

@@ -1,0 +1,111 @@
+#!/usr/bin/env exsh
+# %%, %+, %, %-, %N, %name and %?text mean the same to every builtin that takes a job spec, and what
+# has ended can still be named. fg and bg need job control. jobs -x puts pids in a command.
+d="${TMPDIR:-/tmp}/exsh_parity_jobspecs.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+s() { sed -E 's/  +/ /g'; }
+n() { tr -d ' '; }
+gone() { while kill -0 "$1" 2>/dev/null; do sleep 0.02; done; }
+# What a job spec picks, by the number at the start of its line. The numbers are the test.
+pick() { jobs "$1" 2>/dev/null | cut -c1-3; }
+
+# One job: every name for it.
+( sleep 9 & pick %%; pick %+; pick %; pick %-; pick %1; pick %sleep; pick %sl; pick %?leep; pick %?; kill $!; wait ) 2>/dev/null
+# Two and three: the current and the previous.
+( sleep 9 & a=$!; sleep 9 & b=$!; pick %%; pick %+; pick %-; kill $a $b; wait ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; sleep 9 & c=$!; pick %%; pick %-; pick %1; pick %2; pick %3; kill $a $b $c; wait ) 2>/dev/null
+# By text.
+( sleep 9.1 & a=$!; sleep 9.2 & b=$!; pick %?9.1; pick %?9.2; kill $a $b; wait ) 2>/dev/null
+( sleep 9 & a=$!; cat < /dev/null > /dev/null & sleep 0.01; pick %sleep; kill $a; wait ) 2>/dev/null
+
+# Nothing by that name.
+( sleep 9 & p=$!; jobs %cat; echo "name $?"; jobs %?zzz; echo "text $?"; jobs %9; echo "number $?"; jobs %0; echo "zero $?"; kill $p; wait ) 2>/dev/null
+jobs %cat 2>&1 | sed 's/.*jobs: //'
+jobs %?zzz 2>&1 | sed 's/.*jobs: //'
+jobs %9 2>&1 | sed 's/.*jobs: //'
+jobs %%; echo "no jobs $?"
+kill %%; echo "no jobs $?"
+wait %%; echo "no jobs $?"
+disown %%; echo "no jobs $?"
+kill %sleep; echo "no jobs $?"
+wait %?x; echo "no jobs $?"
+
+# wait.
+( sleep 0.1 & wait %%; echo "w $?" )
+( sleep 0.1 & wait %+; echo "w $?" )
+( sleep 0.1 & wait %; echo "w $?" )
+( sleep 0.1 & wait %-; echo "w $?" )
+( sleep 0.1 & wait %sleep; echo "w $?" )
+( sleep 0.1 & wait %?leep; echo "w $?" )
+( ( exit 3 ) & wait %%; echo "w $?" )
+( ( exit 3 ) & wait %?exit; echo "w $?" )
+( sleep 0.1 & sleep 0.1 & wait %sleep 2>/dev/null; echo "ambiguous $?"; wait )
+wait %1 %2 2>&1 | sed 's/.*wait: //'
+( sleep 0.1 & wait %1 %9 2>/dev/null; echo "w $?" )
+
+# kill.
+( sleep 9 & kill %%; echo "k $?"; wait ) 2>/dev/null
+( sleep 9 & kill %+; echo "k $?"; wait ) 2>/dev/null
+( sleep 9 & kill %; echo "k $?"; wait ) 2>/dev/null
+( sleep 9 & kill %sleep; echo "k $?"; wait ) 2>/dev/null
+( sleep 9 & kill %?leep; echo "k $?"; wait ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; kill %-; echo "k $?"; kill -0 $b && echo the current lives; kill $b; wait ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; kill %sleep 2>/dev/null; echo "ambiguous $?"; kill $a $b; wait ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; kill %sleep 2>&1 >/dev/null | sed 's/.*kill: //'; kill $a $b; wait ) 2>/dev/null
+
+# disown.
+( sleep 9 & p=$!; disown %%; echo "d $?"; jobs | wc -l | n; kill $p ) 2>/dev/null
+( sleep 9 & p=$!; disown %sleep; echo "d $?"; jobs | wc -l | n; kill $p ) 2>/dev/null
+( sleep 9 & p=$!; disown %?leep; echo "d $?"; jobs | wc -l | n; kill $p ) 2>/dev/null
+( sleep 9 & p=$!; disown %; echo "d $?"; jobs | wc -l | n; kill $p ) 2>/dev/null
+( sleep 9 & a=$!; sleep 9 & b=$!; disown %-; echo "d $?"; jobs | cut -c1-3; kill $a $b; wait ) 2>/dev/null
+
+# What has ended can be named, and takes no signal.
+( true & gone $!; kill %1; echo "k $?"; jobs | wc -l | n )
+( true & gone $!; kill -0 %1; echo "k $?"; kill -0 %1; echo "k $?" )
+( true & gone $!; wait %%; echo "w $?" )
+( true & gone $!; wait %true; echo "w $?" )
+( false & gone $!; disown %1; echo "d $?"; wait %1 2>/dev/null; echo "w $?" )
+# wait can ask again, until a fork or `jobs`.
+( false & gone $!; wait %1; echo "a $?"; wait %1; echo "b $?" )
+( false & gone $!; wait %1; echo "a $?"; wait %%; echo "b $?" )
+( false & wait %1; echo "a $?"; wait %1; echo "b $?" )
+( false & gone $!; wait %1; echo "a $?"; jobs; wait %1 2>/dev/null; echo "b $?" )
+( false & p=$!; wait $p; echo "a $?"; wait %1; echo "b $?"; wait $p; echo "c $?" )
+( false & gone $!; sleep 0.1 & wait %1; echo "a $?"; jobs | wc -l | n; wait %1 2>/dev/null; echo "b $?"; wait )
+
+# fg and bg want job control: a prompt, or set -m.
+fg 2>&1 | sed 's/.*fg: //'; echo "fg ${PIPESTATUS[0]}"
+bg 2>&1 | sed 's/.*bg: //'; echo "bg ${PIPESTATUS[0]}"
+fg %% 2>/dev/null; echo "fg $?"
+bg %% 2>/dev/null; echo "bg $?"
+( sleep 0.1 & fg 2>/dev/null; echo "fg $?"; wait )
+( sleep 0.1 & bg %% 2>/dev/null; echo "bg $?"; wait )
+( set -m; sleep 0.1 & fg; echo "fg $?" )
+( set -m; sleep 0.1 & fg %%; echo "fg $?" )
+( set -m; sleep 0.1 & fg %sleep; echo "fg $?" )
+( set -m; sleep 0.1 & bg 2>&1 | sed 's/.*bg: //'; wait )
+( set -m; sleep 0.1 & bg %% 2>/dev/null; echo "bg $?"; wait )
+( set -m; fg 2>&1 | sed 's/.*fg: //' )
+( set -m; set +m; sleep 0.1 & fg 2>/dev/null; echo "fg $?"; wait )
+( set -o monitor; set +o | grep monitor; set +o monitor; set +o | grep monitor )
+
+# jobs -x: a command with the pids in it. It runs in the shell.
+jobs -x echo hello; echo "x $?"
+jobs -x false; echo "x $?"
+jobs -x; echo "x $?"
+( sleep 9 & p=$!; jobs -x echo %1 | sed -E "s/[0-9]+/PID/"; kill $p; wait ) 2>/dev/null
+( sleep 9 & p=$!; jobs -x echo a %% b %+ | sed -E "s/[0-9]+/PID/g"; kill $p; wait ) 2>/dev/null
+( sleep 9 & p=$!; jobs -x echo %9 %cat; kill $p; wait ) 2>/dev/null
+jobs -x echo "a  b" 'c d'
+jobs -x v=1 2>/dev/null; echo "x $?"
+jobs -xl echo x
+jobs -lx echo x 2>&1 | sed 's/.*jobs: //'; echo "x ${PIPESTATUS[0]}"
+jobs -q 2>&1 | sed 's/.*jobs: //'; echo "q ${PIPESTATUS[0]}"
+jobs -pn; echo "pn $?"
+
+cd /
+rm -rf "$d"
