@@ -1986,9 +1986,10 @@
             "id": "bash_parity_substitution_wait",
             "name": "A job that ends during a command substitution",
             "category": "parity",
-            "description": "It stays the shell's: `wait` returns, with the job's status when asked for it by pid.",
+            "description": "It stays the shell's: `wait` returns, with the job's status when asked for it by pid. Answers are what bash 3.2, 5.2 and 5.3 print when run by hand: bash on the CI image, Ubuntu 26.04, hung on this script, so the harness does not run it.",
             "script": "Tests/exsh/tests/bash_parity_substitution_wait.exsh",
-            "expect": "match_bash"
+            "expect": "runtime_ok",
+            "expected_stdout": "[one] 0\n[] 0\n[two] 0\n[three] 3\n[four] 0\n[five] 0\n[six] 0\n[in 0]\nout 0\n[in]\nout 0\n[in]\nout 0\n[in 3]\nout 3\n[in 0]\nout 4"
         }
     ]
 }
