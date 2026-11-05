@@ -1,0 +1,55 @@
+#!/usr/bin/env exsh
+# %n stores what this pass over the format has written. It has no libc conversion behind it:
+# Darwin's aborts on %n, which on iOS ended the whole app. A letter printf doesn't know fails.
+
+printf 'ab%n|\n' x
+echo "[$x] $?"
+
+printf 'ab%n|' x y
+echo
+echo "[$x][$y]"
+
+printf '%n|'
+echo " $?"
+
+printf '%5n|' w
+echo " $? [$w]"
+
+printf 'é%n\n' e
+echo "[$e]"
+
+printf -v v 'abc%n' n
+echo "[$v][$n] $?"
+
+printf '%n' 1a 2>/dev/null
+echo " $?"
+
+printf 'kept%n' 1a 2>/dev/null
+echo " $?"
+
+command printf '%n|' q
+echo " $? [$q]"
+
+printf '%%n|\n'
+printf 'a\n%%%n|\n' p
+echo "[$p]"
+
+r=$(printf 'abc%nd' z)
+echo "[$r]"
+
+for conversion in y D O U v; do
+    printf "cd%${conversion}ef" abc 2>/dev/null
+    echo " $conversion $?"
+done
+
+printf '%1$s' abc 2>/dev/null
+echo " $?"
+
+printf 'ab%y|' 2>/dev/null
+echo " $?"
+
+printf -v u 'a%y' 2>/dev/null
+echo "$? [$u]"
+
+printf '%yb\n' a b c 2>/dev/null
+echo " $?"

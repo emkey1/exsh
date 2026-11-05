@@ -64,3 +64,4 @@ echo "too many $?"
 (set -E; k() { false; echo no; }; f() { trap 'return 7' ERR; k; echo no; }; f; echo "nested with -E $?")
 (trap 'echo r1' RETURN; f() { trap 'echo r2' RETURN; }; f; . /dev/null; echo "a function's own stays")
 time -- echo dashes 2>/dev/null
+printf '%S|%C|\n' abc def
