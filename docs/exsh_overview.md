@@ -247,9 +247,18 @@ Job control follows Bash's conventions. `jobs` collates the active table,
 pipelines, and `wait`/`kill` honour `%`-style specifiers while normalising
 signal names and integers. All helpers consult the shared job ledger so output
 stays stable when pipelines fork or launch nested processes.【F:src/backend_ast/shell/shell_builtins.inc†L7949-L8119】
-One difference: every child gets a process group of its own, with job control off too,
-where bash leaves a script's children in the shell's group. So `kill 0` in a script
-reaches only the shell, and `kill -- -$!` finds the job where bash says no such process.
+With job control off, in a script, a subshell or a shell with no terminal, a command stays
+in the shell's process group, as under bash. So the terminal's keys reach the script's shell
+and its command together, `kill 0` reaches the whole script, and `kill -- -$!` says no such
+process. Ctrl-C ends the script if it ended the command; a command that dealt with it leaves
+the script going, though a trap still runs. Ctrl-Z stops them all, and they go on together.
+A job started with `&` ignores Ctrl-C and Ctrl-\, and if the terminal is its stdin it reads
+`/dev/null`. `kill %1` signals the job's commands one by one. `set -m` turns job control on
+in a script, for its subshells too, and `set +m` turns it off at a prompt. A script run as a
+command, as `sh file` or `./file`, has no job control however it was started; on iOS it runs on a
+thread of its own, so Ctrl-Z parks it and `fg` goes on. The last stage of a pipeline runs on the
+prompt's own thread there, which cannot park, so Ctrl-Z ends a script in that place, and the
+prompt shows it stopped.
 
 ## Accessing core and extended builtins
 

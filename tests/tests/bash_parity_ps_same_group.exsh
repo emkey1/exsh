@@ -1,0 +1,37 @@
+#!/usr/bin/env exsh
+# With no job control a command stays in the shell's process group, as `ps` shows. Host only:
+# the iOS flavour has no `ps -o`, and `sh` here is the system's, which is what makes it a process.
+d="${TMPDIR:-/tmp}/exsh-ps-group.$$"
+rm -rf "$d"
+mkdir -p "$d"
+me=$(ps -o pgid= -p $$ | tr -d ' ')
+same() { [ "$(tr -d ' ' < "$d/g")" = "$me" ] && echo "$1 same" || echo "$1 differs"; }
+
+sh -c 'ps -o pgid= -p $$' > "$d/g"
+same foreground
+sh -c 'ps -o pgid= -p $$' | cat > "$d/g"
+same pipeline
+sh -c 'ps -o pgid= -p $$ > "$1"; exit 0' x "$d/g" | cat
+same first-stage
+( sh -c 'ps -o pgid= -p $$' > "$d/g" )
+same subshell
+( sh -c 'ps -o pgid= -p $$' > "$d/g" ) &
+wait
+same subshell-job
+{ sh -c 'ps -o pgid= -p $$' > "$d/g"; } &
+wait
+same group-job
+sleep 0.3 & j=$!
+ps -o pgid= -p $j > "$d/g"
+same job
+wait
+f() { sh -c 'ps -o pgid= -p $$' > "$d/g"; }
+f
+same function
+x=$(sh -c 'ps -o pgid= -p $$')
+echo "$x" > "$d/g"
+same substitution
+sh -c 'ps -o pgid= -p $$' > "$d/g" &
+wait
+same simple-job
+rm -rf "$d"

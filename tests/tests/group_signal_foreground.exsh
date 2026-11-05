@@ -1,0 +1,58 @@
+#!/usr/bin/env exsh
+# As bash_parity_group_signal, with the script in the foreground: on the iOS flavour it then runs on
+# the thread of the shell that started it, which cannot park, and a key must still end it. Fixed
+# answers, from bash 3.2. Bash 5 with `set -m` also ends a function its foreground job died in.
+if [ "${1:-}" != in-session ]; then
+    if perl -e 'exit 0' 2>/dev/null; then
+        set -- $(ps -o args= -p $$)
+        exec perl -e 'use POSIX; POSIX::setsid(); $SIG{$_} = "DEFAULT" for qw(INT QUIT TERM TSTP); exec @ARGV or exit 126' \
+            "$1" "$0" in-session "$1"
+    fi
+    case "${RUN_VPROC_TESTS:-}:$BASH_VERSION" in
+        1:*-exsh*) ;;
+        *) exit 77 ;;
+    esac
+fi
+shell=${2:-sh}
+exec 2> /dev/null
+
+d="${TMPDIR:-/tmp}/exsh-group-foreground.$$"
+rm -rf "$d"
+mkdir -p "$d"
+cd "$d" || exit 1
+set -m
+trap : INT
+n=0
+
+wait_for() {
+    w=0
+    while [ ! -e "$1" ] && [ "$w" -lt 300 ]; do
+        sleep 0.01
+        w=$((w + 1))
+    done
+}
+
+signalled() {
+    n=$((n + 1))
+    printf '%s\n' "$3" > "s$n"
+    rm -f pid
+    ( wait_for pid; sleep 0.1; kill -"$1" -- -"$(cat pid)" ) &
+    k=$!
+    "$shell" "s$n" > "out$n"
+    r=$?
+    wait "$k"
+    printf '%s rc=%s [%s]\n' "$2" "$r" "$(tr '\n' '|' < "out$n")"
+}
+
+signalled INT child 'echo $$ > pid; sleep 5; echo no'
+signalled INT pipeline 'echo $$ > pid; sleep 5 | cat; echo no'
+signalled INT subshell 'echo $$ > pid; ( sleep 5; echo no1 ); echo no2'
+signalled INT substitution 'echo $$ > pid; x=$(sleep 5; echo y); echo "no [$x]"'
+signalled INT exit_trap 'trap "echo bye" EXIT; echo $$ > pid; sleep 5; echo no'
+signalled INT int_trap 'trap "echo int" INT; echo $$ > pid; sleep 5; echo "next $?"'
+signalled INT nested 'echo $$ > pid; sh -c "sleep 5; echo no1"; echo no2'
+signalled INT catches 'echo $$ > pid; sh -c "trap \"echo caught; exit 7\" INT; sleep 5; echo no1"; echo "next $?"'
+signalled TERM term 'echo $$ > pid; sleep 5; echo no'
+
+cd /
+rm -rf "$d"

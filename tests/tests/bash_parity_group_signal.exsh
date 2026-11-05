@@ -1,0 +1,98 @@
+#!/usr/bin/env exsh
+# Ctrl-C and Ctrl-Z as the terminal sends them: to a whole group. A script started with job control
+# has a group, and what it runs stays in it, so the signal reaches the script's shell and its
+# command together. The shell acts on Ctrl-C when the command has ended, if that died of it; Ctrl-Z
+# stops them all at once, and they go on together. A session of its own, for what it ignored on entry.
+if [ "${1:-}" != in-session ]; then
+    if perl -e 'exit 0' 2>/dev/null; then
+        set -- $(ps -o args= -p $$)
+        exec perl -e 'use POSIX; POSIX::setsid(); $SIG{$_} = "DEFAULT" for qw(INT QUIT TERM TSTP); exec @ARGV or exit 126' \
+            "$1" "$0" in-session "$1"
+    fi
+    case "${RUN_VPROC_TESTS:-}:$BASH_VERSION" in
+        1:*-exsh*) ;;
+        *) exit 77 ;;
+    esac
+fi
+shell=${2:-sh}
+
+# What bash says about a job it lost differs between its versions.
+exec 2> /dev/null
+
+d="${TMPDIR:-/tmp}/exsh-group-signal.$$"
+rm -rf "$d"
+mkdir -p "$d"
+cd "$d" || exit 1
+set -m
+n=0
+
+wait_for() {
+    w=0
+    while [ ! -e "$1" ] && [ "$w" -lt 300 ]; do
+        sleep 0.01
+        w=$((w + 1))
+    done
+}
+
+# SIGNAL NAME TEXT: the text says when it has started, by touching `up`.
+signalled() {
+    n=$((n + 1))
+    printf '%s\n' "$3" > "s$n"
+    rm -f up
+    "$shell" "s$n" > "out$n" &
+    j=$!
+    wait_for up
+    sleep 0.1
+    kill -"$1" -- -"$j"
+    k=$?
+    wait "$j"
+    r=$?
+    printf '%s kill=%s rc=%s [%s]\n' "$2" "$k" "$r" "$(tr '\n' '|' < "out$n")"
+}
+
+signalled INT child 'touch up; sleep 5; echo no'
+signalled INT pipeline 'touch up; sleep 5 | cat; echo no'
+signalled INT loop 'touch up; for i in 1 2 3; do sleep 5; echo no; done; echo no2'
+signalled INT subshell 'touch up; ( sleep 5; echo no1 ); echo no2'
+signalled INT function 'f() { sleep 5; echo no1; }; touch up; f; echo no2'
+signalled INT substitution 'touch up; x=$(sleep 5; echo y); echo "no [$x]"'
+signalled INT eval 'touch up; eval "sleep 5; echo no1"; echo no2'
+signalled INT nested 'touch up; sh -c "sleep 5; echo no1"; echo no2'
+signalled INT exit_trap 'trap "echo bye" EXIT; touch up; sleep 5; echo no'
+signalled INT int_trap 'trap "echo int" INT; touch up; sleep 5; echo "next $?"'
+signalled INT catches 'touch up; sh -c "trap \"echo caught; exit 7\" INT; sleep 5; echo no1"; echo "next $?"'
+signalled INT catches_trap 'trap "echo int" INT; touch up; sh -c "trap \"echo caught; exit 7\" INT; sleep 5; echo no1"; echo "next $?"'
+signalled TERM term 'touch up; sleep 5; echo no'
+signalled TERM term_ignored 'trap "" TERM; touch up; sleep 0.3; echo "next $?"'
+
+# NAME TEXT: stopped, nothing goes on; continued, the rest of it runs.
+stopped() {
+    n=$((n + 1))
+    printf '%s\n' "$2" > "s$n"
+    rm -f up
+    "$shell" "s$n" > "out$n" &
+    j=$!
+    wait_for up
+    sleep 0.1
+    kill -TSTP -- -"$j"
+    k=$?
+    sleep 0.7
+    during=$(tr '\n' '|' < "out$n")
+    kill -CONT -- -"$j"
+    wait "$j"
+    r=$?
+    while [ "$r" -gt 128 ] && [ "$r" -lt 160 ] && kill -0 "$j"; do
+        wait "$j"
+        r=$?
+    done
+    printf '%s kill=%s during=[%s] rc=%s [%s]\n' "$1" "$k" "$during" "$r" "$(tr '\n' '|' < "out$n")"
+}
+
+stopped stop_child 'touch up; sleep 0.4; echo resumed'
+stopped stop_pipeline 'touch up; sleep 0.4 | cat; echo resumed'
+stopped stop_subshell 'touch up; ( sleep 0.4; echo in ); echo resumed'
+stopped stop_function 'f() { sleep 0.4; echo in; }; touch up; f; echo resumed'
+stopped stop_nested 'touch up; sh -c "sleep 0.4; echo in"; echo resumed'
+
+cd /
+rm -rf "$d"

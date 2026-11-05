@@ -2445,6 +2445,56 @@
             "script": "Tests/exsh/tests/exsh_debug_switch.exsh",
             "expect": "runtime_ok",
             "expected_stdout": "redir-build lines: 2\n1\n0\n"
+        },
+        {
+            "id": "bash_parity_own_group",
+            "name": "With no job control a command stays in the shell's group",
+            "category": "parity",
+            "description": "kill 0 reaches a job, a foreground command, a pipeline, a subshell and a function; no group has a job's number, kill %1 reaches every stage, and set -m turns a group back on. Each kill 0 runs in a session of its own.",
+            "script": "Tests/exsh/tests/bash_parity_own_group.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_ps_same_group",
+            "name": "ps shows a script's commands in the shell's group",
+            "category": "parity",
+            "description": "Foreground, pipeline, subshell, job and substitution all report the shell's process group.",
+            "script": "Tests/exsh/tests/bash_parity_ps_same_group.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_group_signal",
+            "name": "A signal to a script's group reaches the shell and its command",
+            "category": "parity",
+            "description": "INT ends the script if it ends the command, and not if the command dealt with it; TSTP stops them all, and CONT lets them go on; both in a group of the script's own.",
+            "script": "Tests/exsh/tests/bash_parity_group_signal.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_terminal_keys",
+            "name": "A script's commands share the terminal",
+            "category": "parity",
+            "description": "On a real pty a script's commands read and set the terminal, Ctrl-C reaches them and the shell, an EXIT trap runs, and a job gets no terminal.",
+            "script": "Tests/exsh/tests/bash_parity_terminal_keys.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "group_signal_foreground",
+            "name": "A signal to a foreground script's group",
+            "category": "jobs",
+            "description": "A key ends a script in the foreground on the iOS flavour too, where it runs on the thread of the shell that started it.",
+            "script": "Tests/exsh/tests/group_signal_foreground.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "child rc=130 []\npipeline rc=130 []\nsubshell rc=130 []\nsubstitution rc=130 []\nexit_trap rc=130 [bye|]\nint_trap rc=0 [int|next 130|]\nnested rc=130 []\ncatches rc=0 [caught|next 7|]\nterm rc=143 []"
+        },
+        {
+            "id": "timeout_nested_shell",
+            "name": "timeout ends a shell it runs",
+            "category": "jobs",
+            "description": "The shell and the command it waits for both end, alone, in a subshell and in a pipeline. On the iOS flavour the shell runs on the thread of what timeout started, and sparing that thread let the shell go on.",
+            "script": "Tests/exsh/tests/timeout_nested_shell.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "a 0\nb 0\nc 124\nend"
         }
     ]
 }

@@ -1,0 +1,148 @@
+#!/usr/bin/env exsh
+# With no job control a command stays in the shell's process group, so `kill 0` reaches it and
+# no group carries the job's own number. It used to get a group of its own, every time.
+#
+# Every `kill 0` here runs in a session of its own, so that it cannot reach what runs this test:
+# perl's POSIX::setsid starts the script again. The iOS flavour has no perl and needs none, since
+# a group there is the VM's table. Anything else with no perl does not run these at all.
+if [ "${1:-}" != in-session ]; then
+    if perl -e 'exit 0' 2>/dev/null; then
+        set -- $(ps -o args= -p $$)
+        exec perl -e 'use POSIX; POSIX::setsid(); $SIG{$_} = "DEFAULT" for qw(INT QUIT TERM); exec @ARGV or exit 126' \
+            "$1" "$0" in-session
+    fi
+    case "${RUN_VPROC_TESTS:-}:$BASH_VERSION" in
+        1:*-exsh*) ;;
+        *) exit 77 ;;
+    esac
+fi
+
+# What bash says about a job or a group differs between its versions. The status is the point.
+exec 2> /dev/null
+
+d="${TMPDIR:-/tmp}/exsh-own-group.$$"
+rm -rf "$d"
+mkdir -p "$d"
+
+# A job, started before the shell ignored the signal.
+sleep 5 & j=$!
+trap '' TERM
+kill -TERM 0
+echo "kill 0 $?"
+wait $j
+echo "job $?"
+trap - TERM
+
+# No group has the job's number.
+sleep 5 & j=$!
+kill -0 -$j
+echo "probe $?"
+kill -TERM -- -$j
+echo "kill -TERM -- $?"
+kill -s TERM -- -$j
+echo "kill -s TERM -- $?"
+kill $j
+wait $j
+echo "still there $?"
+
+# The shell's own group holds it.
+sleep 5 & j=$!
+trap '' TERM
+kill -TERM -- -$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ' || echo 0)
+trap - TERM
+kill $j 2>/dev/null
+wait $j
+echo "own group $?"
+
+# A job's commands are signalled one by one, each of them.
+sleep 5 & j=$!
+kill %1
+wait $j
+echo "jobspec $?"
+{ sleep 0.4; echo ran > "$d/stage"; } | cat & j=$!
+kill %1
+wait $j
+echo "stages $?"
+sleep 0.6
+[ -e "$d/stage" ] && echo "first stage went on" || echo "first stage ended"
+
+# A foreground command, with a trap so that what the shell runs still takes the signal.
+trap 'echo trapped' TERM
+( sleep 0.2; kill -TERM 0 ) &
+sleep 5
+echo "foreground $?"
+wait
+( sleep 0.2; kill -TERM 0 ) &
+sleep 5 | sleep 5
+echo "pipeline $?"
+wait
+( sleep 0.2; kill -TERM 0 ) &
+( sleep 5; echo no )
+echo "subshell $?"
+wait
+f() { sleep 5; echo "function goes on $?"; }
+( sleep 0.2; kill -TERM 0 ) &
+f
+echo "function $?"
+wait
+trap - TERM
+
+# From inside a substitution.
+sleep 5 & j=$!
+trap '' TERM
+x=$(kill -TERM 0; echo sent)
+echo "$x"
+wait $j
+echo "from a substitution $?"
+trap - TERM
+
+# In a subshell, whose group is the same one.
+trap 'echo outer' TERM
+( sleep 5 & j=$!; trap '' TERM; kill -TERM 0; wait $j; echo "in a subshell $?" )
+echo "after the subshell $?"
+trap - TERM
+
+# In a nested shell.
+sleep 5 & j=$!
+trap '' TERM
+sh -c 'kill -TERM 0; echo "nested $?"'
+wait $j
+echo "from a nested shell $?"
+trap - TERM
+
+# `set -m` asks for job control, and a job then has a group, as a subshell's does.
+set -m
+case $- in *m*) echo "m on" ;; *) echo "m off" ;; esac
+set -o > "$d/o"
+grep monitor "$d/o"
+sleep 5 & j=$!
+kill -0 -$j
+echo "set -m probe $?"
+kill -TERM -- -$j
+echo "set -m kill $?"
+wait $j
+echo "set -m job $?"
+( sleep 0.2 & j=$!; kill -0 -$j; echo "set -m subshell $?"; wait )
+set +m
+case $- in *m*) echo "m on" ;; *) echo "m off" ;; esac
+set -o > "$d/o"
+grep monitor "$d/o"
+sleep 5 & j=$!
+kill -0 -$j
+echo "set +m probe $?"
+kill $j
+wait $j
+
+# What ends the shell takes its job with it, through the group.
+trap 'echo outer' TERM
+( sleep 5 & kill -TERM 0; echo no )
+echo "what ended $?"
+trap - TERM
+
+# What a shell sends itself ends it there, in a subshell and in a nested shell alike.
+( me=${BASHPID:-}; if [ -z "$me" ]; then sh -c 'echo $PPID' > "$d/me"; read me < "$d/me"; fi; kill -TERM $me; echo no )
+echo "sent itself $?"
+printf 'kill -TERM $$\necho no\n' > "$d/self"
+sh "$d/self"
+echo "a script sent itself $?"
+rm -rf "$d"

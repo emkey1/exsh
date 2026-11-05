@@ -1,0 +1,9 @@
+#!/usr/bin/env exsh
+# timeout ends a shell it runs, with the command that shell is waiting for. On the iOS flavour the
+# shell runs on the thread of what timeout started, and a kill of that sparing the shell let it go on
+# to `echo late`, or left it waiting on its pipeline for good. Fixed answers: macOS has no timeout.
+timeout 5 true > /dev/null 2>&1 || exit 77
+( timeout 0.3 sh -c 'sleep 5; echo late' ) | cat; echo "a $?"
+timeout 0.3 sh -c 'sleep 5 | cat; echo late' | cat; echo "b $?"
+timeout 0.3 sh -c 'sleep 5; echo late'; echo "c $?"
+echo end
