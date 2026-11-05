@@ -151,7 +151,11 @@ extends it with orchestration helpers implemented in
   but not functions, since a function keeps no source to print. A script with no `#!`
   goes to the system's `sh` on a host where bash would read it itself. A failed
   assignment with no command, such as `readonly r=1; r=2`, ends the script where bash
-  goes on with the next line. Unquoted parentheses among a command's words are plain words,
+  goes on with the next line. Failed arithmetic in a word drops the rest of its line and
+  the script reads on, as under bash, but after a compound command over several lines what
+  follows it on its last line still runs. Arithmetic syntax errors say `syntax error`, as
+  bash does up to 5.2, where 5.3 says `arithmetic syntax error`. Unquoted parentheses among
+  a command's words are plain words,
   so `find . ( -name a )` runs where bash reports a syntax error. `set -o posix` does not make a
   failing special builtin end the script, `set -v` is accepted but prints nothing,
   `set -x` does not show compound commands, a `DEBUG` trap runs only for top-level

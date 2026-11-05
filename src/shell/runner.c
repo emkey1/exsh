@@ -560,11 +560,12 @@ char *shellLoadFile(const char *path) {
  * it reads on from there. The whole text was compiled at once here, so what is left of it is
  * compiled again. A substitution is one command, and ends. */
 static InterpretResult shellRunAfterDiscard(VM *vm, const ShellProgram *program, const ShellRunOptions *options,
-                                            size_t redirect_scope_depth, InterpretResult result) {
+                                            size_t redirect_scope_depth, const ShellDiscardBase *base,
+                                            InterpretResult result) {
     BytecodeChunk rest_chunk;
     bool rest_chunk_live = false;
     while (shellRuntimeConsumeDiscard()) {
-        shellRuntimeAbandonCommand();
+        shellRuntimeAbandonCommand(base);
         shellRuntimeUnwindRedirectScopes(redirect_scope_depth);
         if (options->inherit_locals) {
             shellRuntimeSetLastStatus(1);
@@ -924,6 +925,8 @@ int shellRunSource(const char *source,
     vm_context_swapped = true;
 
     size_t redirect_scope_depth = shellRuntimeRedirectScopeDepth();
+    ShellDiscardBase discard_base;
+    shellRuntimeDiscardBase(&discard_base);
     void *substitution_traps = options->inherit_locals ? shellRuntimeSubstitutionTrapsPutAside() : NULL;
     InterpretResult result = interpretBytecode(vm, &chunk, globalSymbols, constGlobalSymbols, procedure_table, 0);
     left_stages = !options->share_runtime_context && shellRuntimeChunkLeftStages();
@@ -933,7 +936,9 @@ int shellRunSource(const char *source,
     }
     shellRuntimeUnwindRedirectScopes(redirect_scope_depth);
     if (!options->share_runtime_context) {
-        result = shellRunAfterDiscard(vm, program, options, redirect_scope_depth, result);
+        result = shellRunAfterDiscard(vm, program, options, redirect_scope_depth, NULL, result);
+    } else if (shellRuntimeDiscardStaysInText()) {
+        result = shellRunAfterDiscard(vm, program, options, redirect_scope_depth, &discard_base, result);
     }
     shellRuntimeSubstitutionTrapsBack(substitution_traps);
     if (getenv("PSCALI_PROMPT_DEBUG")) {

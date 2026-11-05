@@ -59,7 +59,7 @@ static void parserReclassifyCurrentToken(ShellParser *parser, unsigned int mask)
 
 static bool parserConsumePendingHereDocs(ShellParser *parser);
 static char *parserCopyWordWithoutMarkers(const ShellWord *word);
-static char *parserCopyTrimmedRange(const char *src, size_t start, size_t end);
+static char *parserCopyArithmeticRange(const char *src, size_t start, size_t end);
 static bool parserExtractCStyleForSegments(ShellParser *parser, size_t start_pos, char **init_out, char **cond_out,
                                           char **update_out);
 static bool parserExtractArithmeticCommandExpression(ShellParser *parser, size_t start_pos, char **expr_out);
@@ -702,17 +702,19 @@ static char *parserCopyWordWithoutMarkers(const ShellWord *word) {
     return shrunk ? shrunk : result;
 }
 
-static char *parserCopyTrimmedRange(const char *src, size_t start, size_t end) {
+/* As written, since an error shows it that way, unless there is nothing in it. */
+static char *parserCopyArithmeticRange(const char *src, size_t start, size_t end) {
     if (!src || end <= start) {
         return strdup("");
     }
-    while (start < end && isspace((unsigned char)src[start])) {
-        start++;
+    size_t first = start;
+    while (first < end && isspace((unsigned char)src[first])) {
+        first++;
     }
-    while (end > start && isspace((unsigned char)src[end - 1])) {
-        end--;
+    if (first == end) {
+        return strdup("");
     }
-    size_t len = end > start ? (end - start) : 0;
+    size_t len = end - start;
     char *out = (char *)malloc(len + 1);
     if (!out) {
         return NULL;
@@ -779,7 +781,7 @@ static bool parserExtractArithmeticCommandExpression(ShellParser *parser, size_t
     column++;
     pos++;
 
-    char *expr = parserCopyTrimmedRange(src, start_pos, expr_end);
+    char *expr = parserCopyArithmeticRange(src, start_pos, expr_end);
     if (!expr) {
         parserErrorAt(parser, &parser->current, "Out of memory parsing arithmetic command");
         return false;
@@ -868,9 +870,9 @@ static bool parserExtractCStyleForSegments(ShellParser *parser, size_t start_pos
     size_t update_start = semicolons[1] + 1;
     size_t update_end = expr_end;
 
-    char *init = parserCopyTrimmedRange(src, init_start, init_end);
-    char *cond = parserCopyTrimmedRange(src, cond_start, cond_end);
-    char *update = parserCopyTrimmedRange(src, update_start, update_end);
+    char *init = parserCopyArithmeticRange(src, init_start, init_end);
+    char *cond = parserCopyArithmeticRange(src, cond_start, cond_end);
+    char *update = parserCopyArithmeticRange(src, update_start, update_end);
     if (!init || !cond || !update) {
         free(init);
         free(cond);

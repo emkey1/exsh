@@ -6,7 +6,8 @@ echo "ref:$ref"
 unset MISSING
 typeset -i derived=MISSING
 echo "derived:$derived"
-typeset -i error=1+
+( typeset -i error=1+ ) 2>&1 | sed -e 's/^.*line [0-9]*: //' -e 's/arithmetic syntax error/syntax error/'
+typeset -i error=1+ 2>/dev/null
 echo "status:$?"
 echo "error:$error"
 echo "typeset:end"

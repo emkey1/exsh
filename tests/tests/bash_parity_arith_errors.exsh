@@ -1,0 +1,380 @@
+#!/usr/bin/env exsh
+# What arithmetic says when it fails, and what it does next. A report names the expression as it was
+# read, without blanks in front, and the last token read with all that follows it. Forms the bashes
+# word differently are in bash5_forms. `arithmetic syntax error` is bash 5.3's for `syntax error`.
+d="${TMPDIR:-/tmp}/exsh_parity_arith_errors.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+t() {
+    ( eval "$1"; echo "went on $?" ) > out 2>&1
+    echo "[$?] $1"
+    sed -e 's/^.*line [0-9]*: //' -e 's/arithmetic syntax error/syntax error/' out
+}
+
+echo "division names its divisor"
+t 'echo $((1/0))'
+t 'echo $((2+1/0))'
+t 'echo $((1%0))'
+t 'x=0; echo $((1/x))'
+t 'x=0; y=1; echo $((y/x))'
+t 'echo $((1/ 0))'
+t 'echo $((1 /0))'
+t 'echo $((4/2/0))'
+t 'echo $((1,1/0))'
+t 'a[0]=0; echo $((1/a[0]+1))' 2>/dev/null | sed -e 's/error token is .*/token/'
+t 'echo $((-1/0))'
+t 'echo $((1<<1/0))'
+t 'x=2; echo $((x++/0))'
+t 'x=5; echo $((x/=0))'
+t 'x=5; echo $((x%=0))'
+t 'x=5; echo $((x/=0+0))'
+t 'x=5; y=0; echo $((x/=y))'
+t 'x=5; echo $((x=1/0)); echo "x=$x"'
+t 'x=5; echo $((x+=1/0)); echo "x=$x"'
+
+echo "the expression as it was read"
+t 'x=0; echo $((1/$x))'
+t 'echo $(($(echo 1)/$(echo 0)))'
+t 'x=1/0; echo $((x))'
+t 'x=1/0; echo $((x+1))'
+t 'x=y; y=1/0; echo $((x))'
+t 'a[1]=1/0; echo $((a[1]+2))'
+t "x=' 1/0'; echo \$((x))"
+t "let ' 1/0'"
+t 'echo $(( 1/0))'
+
+echo "in each place it can be"
+t 'let 1/0'
+t 'let x=1/0'
+t 'let x=1 1/0'
+t '((1/0))'
+t 'x=0; ((1/x))'
+t 'x=0; ((1/$x))'
+t 'if ((1/0)); then echo y; else echo n; fi'
+t '((1/0)) || echo orr'
+t '((1/0)) && echo andd'
+t 'f() { ((1/0)); echo "in f $?"; }; f'
+t 'while ((1/0)); do echo body; break; done'
+t 'for ((i=1/0; i<1; i++)); do echo body; done'
+t 'for ((i=0; i<1/0; i++)); do echo body; done'
+t 'for ((i=0; i<1; i=1/0)); do echo body; done'
+t 'for ((i=0;i<1;i++,1/0)); do echo body; done'
+t 'for ((;1/0;)); do echo body; done'
+t '[[ 1/0 -eq 1 ]]'
+t '[[ 1 -lt 1/0 ]]'
+t '[[ 1/0 -eq 1 || 2 -eq 2 ]]'
+t '[[ 1 -eq 1 || 1/0 -eq 1 ]]'
+t '[[ 1 -eq 2 && 1/0 -eq 1 ]]'
+t 'x=1/0; [[ x -eq 0 ]]'
+t 'a=(1 2); echo ${a[1/0]}'
+t 'a=(1 2); a[1/0]=3; echo "${#a[@]}"'
+t 'a=(1 2); y=${a[1/0]}'
+t 'a=(1 2); echo "${a[1/0]:-x}"'
+t 'a=(1 2); : "${a[1/0]:=x}"'
+t 'a=(1 2); unset "a[1/0]"; echo "unset $? ${#a[@]}"'
+t '((a[1/0]))'
+t 'let "a[1/0]=1"'
+t '[[ a[1/0] -eq 1 ]]'
+t 'x=abc; echo ${x:1/0}'
+t 'x=abc; echo ${x:1:1/0}'
+t 'set -- abc; echo ${1:1/0}'
+t 'set -- abc; echo ${@:1/0}'
+t 'a=(1 2); echo ${a[@]:1/0}'
+t 'unset x; echo "[${x:1/0}]"'
+t 'unset a; echo "[${a[@]:1/0}]"'
+t 'declare -i n=1/0; echo "same $n"'
+t 'typeset -i n=1/0; echo "same $n"'
+t 'declare -i n=1+; echo "same $n"'
+t 'f() { local -i n=1/0; echo "same $n"; }; f; echo "same $?"'
+t 'declare -i n=5; n=1/0; echo "same $n"'
+t 'declare -i n=5; n=1+; echo "same $n"'
+t 'declare -i n=5; n+=1/0; echo "same $n"'
+t 'declare -i n; echo "[$n]"; n=1+1; echo "[$n]"; n+=1; echo "[$n]"'
+t 'f() { local -i m; echo "[$m]"; m=1+1; echo "[$m]"; }; f'
+
+echo "what else it can say"
+t 'echo $((1+))'
+t 'echo $((+))'
+t 'echo $((*1))'
+t 'echo $((1**2+))'
+t 'echo $((1,))'
+t 'echo $((1++))'
+t 'echo $((1 2))'
+t 'echo $(( 1 2 3 ))'
+t 'echo $((a b))'
+t 'echo $((1/))'
+t 'echo $((1<))'
+t 'echo $(( (1 2) ))'
+t 'echo $(( (1+) ))'
+t 'echo $(( () ))'
+t 'echo $((1?2))'
+t 'echo $((1?2:))'
+t 'echo $((1?:2))'
+t 'echo $((1?))'
+t 'echo $((1?2?3))'
+t 'echo $((2**-1))'
+t 'echo $((2**-1+1))'
+t 'x=-1; echo $((2**x+1))'
+t 'echo $((2**(0-1)))'
+t 'echo $((08))'
+t 'echo $((1+08))'
+t 'echo $((09+1))'
+t 'echo $((1 + 09 + 1))'
+t 'echo $((0xg+1))'
+t 'echo $((1a+1))'
+t 'echo $((2#3+1))'
+t 'echo $((1+2#3+1))'
+t 'echo $((12#c))'
+t 'echo $((1#2+3))'
+t 'echo $((1+65#2+3))'
+t 'echo $((0#1))'
+t 'echo $((0x))'
+t 'echo $((0x+1))'
+t 'echo $((1 = 2))'
+t 'echo $((1=2))'
+t 'echo $((1=))'
+t 'echo $((1+=2))'
+t 'echo $((1<<=2))'
+t 'echo $(((x)=2))'
+t 'echo $((x=1=2))'
+t 'echo $((x++=1))'
+t 'echo $((1?x=2:y=3))'
+t 'echo $((1 @ 2))'
+t 'echo $((x @ 1))'
+t 'echo $((1 . 2))'
+t 'echo $((1 ] 2))'
+t 'echo $((x[1] @ 1))'
+t 'echo $(( (1 @ 2) ))'
+t 'echo $(((1) @))'
+t 'echo $((@))'
+t 'echo $((1 + @))'
+t 'echo $((1/0 @))'
+t "echo \$(('1'))"
+t 'echo $((a[))'
+t 'echo $((a[1))' 2>/dev/null | sed -e 's/^.*matching.*/unterminated/'
+t 'echo $(( a[ 1 ))'
+t 'echo $(( 2 + a[ 1 ))'
+t 'x=x; echo $((x))'
+t 'x=x+1; echo $((x))'
+t 'x=08; echo $((x+1))'
+t "x='1 2'; echo \$((x+1))"
+t 'x=1+; echo $((x+1))'
+t "x='a b'; let x"
+t "x='\"1\"'; echo \$((x))" 2>/dev/null | sed -e 's/error token is .*/token/'
+t "let '\"1\"+2'"
+t "x=1; let '\$x+1'"
+t "let '\$(echo 1)'"
+t "y='\$x'; x=1; echo \$((y))"
+t "[[ '\$x' -eq 1 ]]"
+t "declare -i n='\$x'; echo same"
+
+echo "no label on these"
+m() { ( eval "$1" ) 2>&1 | sed -e 's/^.*line [0-9]*: //'; }
+m 'readonly r=1; ((r=2))'
+m 'readonly r=1; let r=2'
+m 'readonly r=1; [[ r=2 -eq 1 ]]'
+
+echo "the rest of the test, not the rest of the line"
+t '[ 1/0 -eq 1 ]' 2>/dev/null | sed -e 's/integer expected/integer expression expected/'
+t '[ 1 -lt x ]' | sed -e 's/integer expected/integer expression expected/'
+t 'test "" -eq 1' | sed -e 's/integer expected/integer expression expected/'
+
+echo "a command that fails reports once and runs once"
+x=0; ((x++, 1/0)) 2>/dev/null; echo "x=$x $?"
+x=0; ((x++ / 0)) 2>/dev/null; echo "x=$x $?"
+x=0; if ((x++, 1/0)); then echo y; fi 2>/dev/null; echo "x=$x"
+x=0; while ((x++, 1/0)); do break; done 2>/dev/null; echo "x=$x"
+x=0; let 'x++' '1/0' 2>/dev/null; echo "x=$x $?"
+x=0; f() { ((x++, 1/0)); }; f 2>/dev/null; echo "x=$x $?"
+n=0; ((x=$(echo 1 >> calls; echo 1)/0)) 2>/dev/null; wc -l < calls | tr -d ' '
+((1/0)) > /dev/null 2>&1; echo "$?"
+((x=1)) 2>/dev/null; echo "$? $x"
+
+echo "a word that fails takes its line, and the script reads on"
+echo $((1/0)); echo no
+echo "1 $?"
+v2=$((1/0))
+echo "2 $?"
+echo a; echo $((1/0)); echo no
+echo "3 $?"
+true && echo $((1/0)) || echo no; echo no
+echo "4 $?"
+! echo $((1/0)); echo no
+echo "5 $?"
+y=$((1/0)) z=2; echo no
+echo "6 $?"
+echo $((1/0)) > made; echo no
+echo "7 $?"
+[ -e made ] && echo no
+a=(1 2); echo ${a[1/0]}; echo no
+echo "8 $?"
+a[1/0]=1; echo no
+echo "9 $? ${#a[@]}"
+s=abc; echo ${s:1/0}; echo no
+echo "10 $?"
+declare -i n=1/0; echo no
+echo "11 $?"
+declare -i m=5; m=1/0; echo no
+echo "12 $? $m"
+export e=$((1/0)); echo no
+echo "13 $?"
+if [ $((1/0)) ]; then echo no; else echo no; fi
+echo "14 $?"
+while [ $((1/0)) ]; do echo no; done
+echo "15 $?"
+for v in a $((1/0)) b; do echo no; done
+echo "16 $?"
+case $((1/0)) in *) echo no;; esac
+echo "17 $?"
+# Which line a report gives in what follows differs between the bashes. The words are checked above.
+exec 3>&2 2>/dev/null
+f() { echo $((1/0)); echo no
+echo no; }; f
+echo "18 $?"
+f() { local l=$((1/0)); echo no; }; f; echo no
+echo "19 $?"
+for i in 1 2; do for j in 3 4; do echo $((1/0))
+echo no; done; echo no
+done
+echo "20 $?"
+if true; then
+    echo $((1/0))
+    echo no
+fi
+echo "21 $?"
+while :; do
+    echo $((1/0))
+    echo no
+    break
+done
+echo "22 $?"
+case x in
+    x) echo $((1/0))
+       echo no;;
+esac
+echo "23 $?"
+{ echo $((1/0)); echo no
+echo no; }
+echo "24 $?"
+cat <<EOF
+$((1/0))
+EOF
+echo "25 $?"
+
+echo "a subshell ends"
+( echo $((1/0)); echo no
+echo no ); echo "1 $?"
+x=$(echo $((1/0)); echo no
+echo no); echo "2 $? [$x]"
+x=$(eval 'echo $((1/0)); echo no
+echo no'); echo "3 $? [$x]"
+( f() { echo $((1/0)); }; f; echo no ); echo "4 $?"
+
+echo "eval and a sourced file read on themselves"
+eval 'echo $((1/0)); echo no
+echo "1 in"'; echo "1 out $?"
+printf 'echo $((1/0)); echo no\necho "2 in"\n' > sourced
+. ./sourced 2>/dev/null; echo "2 out $?"
+for i in 1 2; do eval 'echo $((1/0)); echo no
+echo "3 in $i"'; echo "3 out $i"; done
+f() { eval 'echo $((1/0)); echo no
+echo "4 in"'; echo "4 out $?"; }; f; echo "4 $?"
+eval 'eval "echo \$((1/0)); echo no
+echo 5 inner"; echo "5 middle $?"
+echo 5 outer'; echo "5 out $?"
+eval 'f() { echo $((1/0)); echo no
+echo no; }; f; echo no
+echo "6 in"'; echo "6 out $?"
+eval 'for i in 1 2; do
+echo $((1/0))
+echo no
+done
+echo "7 in"'; echo "7 out $?"
+for i in 1 2; do
+    eval 'echo $((1/0))'
+    echo "8 out $i $?"
+done
+while :; do eval 'break
+echo $((1/0))'; echo no; done; echo "9 out $?"
+
+echo "with set -e and traps"
+( set -e; echo $((1/0)); echo no
+echo "1 in $?" ); echo "1 $?"
+( set -e; let 1/0; echo no ); echo "3 $?"
+( set -e; ((1/0)) || echo orr; echo "4 in" ); echo "4 $?"
+( set -e; for ((i=1/0;;)); do break; done; echo "5 in $?" ); echo "5 $?"
+( set -e; for ((;1/0;)); do break; done; echo "6 in $?" ); echo "6 $?"
+( set -e; for ((i=0;i<1;1/0)); do echo b; done; echo "7 in $?" ); echo "7 $?"
+( trap 'echo bye' EXIT; echo $((1/0)); echo no
+echo "8 in" ); echo "8 $?"
+( trap 'echo exited' EXIT; f() { echo $((1/0)); }; f; echo no ); echo "9 $?"
+
+echo "in a stage or a job it is that command's"
+t() { sleep 0.01; echo first; }
+t | cat $((1/0)); echo "1 ${PIPESTATUS[1]}"
+echo $((1/0)) | cat; echo "2 ${PIPESTATUS[0]}"
+((1/0)) | cat; echo "3 ${PIPESTATUS[0]}"
+{ ((1/0)); } | cat; echo "4 ${PIPESTATUS[0]}"
+f() { echo $((1/0)); echo no; }; f | cat; echo "5 ${PIPESTATUS[0]}"
+{ echo $((1/0)); echo no; } | cat; echo "6 ${PIPESTATUS[0]}"
+true | { echo $((1/0)); echo no; }; echo "7 $?"
+true | f; echo "7 function $?"
+true | eval 'echo $((1/0)); echo no'; echo "7 eval $?"
+true | echo $((1/0)); echo "7 word $?"
+eval 'echo $((1/0)); echo no' | cat; echo "8 ${PIPESTATUS[0]}"
+echo $((1/0)) & wait $!; echo "9 $?"
+((1/0)) & wait $!; echo "10 $?"
+f() { echo $((1/0)); echo no; }; f & wait $!; echo "11 $?"
+{ echo $((1/0)); echo no; } & wait $!; echo "12 $?"
+
+exec 2>&3
+echo "an expression can be any length"
+long=$(printf '1+%.0s' {1..400})
+((${long}1/0)) 2>&1 | wc -c | tr -d ' '
+let "${long}1/0" 2>&1 | wc -c | tr -d ' '
+long=$(printf 'x%.0s' {1..300})
+( echo $(($long=1/0)) ) 2>&1 | wc -c | tr -d ' '
+( readonly $long=1; echo $(($long=1)) ) 2>&1 >/dev/null | wc -c | tr -d ' '
+
+echo "for ((;;)) is one expression each"
+for ((i=0; i<3 ? 1 : 0; i++)); do echo "a$i"; done
+for ((i=1; i<3<2; i++)); do echo "b$i"; [ "$i" = 3 ] && break; done
+for ((i=0; ! i > 1; i++)); do echo "c$i"; [ "$i" = 2 ] && break; done
+for ((i=0; (i<2)==1; i++)); do echo "d$i"; done
+for ((i=0; i<2 == 1; i++)); do echo "e$i"; done
+for ((i=0; !(i>1); i++)); do echo "f$i"; done
+for ((i=0; i+1<3 && i<5; i++)); do echo "g$i"; done
+for ((i=0, j=5; i<j; i+=2, j--)); do echo "h$i $j"; done
+for ((i=7; i>0; i>>=1)); do echo "i$i"; done
+for ((i=1; i<20; i<<=2)); do echo "j$i"; done
+for ((x=5; x; x--)); do echo "k$x"; done
+for (( ; ; )); do echo once; break; done
+for ((i=0;;i++)); do [ "$i" = 2 ] && break; echo "l$i"; done
+for (( i=0 ; i < 2 ; i++ )) do echo "m$i"; done
+for ((i=0; $i<2; i++)); do echo "n$i"; done
+x=1+1; for ((i=x; i<3; i++)); do echo "o$i"; done
+x=y; y=2; for ((i=0; i<x; i++)); do echo "p$i"; done
+for ((i="1"; i<"3"; i++)); do echo "q$i"; done
+for ((i=0x10;i<17;i++)); do echo "r$i"; done
+for ((i=2#11;i<4;i++)); do echo "s$i"; done
+unset i; for ((; i<2; i++)); do echo "[$i]"; done
+for ((i=0; i<2; i++)); do :; done; echo "end $i $?"
+for ((i=0; 0; i++)); do :; done; echo "end $i $?"
+for ((0;0;0)); do :; done; echo "end $?"
+for ((i=1/1;0;)); do :; done; echo "end $i $?"
+
+echo "array literals take arithmetic"
+a=([1+1]=x [3*2]=y); echo "${!a[@]}" "${a[2]}" "${a[6]}"
+i=1; b=([i]=x [i+1]=y); echo "${!b[@]}" "${b[@]}"
+c=([foo]=x); echo "${!c[@]}" "${c[0]}"
+declare -a e=([1+1]=x); echo "${!e[@]}"
+f() { local z=([1+1]=x); echo "${!z[@]}"; }; f
+exec 2>/dev/null
+d=([1/0]=1)
+echo "$? ${#d[@]}"
+declare -a g=([1/0]=1)
+echo "$? ${#g[@]}"
+
+cd / && rm -rf "$d"

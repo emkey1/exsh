@@ -15,7 +15,7 @@ x=y; y=3; echo $((x+1))
 echo $(( (1+(2*3)) )) $(( $(echo 2) + 1 )) $((1+1))$(echo a)
 a=(1 2 3); i=1; echo $((a[i]+a[0])) $((a[i]=9)) "${a[1]}"
 
-# A failed expansion ends the script, so these go in subshells.
+# A failed expansion takes the rest of its line, so these go in subshells.
 (echo $((1/0)); echo no) 2>/dev/null; echo "status $?"
 (x=$((1%0)); echo no) 2>/dev/null; echo "status $?"
 (echo $((1+)); echo no) 2>/dev/null; echo "status $?"
