@@ -1,11 +1,13 @@
 #include "shell/codegen.h"
 #include "shell/builtins.h"
 #include "shell/word_encoding.h"
+#include "shell/quote_markers.h"
 #include "shell/function.h"
 #include "vm/string_sentinels.h"
 #include "core/utils.h"
 #include "vm/vm.h"
 #include "core/globals.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -860,8 +862,168 @@ static void compileCase(BytecodeChunk *chunk, const ShellCase *case_stmt, int li
 static void compileFunction(BytecodeChunk *chunk, const ShellFunction *function, int line);
 static void compileArithmetic(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background);
 
+/* Parameters whose answer depends on the process asking, or that change when read. */
+static bool parameterIsPerProcess(const char *name, size_t len) {
+    static const char *const kNames[] = {"BASHPID", "RANDOM"};
+    for (size_t i = 0; i < sizeof(kNames) / sizeof(kNames[0]); ++i) {
+        if (strlen(kNames[i]) == len && strncmp(kNames[i], name, len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static size_t parameterNameLength(const char *text) {
+    size_t len = 0;
+    if (isalpha((unsigned char)text[0]) || text[0] == '_') {
+        while (isalnum((unsigned char)text[len]) || text[len] == '_') {
+            len++;
+        }
+    } else if (isdigit((unsigned char)text[0])) {
+        while (isdigit((unsigned char)text[len])) {
+            len++;
+        }
+    } else if (text[0] && strchr("@*#?-$!", text[0])) {
+        len = 1;
+    }
+    return len;
+}
+
+/* Whether `${` at text only reads a variable: a name, then nothing more than an operator that
+ * cannot assign, fail or evaluate. What such an operator's own word holds comes next in the scan. */
+static bool braceExpansionOnlyReads(const char *text) {
+    const char *p = text;
+    if (p[0] == '#' && p[1] != '}') {
+        p++;
+    }
+    size_t len = parameterNameLength(p);
+    if (len == 0 || parameterIsPerProcess(p, len)) {
+        return false;
+    }
+    p += len;
+    if (p[0] == '[') {
+        /* A subscript is arithmetic, which can assign, unless it is one of these. */
+        p++;
+        if ((p[0] == '@' || p[0] == '*') && p[1] == ']') {
+            p += 2;
+        } else {
+            while (isdigit((unsigned char)*p)) {
+                p++;
+            }
+            if (*p != ']' || p[-1] == '[') {
+                return false;
+            }
+            p++;
+        }
+    }
+    if (p[0] == ':') {
+        return p[1] == '-' || p[1] == '+';
+    }
+    return p[0] && strchr("}-+#%/^,@", p[0]) != NULL;
+}
+
+/* Whether expanding this text can do more than read variables. */
+static bool textExpansionActs(const char *text) {
+    for (const char *p = text; p && *p; ++p) {
+        if (*p == '`' || ((*p == '<' || *p == '>') && p[1] == '(')) {
+            return true;
+        }
+        if (*p != '$') {
+            continue;
+        }
+        if (p[1] == '(' || p[1] == '[') {
+            return true;
+        }
+        if (p[1] == '{') {
+            if (!braceExpansionOnlyReads(p + 2)) {
+                return true;
+            }
+        } else if (parameterIsPerProcess(p + 1, parameterNameLength(p + 1))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool wordExpansionActs(const ShellWord *word) {
+    if (!word) {
+        return false;
+    }
+    if (word->has_command_substitution || word->command_substitutions.count > 0 || word->has_arithmetic_expansion) {
+        return true;
+    }
+    return word->has_parameter_expansion && textExpansionActs(word->text);
+}
+
+/* Under bash a job or a stage forks first and expands its words there, so what they do stays in
+ * it and the shell does not wait for them. Here a simple command expands its words on the shell
+ * before it starts, which is cheaper and is all that plain reads need. One whose words can do more
+ * starts as a body, as a compound command does. */
+static bool commandExpansionsAct(const ShellCommand *command) {
+    if (!command || command->type != SHELL_COMMAND_SIMPLE) {
+        return false;
+    }
+    const ShellWordArray *words = &command->data.simple.words;
+    bool saw_name = false;
+    for (size_t i = 0; i < words->count; ++i) {
+        const ShellWord *word = words->items[i];
+        if (wordExpansionActs(word)) {
+            return true;
+        }
+        /* exec replaces the job's process, and only a body has one to replace. */
+        if (!saw_name && word && !word->is_assignment) {
+            saw_name = true;
+            if (word->text && strcmp(word->text, "exec") == 0) {
+                return true;
+            }
+        }
+    }
+    const ShellRedirectionArray *redirs = &command->redirections;
+    for (size_t i = 0; i < redirs->count; ++i) {
+        const ShellRedirection *redir = redirs->items[i];
+        const char *here_body = shellRedirectionGetHereDocument(redir);
+        if (wordExpansionActs(shellRedirectionGetWordTarget(redir)) ||
+            textExpansionActs(shellRedirectionGetDupTarget(redir)) ||
+            textExpansionActs(shellRedirectionGetHereStringLiteral(redir)) ||
+            (here_body && !shellRedirectionHereDocumentIsQuoted(redir) && textExpansionActs(here_body))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* What `jobs` and `lps` call a job started as a body: its words as written, since the shell
+ * does not know what they expand to. */
+static char *buildJobLabel(const ShellCommand *command) {
+    enum { LABEL_MAX = 256 };
+    char *label = (char *)malloc(LABEL_MAX);
+    if (!label) {
+        return NULL;
+    }
+    size_t length = 0;
+    const ShellWordArray *words = &command->data.simple.words;
+    for (size_t i = 0; i < words->count; ++i) {
+        const char *text = words->items[i] && words->items[i]->text ? words->items[i]->text : "";
+        if (i > 0 && length + 1 < LABEL_MAX) {
+            label[length++] = ' ';
+        }
+        for (; *text && length + 1 < LABEL_MAX; ++text) {
+            if (*text != SHELL_QUOTE_MARK_SINGLE && *text != SHELL_QUOTE_MARK_DOUBLE && *text != SHELL_QUOTE_MARK_BYTE) {
+                label[length++] = *text;
+            }
+        }
+    }
+    label[length] = '\0';
+    return label;
+}
+
+static bool commandIsAloneInPipeline(const ShellCommand *command) {
+    return command->exec.is_pipeline_head && command->exec.is_pipeline_tail;
+}
+
+static void compileSimpleWith(BytecodeChunk *chunk, const ShellCommand *command, const char *meta);
+
 static void compileSimple(BytecodeChunk *chunk, const ShellCommand *command, bool runs_in_background) {
-    int line = command ? command->line : 0;
     char meta[128];
     snprintf(meta, sizeof(meta), "bg=%d;pipe=%d;head=%d;tail=%d;line=%d;col=%d",
              (command && command->exec.runs_in_background) || runs_in_background ? 1 : 0,
@@ -870,6 +1032,23 @@ static void compileSimple(BytecodeChunk *chunk, const ShellCommand *command, boo
              command && command->exec.is_pipeline_tail ? 1 : 0,
              command ? command->line : 0,
              command ? command->column : 0);
+    compileSimpleWith(chunk, command, meta);
+}
+
+/* The only command of a body: a pipeline of one, whose `job` asks that it become the job rather
+ * than run under it, as a forked child execs. Only a job on its own loses stdin: a stage has its
+ * pipe, or the shell's. */
+static void compileJobCommand(BytecodeChunk *chunk, const ShellCommand *command) {
+    char meta[128];
+    snprintf(meta, sizeof(meta), "bg=0;pipe=0;head=1;tail=1;line=%d;col=%d;job=1%s", command->line, command->column,
+             commandIsAloneInPipeline(command) ? ";jobnull=1" : "");
+    emitPushString(chunk, "stages=1;negated=0;merge=0", command->line);
+    emitBuiltinProc(chunk, "__shell_pipeline", 1, command->line);
+    compileSimpleWith(chunk, command, meta);
+}
+
+static void compileSimpleWith(BytecodeChunk *chunk, const ShellCommand *command, const char *meta) {
+    int line = command ? command->line : 0;
     emitPushString(chunk, meta, line);
 
     size_t arg_count = 1; // metadata entry
@@ -992,7 +1171,8 @@ static void compilePipeline(BytecodeChunk *chunk, const ShellPipeline *pipeline,
                                                   i == 0,
                                                   (i + 1) == pipeline->command_count);
         }
-        if (commandIsCompound(stage_command) && (pipeline->command_count > 1 || stage_background)) {
+        if ((commandIsCompound(stage_command) && (pipeline->command_count > 1 || stage_background)) ||
+            ((pipeline->command_count > 1 || stage_background) && commandExpansionsAct(stage_command))) {
             compileBody(chunk, stage_command, stage_background);
         } else {
             compileCommand(chunk, stage_command, stage_background);
@@ -1193,6 +1373,8 @@ static void compileBody(BytecodeChunk *chunk, const ShellCommand *command, bool 
         if (scoped) {
             compileScopeLeave(&compiled->chunk, skip_jump, line);
         }
+    } else if (command->type == SHELL_COMMAND_SIMPLE) {
+        compileJobCommand(&compiled->chunk, command);
     } else {
         compileCommandFinal(&compiled->chunk, command, false, true);
     }
@@ -1201,16 +1383,24 @@ static void compileBody(BytecodeChunk *chunk, const ShellCommand *command, bool 
     Value ptr = makePointer(compiled, SHELL_FUNCTION_PTR_SENTINEL);
     int ptr_index = addConstantToChunk(chunk, &ptr);
     char meta[128];
-    snprintf(meta, sizeof(meta), "bg=%d;pipe=%d;head=%d;tail=%d;line=%d;col=%d",
+    snprintf(meta, sizeof(meta), "bg=%d;pipe=%d;head=%d;tail=%d;line=%d;col=%d%s",
              background ? 1 : 0,
              command->exec.pipeline_index,
              command->exec.is_pipeline_head ? 1 : 0,
              command->exec.is_pipeline_tail ? 1 : 0,
              line,
-             command->column);
+             command->column,
+             command->type == SHELL_COMMAND_SIMPLE && commandIsAloneInPipeline(command) ? ";simple=1" : "");
     emitConstantOperand(chunk, ptr_index, line);
     emitPushString(chunk, meta, line);
-    emitBuiltinProc(chunk, "__shell_exec_body", 2, line);
+    char *label = command->type == SHELL_COMMAND_SIMPLE ? buildJobLabel(command) : NULL;
+    if (label && *label) {
+        emitPushString(chunk, label, line);
+        emitBuiltinProc(chunk, "__shell_exec_body", 3, line);
+    } else {
+        emitBuiltinProc(chunk, "__shell_exec_body", 2, line);
+    }
+    free(label);
 }
 
 static void compileLoop(BytecodeChunk *chunk, const ShellCommand *command, bool final) {

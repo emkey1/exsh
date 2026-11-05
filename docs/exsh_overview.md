@@ -210,7 +210,15 @@ extends it with orchestration helpers implemented in
   command. It runs apart from the shell: a forked child on a host, a thread and
   vproc with a private environment and definitions on iOS. A builtin or function in
   the background or as a stage runs the same way there, so what it changes stays
-  there, its file mask with the rest. `__shell_subshell` only
+  there, its file mask with the rest. A simple command in the background or as a
+  stage expands its words on the shell before it starts when all they do is read
+  variables, and an expansion that fails there (`set -u`) is that command's failure,
+  not the shell's. When its words can do more (`$(...)`, `$((...))`, `${v:=x}`,
+  `${v:?x}`, a subscript, `$RANDOM`, `$BASHPID`) or the command is `exec`, it starts
+  as a body too, so they expand in it. The command then becomes the job or stage: an
+  exec with no fork on a host, the job's own thread and vproc on iOS. So `$!`, `wait`
+  and `kill` mean the command, as they do for a job whose words are plain. `jobs`
+  names such a job by its words as written. `__shell_subshell` only
   opens and closes the redirections of a compound command. When that command is all
   a body runs, nothing runs after its redirections, so no copy of what they replaced
   is kept: a background job that sends its output elsewhere does not hold the caller's

@@ -351,3 +351,14 @@ b5gone() { while kill -0 "$1" 2>/dev/null; do sleep 0.02; done; }
 # A bare wait right after kill has not heard of it. Bash's answer is a race it nearly always wins, so it is fixed here.
 ( sleep 9 & kill %1; wait; sleep 9 & p=$!; jobs | sed -E 's/  +/ /g'; kill $p; wait ) 2>/dev/null
 ( sleep 9 & a=$!; kill $a; wait; sleep 9 & p=$!; jobs | sed -E 's/  +/ /g'; kill $p; wait ) 2>/dev/null
+# A job's arguments leave `$_` alone, and $BASHPID in its words is the job. 3.2 empties the one and has not the other.
+echo a; true b & echo "[$_]"; wait
+echo a; true $(echo b) & echo "[$_]"; wait
+echo a; true b | cat; echo "[$_]"
+f="${TMPDIR:-/tmp}/exsh_bash5_jobpid.$$"
+echo $BASHPID > "$f" & p=$!; wait; [ "$(cat "$f")" = "$p" ] && echo "its own"
+echo $BASHPID $(true) > "$f" & p=$!; wait; [ "$(cat "$f")" = "$p " ] || [ "$(cat "$f")" = "$p" ] && echo "its own"
+rm -f "$f"
+# What a positional is called depends on the braces.
+(set -u; echo $1) 2>&1 | sed -e 's/.*: \(.*\): unbound variable/\1/'
+(set -u; echo ${1}) 2>&1 | sed -e 's/.*: \(.*\): unbound variable/\1/'

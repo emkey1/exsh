@@ -1,0 +1,185 @@
+#!/usr/bin/env exsh
+# A background job's or pipeline stage's words expand in it, as under bash, which forks first. What
+# they change stays there, the shell does not wait for them, and a failure is the job's.
+d="${TMPDIR:-/tmp}/exsh_parity_job_words.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+echo in > infile
+
+# Waits for the shell to go on past the `&`. No timing: a shell that waits for the words hangs here.
+for_go() { while [ ! -e "$d/go" ]; do sleep 0.01; done; rm -f "$d/go"; }
+
+echo "what the words change stays in the job"
+unset v; : ${v:=1} & wait; echo "  [$v]"
+unset v; : ${v=1} & wait; echo "  [$v]"
+unset v; : "${v:=1}" & wait; echo "  [$v]"
+unset v; : ${w:-${v:=1}} & wait; echo "  [$v]"
+unset v; n=v; : ${!n:=1} & wait; echo "  [$v]"
+unset v; echo $((v=5)) & wait; echo "  [$v]"
+x=1; echo $((x++)) & wait; echo "  [$x]"
+unset v; x='v=7'; echo $((x)) & wait; echo "  [$v]"
+a=(1 2 3); i=0; echo ${a[i++]} & wait; echo "  [$i]"
+s=abcdef; i=0; echo ${s:i=2} & wait; echo "  [$i]"
+unset n; v=$((n=3)) true & wait; echo "  [$n]"
+unset x y; x=${y:=1} & wait; echo "  [$x][$y]"
+unset x; x=$(echo 1) & wait; echo "  [$x]"
+unset x; a=($(echo 1 2)) & wait; echo "  ${#a[@]}"
+unset f; echo hi > ${f:=o1} & wait; echo "  [$f]"; cat o1
+unset f; > ${f:=o2} & wait; echo "  [$f]"; ls o2
+unset v; cat <<< ${v:=h} & wait; echo "  [$v]"
+unset v; cat <<E & wait; echo "  [$v]"
+${v:=h}
+E
+RANDOM=5; echo $RANDOM > /dev/null & wait; x=$RANDOM; RANDOM=5; y=$RANDOM; [ "$x" = "$y" ] && echo "  same"
+g() { local l=1; echo $((l=7)) $l & wait; echo "  [$l]"; }; g
+g() { local x=1; : ${x:=2} ${y:=3} & wait; echo "  [$x][$y]"; }; unset y; g
+( unset v; : ${v:=1} & wait; echo "  [$v]" )
+x=$(unset v; : ${v:=1} & wait; echo "  [$v]"); echo "$x"
+i=0; while [ $i -lt 2 ]; do echo $((i++)) & wait; echo "  i=$i"; i=$((i+1)); done
+unset v; eval ': ${v:=1} &'; wait; echo "  [$v]"
+true $(v=1) & wait; echo "  [$v]"
+here=$PWD; true $(cd /) & wait; [ "$PWD" = "$here" ] && echo "  stayed"
+here=$PWD; cd $(echo /) & wait; [ "$PWD" = "$here" ] && echo "  stayed"
+umask 022; umask $(echo 077) & wait; umask
+
+echo "the shell does not wait for them"
+true $(for_go; echo x > w1) & : > go; wait $!; cat w1
+unset x; x=$(for_go; echo x > w2) & : > go; wait $!; cat w2
+: > $(for_go; echo w3) & : > go; wait $!; ls w3
+true `for_go; echo x > w4` & : > go; wait $!; cat w4
+echo $(for_go; echo late) & echo next; : > go; wait
+s() { echo "s $1"; }; s $(for_go; echo x) > w5 & : > go; wait $!; cat w5
+cat <<E > w6 & : > go; wait $!; cat w6
+$(for_go; echo in a here document)
+E
+[[ -n $(for_go; echo x) ]] & : > go; wait $!; echo "  $?"
+
+echo "a failure is the job's"
+unset v
+{ : ${v:?gone} & wait $!; echo "  question $?"; } 2>/dev/null
+{ echo $((1/0)) & wait $!; echo "  arithmetic $?"; } 2>/dev/null
+set -u
+{ echo $nope & wait $!; echo "  unset $?"; } 2>/dev/null
+{ echo "$nope" & wait $!; echo "  quoted $?"; } 2>/dev/null
+{ echo $1 & wait $!; echo "  positional $?"; } 2>/dev/null
+{ echo ${nope} & wait $!; echo "  brace $?"; } 2>/dev/null
+{ echo $nope $(true) & wait $!; echo "  with a word $?"; } 2>/dev/null
+{ x=$nope true & wait $!; echo "  prefix $?"; } 2>/dev/null
+{ x=$nope & wait $!; echo "  assignment $?"; } 2>/dev/null
+{ : $nope > u1 & wait $!; echo "  redirected $?"; } 2>/dev/null; [ -e u1 ] || echo "  no file"
+g() { { echo $nope & wait $!; echo "  in a function $?"; } 2>/dev/null; }; g
+{ echo $nope & p=$!; [ -n "$p" ] && echo "  it has a pid"; wait $p; echo "  $?"; } 2>/dev/null
+{ echo $nope | cat; echo "  stage ${PIPESTATUS[0]}"; } 2>/dev/null
+v=1; echo $v & wait $!; echo "  set $?"
+set --; echo "$@" & wait $!; echo "  at $?"
+set +u
+
+echo "what the job ends with"
+echo $(exit 3) & wait $!; echo "  $?"
+x=$(exit 3) & wait $!; echo "  $?"
+$(exit 3) & wait $!; echo "  $?"
+false $(echo a) & wait $!; echo "  $?"
+true $(false) & wait $!; echo "  $?"
+sh -c 'exit 7' $(true) & wait $!; echo "  $?"
+nosuch $(true) 2>/dev/null & wait $!; echo "  $?"
+g() { return 4; }; g $(true) & wait $!; echo "  $?"
+exit $(echo 3) & wait $!; echo "  $?"
+echo $(exit 3; echo no) & wait $!; echo "  $?"
+(( 0 )) & wait $!; echo "  $?"
+(( v=5 )) & wait $!; echo "  $?"
+false; true $(exit 3) & echo "  at once $?"; wait
+true $(true) & false && echo no; echo "  $?"; wait
+
+echo "the shell's own stays as it was"
+false; echo $? $(true) & wait
+sleep 0 & p=$!; echo $! $(true) > k1 & wait; [ "$(cat k1)" = "$p" ] && echo "  same bgpid"
+echo $$ $(true) > k2 & wait; [ "$(cat k2)" = "$$" ] && echo "  same shell"
+g() { echo "  $1" $(echo "$2"); }; g a b & wait
+g() { "$@" $(echo z) & wait; }; g echo "  a" b
+A=$(echo 1) sh -c 'echo "  $A"' & wait; echo "  [$A]"
+A=1 sh -c 'echo "  $A $1"' x $(echo b) & wait
+export E=1; sh -c 'echo "  $E"' $(true) & wait; unset E
+g() { echo "  $A"; }; A=$(echo 1) g & wait
+for i in 1 2 3; do echo $((i*2)) > l$i & done; wait; cat l1 l2 l3
+for i in 1 2; do echo $(echo $i) & done > l4; wait; sort l4
+{ echo $(echo a) & wait; } > l5; echo "  file $(cat l5)"
+g() { echo $(echo a) & wait; }; g > l6; echo "  file $(cat l6)"
+read r <<< $(echo v) & wait; echo "  [$r]"
+
+echo "the command is the job"
+sh -c 'echo $$' $(true) > p1 & p=$!; wait; [ "$(cat p1)" = "$p" ] && echo "  its pid"
+sh -c 'echo $PPID' $(true) > p2 & wait; [ "$(cat p2)" = "$$" ] && echo "  the shell's child"
+exec sh -c 'echo $$' > p3 & p=$!; wait; [ "$(cat p3)" = "$p" ] && echo "  by exec too"
+exec true & wait $!; echo "  exec $?"
+exec $(echo true) & wait $!; echo "  exec a word $?"
+sleep 0.1 $(true) & a=$!; sleep 0.1 & b=$!; [ "$a" != "$b" ] && echo "  its own pid"; wait $a; echo "  $?"; wait $b; echo "  $?"
+trap '' USR1; sh -c 'kill -USR1 $$; echo "  ignored"' $(true) & wait $!; echo "  $?"; trap - USR1
+sh -c 'kill -INT $$; echo "  no job control"' $(true) & wait $!; echo "  $?"
+{ seq 1 $(echo 200000) & wait $!; echo "  closed pipe $?" > c1; } | head -1 > /dev/null; cat c1
+
+echo "kill reaches it"
+{
+sleep $(echo 2) & p=$!; kill $p; wait $p; echo "  word $?"
+sleep $((1+1)) & p=$!; kill $p; wait $p; echo "  arithmetic $?"
+sleep $(echo 2) & kill %1; wait %1; echo "  job number $?"
+true $(sleep 5) & p=$!; sleep 0.05; kill $p; wait $p; echo "  while it expands $?"
+g() { sleep 1; echo no; }; g $(echo a) & p=$!; kill $p; wait $p; echo "  a function $?"
+} 2>/dev/null
+
+echo "traps"
+trap 'echo "  once"' EXIT; echo "  word" $(true) & wait; trap - EXIT
+trap 'echo no' USR1; { sleep $(echo 2) & p=$!; sleep 0.05; kill -USR1 $p; wait $p; echo "  default $?"; } 2>/dev/null; trap - USR1
+n=0; trap 'n=$((n+1))' DEBUG; true $(true) & wait; trap - DEBUG; echo "  $n"
+( trap 'exit 4' DEBUG; true $(echo no > d1) & echo no ); echo "  a DEBUG trap's exit $?"; [ -e d1 ] || echo "  the job did not start"
+( n=0; trap 'n=$((n+1)); [ $n = 2 ] && exit 5' DEBUG; true | true $(echo no > d2); echo no ); echo "  at the second stage $?"; [ -e d2 ] || echo "  it did not start"
+
+echo "stdin"
+{ true $(read l; echo "$l" > i1) & wait; } < infile; echo "  word read $(cat i1)"
+echo other > otherfile
+{ true $(read l; echo "$l" > i2) < otherfile & wait; } < infile; echo "  not the command's own $(cat i2)"
+( exec < infile; true $(read l; echo "$l" > i3) < otherfile & wait ); echo "  nor after exec $(cat i3)"
+cat < infile $(true) & wait
+{ cat <&0 $(true) & wait; } < infile
+
+echo "a stage"
+unset v; : ${v:=1} | cat; echo "  [$v]"
+unset v; echo $((v=5)) | cat; echo "  [$v]"
+unset v; true | : ${v:=1}; echo "  [$v]"
+unset v; true | : ${v:=1} | cat; echo "  [$v]"
+unset x; x=$(echo 1) | cat; echo "  [$x]"
+unset f; echo hi | cat > ${f:=s1}; echo "  [$f]"; cat s1
+echo a | echo $(cat)
+echo a | { echo $(cat); }
+echo a | tr a-z A-Z | echo $(cat)
+echo a | x=$(cat) sh -c 'echo "  $x"'
+echo $(exit 3) | cat; echo "  ${PIPESTATUS[0]}"
+true | $(exit 3); echo "  ${PIPESTATUS[1]}"
+sh -c 'exit 5' $(true) | cat; echo "  ${PIPESTATUS[0]}"
+echo $(for_go; echo x) | { : > go; cat; }
+true $(for_go) | : > go; echo "  they start together"
+{ : ${v:?gone} | cat; echo "  question ${PIPESTATUS[0]}"; } 2>/dev/null; echo "  next"
+echo $(echo inner) | sed 's/^/  /'
+seq 1 $(echo 200000) | head -1 > /dev/null; echo "  ${PIPESTATUS[0]}"
+sh -c 'echo $PPID' $(true) | { read p; [ "$p" = "$$" ] && echo "  the shell's child"; }
+
+echo "a background pipeline"
+unset v; : ${v:=1} | cat & wait; echo "  [$v]"
+unset v; true | : ${v:=1} & wait; echo "  [$v]"
+echo a | cat $(true) & wait
+echo $(echo a) | cat & wait
+true $(for_go) | true & : > go; wait; echo "  it goes on"
+echo a | true $(for_go) & : > go; wait; echo "  and on"
+
+echo "plain reads are as they were"
+set -- p q; echo "$1" "$@" "$#" & wait
+a=(x y); echo "${a[@]}" "${#a[@]}" "${a[0]}" "${a[*]}" & wait
+v=abc; echo ${#v} ${v#a} ${v%c} ${v/b/-} ${v:-e} ${u:-e} ${u+e} & wait
+cat <<'E' & wait
+  $(echo not this)
+E
+sleep 0 & wait $!; echo "  $?"
+false & wait $!; echo "  $?"
+
+cd /
+rm -rf "$d"
