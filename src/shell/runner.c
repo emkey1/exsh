@@ -525,27 +525,33 @@ char *shellLoadFile(const char *path) {
         fprintf(stderr, "Unable to open '%s': %s\n", path, strerror(errno));
         return NULL;
     }
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return NULL;
+    /* To the end and not by its size, since a script can come from a pipe. */
+    size_t capacity = 4096;
+    size_t len = 0;
+    char *buffer = (char *)malloc(capacity);
+    while (buffer) {
+        size_t got = fread(buffer + len, 1, capacity - len - 1, f);
+        len += got;
+        if (got == 0) {
+            break;
+        }
+        if (len + 1 == capacity) {
+            capacity *= 2;
+            char *grown = (char *)realloc(buffer, capacity);
+            if (!grown) {
+                free(buffer);
+            }
+            buffer = grown;
+        }
     }
-    long len = ftell(f);
-    if (len < 0) {
+    if (!buffer || ferror(f)) {
+        int err = buffer ? errno : ENOMEM;
         fclose(f);
-        return NULL;
-    }
-    rewind(f);
-    char *buffer = (char *)malloc((size_t)len + 1);
-    if (!buffer) {
-        fclose(f);
-        return NULL;
-    }
-    size_t read = fread(buffer, 1, (size_t)len, f);
-    fclose(f);
-    if (read != (size_t)len) {
         free(buffer);
+        errno = err;
         return NULL;
     }
+    fclose(f);
     buffer[len] = '\0';
     return buffer;
 }
