@@ -727,6 +727,13 @@ int shellRunSource(const char *source,
     bool sem_ctx_initialized = false;
     BytecodeChunk chunk;
     bool chunk_initialized = false;
+    /* eval, source and a trap work on the shell's own state and a script may call them in a loop,
+     * where building and freeing a VM was 40% of an eval. They keep one, as functions do, and
+     * one that runs inside another has to make its own. */
+    static VM shared_vm;
+    static bool shared_vm_ready = false;
+    static bool shared_vm_in_use = false;
+    bool using_shared_vm = false;
     VM *vm = NULL;
     bool vm_initialized = false;
     ShellRuntimeState *vm_shell_ctx = NULL;
@@ -845,12 +852,23 @@ int shellRunSource(const char *source,
         goto cleanup;
     }
 
-    vm = (VM *)calloc(1, sizeof(VM));
-    if (!vm) {
-        fprintf(stderr, "shell: failed to allocate VM instance.\n");
-        goto cleanup;
+    if (options->share_runtime_context && !__atomic_test_and_set(&shared_vm_in_use, __ATOMIC_ACQUIRE)) {
+        if (!shared_vm_ready) {
+            initVM(&shared_vm);
+            shared_vm_ready = true;
+        } else {
+            vmResetExecutionState(&shared_vm);
+        }
+        vm = &shared_vm;
+        using_shared_vm = true;
+    } else {
+        vm = (VM *)calloc(1, sizeof(VM));
+        if (!vm) {
+            fprintf(stderr, "shell: failed to allocate VM instance.\n");
+            goto cleanup;
+        }
+        initVM(vm);
     }
-    initVM(vm);
     if (getenv("PSCALI_PROMPT_DEBUG")) {
         fprintf(stderr, "[shell-run] vm-init\n");
     }
@@ -878,9 +896,7 @@ int shellRunSource(const char *source,
         assigned_thread_owner = true;
     }
     vm->threadOwner = gShellThreadOwnerVm ? gShellThreadOwnerVm : vm;
-    if (options->vm_trace_head > 0) {
-        vm->trace_head_instructions = options->vm_trace_head;
-    }
+    vm->trace_head_instructions = options->vm_trace_head > 0 ? options->vm_trace_head : 0;
     previous_vm_for_context = shellSwapCurrentVm(vm);
     vm_context_swapped = true;
 
@@ -983,7 +999,13 @@ cleanup:
     if (assigned_thread_owner) {
         gShellThreadOwnerVm = previous_thread_owner;
     }
-    if (vm_initialized && vm) {
+    if (using_shared_vm) {
+        pscalRuntimeVmFlushOutput();
+        vmResetExecutionState(vm);
+        vm->frontendContext = NULL;
+        vm = NULL;
+        __atomic_clear(&shared_vm_in_use, __ATOMIC_RELEASE);
+    } else if (vm_initialized && vm) {
         freeVM(vm);
     }
     if (vm_shell_ctx) {
