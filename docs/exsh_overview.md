@@ -147,9 +147,11 @@ extends it with orchestration helpers implemented in
   `set -aCefuvx`. Aliases expand at a prompt, and in a script only after
   `shopt -s expand_aliases`. The `bash_parity_*` tests compare the two directly. Still
   different: `select`, `compgen`/`complete`/`compopt`, `suspend`, `declare -n`,
-  `printf '%(fmt)T'` and `exit abc`. `set` and `declare` list variables
-  but not functions, since a function keeps no source to print. A script with no `#!`
-  goes to the system's `sh` on a host where bash would read it itself. A failed
+  `printf '%(fmt)T'` and `exit abc`. `jobs` does not list a job that has
+  ended, its line has no padding and no ` &`, and it has no `-n` or `-x`. A hard limit set
+  in `$(...)` on a host sets only the soft one, as the substitution is this process.
+  `set` and `declare` list variables
+  but not functions, since a function keeps no source to print. A failed
   assignment with no command, such as `readonly r=1; r=2`, ends the script where bash
   goes on with the next line. Failed arithmetic in a word drops the rest of its line and
   the script reads on, as under bash, but after a compound command over several lines what

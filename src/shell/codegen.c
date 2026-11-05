@@ -955,6 +955,14 @@ static void compilePipeline(BytecodeChunk *chunk, const ShellPipeline *pipeline,
         return;
     }
     char *meta = buildPipelineMetadata(pipeline);
+    if (meta && runs_in_background && pipeline->command_count > 1) {
+        size_t meta_len = strlen(meta) + sizeof(";async=1");
+        char *grown = (char *)realloc(meta, meta_len);
+        if (grown) {
+            meta = grown;
+            strcat(meta, ";async=1");
+        }
+    }
     /* A simple command's status is inverted when its pipeline finishes. The commands
      * inside a compound one are pipelines of their own, so it is inverted here, after
      * them. A subshell is started as one command, so it counts as simple. */

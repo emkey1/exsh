@@ -1063,11 +1063,13 @@ static bool shellRunStartupConfig(const ShellRunOptions *base_options, int *out_
     gParamCount = 0;
     gParamValues = NULL;
     shellRuntimeSetArg0(rc_path);
+    shellRuntimeSetScriptName(rc_path);
     bool exit_requested = false;
     /* It is sourced as far as `return` goes, as ~/.bashrc is. */
     shellRuntimePushScript();
     int status = shellRunSource(source, rc_path, &rc_options, &exit_requested);
     shellRuntimePopScript();
+    shellRuntimeSetScriptName(NULL);
     free(source);
     shellRuntimeSetArg0(restore_path);
     free(rc_path);
@@ -4538,9 +4540,11 @@ int exsh_main(int argc, char **argv) {
     bool saved_positional_owned = false;
     char *saved_arg0 = NULL;
     ShellCwdScope cwd_scope = {0};
+    void *caller_calls = NULL;
     if (nested) {
         const char *caller_arg0 = shellRuntimeGetArg0();
         saved_arg0 = caller_arg0 ? strdup(caller_arg0) : NULL;
+        caller_calls = shellRuntimeCallStackPutAside();
         gParamValuesOwned = false;
         saved_positional_owned = shellRuntimeExchangePositionalOwned(false);
         gShellNestedDepth++;
@@ -4558,6 +4562,7 @@ int exsh_main(int argc, char **argv) {
             shellRuntimeSetInteractive(saved_interactive); \
             shellRuntimeSetArg0(saved_arg0);           \
             free(saved_arg0);                          \
+            shellRuntimeCallStackBack(caller_calls);   \
             gShellNestedDepth--;                       \
         } else {                                       \
             shellTeardownSelfVproc(__exsh_rc);         \
@@ -4782,6 +4787,7 @@ int exsh_main(int argc, char **argv) {
             gParamValues = &argv[arg_start_index];
         }
         shellRuntimeSetArg0(path);
+        shellRuntimeSetScriptName(path);
         bool exit_requested = false;
         ShellRunOptions script_options = options;
         script_options.exit_on_signal = true;

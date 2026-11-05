@@ -1,0 +1,104 @@
+#!/usr/bin/env exsh
+# FUNCNAME, BASH_SOURCE, BASH_LINENO and caller read one list: a function names the file it was
+# defined in, wherever it is called from, a sourced file has an entry of its own, and the script
+# is under them all as "main".
+me=$0
+d="${TMPDIR:-/tmp}/exsh_parity_stack.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+# Run with eval, which adds nothing to the list.
+show='s=${BASH_SOURCE[*]}; echo "S[${s//$me/M}] ${#BASH_SOURCE[@]} L[${BASH_LINENO[*]}] ${#BASH_LINENO[@]} F[${FUNCNAME[*]}] ${#FUNCNAME[@]}"'
+call='c=$(caller); echo "[${c//$me/M}] $?"; c=$(caller 0); echo "[${c//$me/M}] $?"; c=$(caller 1); echo "[${c//$me/M}] $?"; c=$(caller 2); echo "[${c//$me/M}] $?"'
+
+# The top of the script: 0 NULL, and no frame to name.
+caller > /dev/null; echo "top $?"
+caller 0 > /dev/null; echo "top0 $?"
+eval "$show"
+eval "$call"
+
+f() { eval "$show"; eval "$call"; }
+f
+g() { f; }
+g
+
+# In a sourced file, with functions defined there.
+cat > a.inc <<'EOF'
+eval "$show"
+eval "$call"
+f
+d1() { eval "$show"; eval "$call"; }
+d1
+n1() { n2() { eval "$show"; }; n2; }
+n1
+e1() { eval 'e2() { eval "$show"; }'; e2; }
+e1
+EOF
+. ./a.inc
+
+# What it defined keeps its file, after the file has returned.
+d1
+n1
+n2
+e2
+
+# Sourced from a sourced file, which is then where its functions were called from.
+cat > b.inc <<'EOF'
+. ./a.inc
+d1
+eval "$call"
+EOF
+. ./b.inc
+
+# Sourced in a function.
+h() { . ./a.inc; eval "$call"; }
+h
+
+# Places that keep the list, each a copy where bash forks one.
+x=$(f); echo "subst: $x"
+x=$(. ./a.inc 2>&1 | head -1); echo "subst inc: $x"
+( f )
+f | cat
+( . ./a.inc ) 2>&1 | head -1
+eval f
+eval '. ./a.inc' | head -1
+f &
+wait
+
+# A definition goes with the file that last ran one.
+unset -f f
+f() { eval "$show"; }
+f
+echo 'f() { eval "$show"; }' > c.inc
+. ./c.inc
+f
+eval 'f() { eval "$show"; }'
+f
+
+# A trap at the top has no frame, one in a function has the function's.
+trap 'eval "$show"' USR1
+kill -USR1 $$
+sleep 0
+k() { kill -USR1 $$; sleep 0; }
+k
+trap - USR1
+
+# A script run as a command has a list of its own, whoever called it. With no #! the shell reads
+# it itself, on any system, and bash's forms work there.
+printf 'caller; echo "$? ${BASH_SOURCE[*]} [${FUNCNAME[*]}] ${BASH_LINENO[*]}"\na=(x y); echo "${a[1]}"\n' > ns; chmod +x ns
+ns1() { ./ns; }
+ns1
+ns1 | cat
+( exec ./ns ) | sed "s|$PWD/|./|"
+x=$(./ns); echo "$x"
+PATH=.:$PATH ns | sed 's|^0 \./|0 |; s|^\./||'
+
+# Operands.
+caller -1 2>/dev/null; echo "bad option $?"
+caller -x 2>/dev/null; echo "bad option $?"
+p() { caller -- 0 > /dev/null; echo "dashes $?"; caller 0 7 > /dev/null; echo "extra $?"; }
+p
+
+cd /
+rm -rf "$d"

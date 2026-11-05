@@ -1,0 +1,59 @@
+#!/usr/bin/env exsh
+# mkfifo is a command wherever the shell runs. The file mask decides a new FIFO's mode, and -m
+# sets it outright. A program with no #! and a NUL on its first line is not a script.
+d="${TMPDIR:-/tmp}/exsh_parity_mkfifo.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+command -v mkfifo > /dev/null; echo "found $?"
+
+mkfifo p; echo "made $?"
+[ -p p ] && echo is a fifo
+[ -f p ] || echo not a file
+
+# Data goes through it, either end first.
+( echo through > p ) & cat p; wait; echo "waited $?"
+cat p & echo other way > p; wait; echo "waited $?"
+( echo in a subshell > p ) & read line < p; echo "$line"; wait
+( { echo one; echo two; } > p ) & while read line; do echo "[$line]"; done < p; wait
+( echo to a stage > p ) & cat p | tr a-z A-Z; wait
+x=$( ( echo from a substitution > p ) & cat p); echo "$x"
+
+# Names that are there, and more than one name.
+mkfifo p 2>/dev/null; echo "again $?"
+mkfifo a b c; echo "three $?"; [ -p a ] && [ -p b ] && [ -p c ] && echo all made
+mkfifo a d 2>/dev/null; echo "one taken $?"; [ -p d ] && echo the other made
+mkfifo nosuch/dir/q 2>/dev/null; echo "no directory $?"
+mkfifo 2>/dev/null; echo "no name $?"
+mkfifo -m 2>/dev/null; echo "no mode $?"
+mkfifo -m bad z 2>/dev/null; echo "bad mode $?"; [ -e z ] || echo not made
+
+# The mask, and -m past it.
+rm -f m1 m2 m3 m4 m5
+umask 022; mkfifo m1; find m1 -perm 644
+umask 077; mkfifo m2; find m2 -perm 600
+umask 000; mkfifo m3; find m3 -perm 666
+umask 077; mkfifo -m 660 m4; find m4 -perm 660
+umask 077; mkfifo -m a=r m5; find m5 -perm 444
+mkfifo -m 600 -- m6; find m6 -perm 600
+umask 022
+( umask 077; mkfifo m7 ); find m7 -perm 600
+mkfifo m8; find m8 -perm 644
+umask 077 | cat; mkfifo m9; find m9 -perm 644
+
+# rm and the rest see it as what it is.
+rm p; [ -e p ] || echo removed
+mkdir sub; mkfifo sub/p; [ -p sub/p ] && echo in a directory
+( cd sub; [ -p p ] && echo from there )
+
+# A program for another system, not a script.
+printf 'ab\0c\n' > bin; chmod +x bin
+./bin 2>/dev/null; echo "binary $?"
+x=$(./bin 2>/dev/null); echo "binary in a substitution $? [$x]"
+./bin 2>/dev/null | cat; echo "binary in a stage ${PIPESTATUS[0]}"
+( ./bin ) 2>/dev/null; echo "binary in a subshell $?"
+./bin 2>/dev/null & wait $!; echo "binary as a job $?"
+
+cd /
+rm -rf "$d"

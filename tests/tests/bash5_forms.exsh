@@ -328,3 +328,15 @@ arith 'echo $((++x++y))'
 (trap 'echo err' ERR; let 1/0; echo "ERR let $?") 2>/dev/null
 (trap 'echo err' ERR; [[ 1/0 -eq 1 ]]; echo "ERR test $?") 2>/dev/null
 declare -A keyed=([1+1]=x [k]=y); echo "${keyed[1+1]} ${keyed[k]}"
+# 3.2 keeps the listing only for a bare `jobs`, and gives 1 for a word.
+( sleep 0.4 & command jobs | wc -l | tr -d ' '; wait )
+caller abc 2>/dev/null; echo "caller word $?"
+# 3.2 differs on all of these.
+( ulimit -Sn 100; ulimit -Hn 300; ulimit -Hn )
+ulimit -n '' 2>/dev/null; echo "ulimit empty $?"
+ulimit -n -1 2>/dev/null; echo "ulimit negative $?"
+ulimit -Q 2>/dev/null; echo "ulimit option $?"
+ulimit -p 5 2>/dev/null; echo "ulimit pipe $?"
+ulimit -p > /dev/null; echo "ulimit pipe read $?"
+b5=${TMPDIR:-/tmp}/b5bin.$$
+printf 'ab\0c\n' > "$b5"; chmod +x "$b5"; ( exec "$b5" ) 2>/dev/null; echo "exec binary $?"; rm -f "$b5"

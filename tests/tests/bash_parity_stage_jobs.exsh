@@ -1,0 +1,94 @@
+#!/usr/bin/env exsh
+# `jobs` alone as a stage lists the shell's jobs, as bash's stage keeps the listing for that and
+# nothing else: `jobs &`, `{ jobs; } | cat`, a function and `kill %1 | cat` find none. What it
+# lists stays the shell's, and each flavour's stage had this differently: plain listed nothing,
+# iOS listed the top shell's from inside a substitution or a nested shell.
+d="${TMPDIR:-/tmp}/exsh_parity_stagejobs.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+n() { tr -d ' '; }
+
+# A running job at the top of the script.
+sleep 0.4 & jobs | wc -l | n
+jobs | wc -l | n
+wait
+
+# In a subshell each form has only its own job in the list, and none that has ended. A job is
+# killed at the end, so that the test takes no time. Bash 3.2 reports that, so its stderr goes.
+( sleep 9 & jobs -p | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs %1 | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs -l | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs -r | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs -s | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs -pr | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs %2 2>/dev/null | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs > f; wc -l < f | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & true | jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs | cat | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs | { cat; } | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & sleep 9 & jobs | wc -l | n; kill %1 %2; wait ) 2>/dev/null
+( sleep 9 & sleep 9 & jobs -p | wc -l | n; kill %1 %2; wait ) 2>/dev/null
+
+# What it prints.
+( sleep 9 & [ "$(jobs -p)" = "$!" ] && echo same pid; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs -p | { read p; [ "$p" = "$!" ] && echo same pid in a stage; }; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs | sed 's/\[1\].*/one/'; kill $!; wait ) 2>/dev/null
+( sleep 9 & jobs -l | grep -c "$!"; kill $!; wait ) 2>/dev/null
+
+# Not these.
+( sleep 0.3 & jobs & wait )
+( sleep 0.3 & jobs | wc -l | n & wait )
+( sleep 0.3 & { jobs | wc -l | n; } & wait )
+( sleep 9 & { jobs; } | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & ( jobs ) | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & f() { jobs; }; f | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & eval jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & builtin jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & for i in 1; do jobs; done | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & if :; then jobs; fi | wc -l | n; kill $!; wait ) 2>/dev/null
+sleep 0.4 & ( jobs | wc -l | n ); wait
+
+# In a substitution the shell's job, and its own.
+sleep 0.4 & x=$(jobs | wc -l | n); echo "[$x]"; wait
+x=$(sleep 0.4 & jobs | wc -l | n); echo "[$x]"
+x=$(sleep 0.4 & sleep 0.4 & jobs | wc -l | n); echo "[$x]"
+x=$( ( sleep 0.4 & jobs | wc -l | n ) ); echo "[$x]"
+
+# What a stage does to the job stays in the stage, and the job stays the shell's.
+( sleep 0.3 & jobs | cat > /dev/null; jobs | wc -l | n; wait; echo waited $? )
+( sleep 9 & disown %1 2>/dev/null | cat; jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & disown 2>/dev/null | cat; jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & kill %1 2>/dev/null | cat; jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & kill -0 %1 2>/dev/null | cat; jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & wait | cat; jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & wait %1 2>/dev/null | cat; jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+( sleep 9 & wait $! 2>/dev/null | cat; jobs | wc -l | n; kill $!; wait ) 2>/dev/null
+
+# The status a stage gets, in a file: PIPESTATUS would race with the job's end.
+( sleep 9 & { wait %1; echo $? > s; } 2>/dev/null | cat; cat s; kill $!; wait ) 2>/dev/null
+( sleep 9 & { kill %1; echo $? > s; } 2>/dev/null | cat; cat s; kill $!; wait ) 2>/dev/null
+( sleep 9 & { disown %1; echo $? > s; } 2>/dev/null | cat; cat s; kill $!; wait ) 2>/dev/null
+
+# The messages, where it was said.
+( sleep 0.2 & wait %1 | cat; wait )
+( sleep 0.2 & kill %1 | cat; wait )
+( sleep 0.2 & disown %1 | cat; wait )
+( sleep 0.2 & disown | cat; wait )
+disown %9; echo "disown nosuch $?"
+wait %9; echo "wait nosuch $?"
+kill %9; echo "kill nosuch $?"
+jobs %9; echo "jobs nosuch $?"
+
+# disown and its options.
+( sleep 0.4 & disown -a; jobs | wc -l | n )
+( sleep 0.4 & disown -r; jobs | wc -l | n )
+( sleep 0.4 & disown -h %1; jobs | wc -l | n; wait )
+( sleep 0.4 & disown -ar; jobs | wc -l | n )
+( sleep 0.4 & disown -- %1; jobs | wc -l | n )
+( sleep 0.4 & disown "$!"; jobs | wc -l | n )
+disown -x 2>/dev/null; echo "bad option $?"
+jobs -x1 2>/dev/null; echo "bad option $?"
+
+cd /
+rm -rf "$d"

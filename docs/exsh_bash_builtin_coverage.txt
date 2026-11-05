@@ -11,7 +11,7 @@ cd pwd dirs pushd popd echo exit exec true false set unset export read printf te
 
 Bash builtins missing from exsh
 -------------------------------
-compgen complete compopt fc suspend ulimit
+compgen complete compopt fc suspend
 
 Plans to address missing builtins
 ---------------------------------
@@ -79,9 +79,9 @@ Plans to address missing builtins
     - Registered the builtin with the runtime, frontend registry, builtin catalogue, and help topics so it appears in help and dispatch tables.
     - Added regression coverage that validates formatting and exit status while keeping behaviour aligned with Bash output expectations.
 
-13) ulimit and umask builtins:
-    - Implemented vmBuiltinShellUmask to parse octal modes, support -S symbolic output, register documentation, and add regression coverage for numeric and failure flows.
-    - Remaining work: implement vmBuiltinShellUlimit using getrlimit and setrlimit, covering common flags and matching Bash diagnostics.
+13) ulimit and umask builtins: Completed.
+    - Implemented vmBuiltinShellUmask to parse octal modes, support -S symbolic output, register documentation, and validate behaviour.
+    - Implemented vmBuiltinShellUlimit with getrlimit and setrlimit, per task on iOS. Covers -c -d -f -l -m -n -p -s -t -u -v, -S, -H and -a.
 
 14) unalias builtin: Completed.
     - Added helpers that delete individual aliases or clear all entries and exposed them through vmBuiltinShellUnalias.

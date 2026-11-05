@@ -1,0 +1,66 @@
+#!/usr/bin/env exsh
+# ulimit is the shell's own. A file named ulimit on PATH could not change the shell, and on iOS
+# there was nothing. Limits are the task's: a subshell, a stage, a job, a substitution and a
+# nested shell each take theirs away with them.
+d="${TMPDIR:-/tmp}/exsh_parity_ulimit.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+n0=$(ulimit -n)
+[ "$n0" = "$(ulimit -Sn)" ] && echo reads the soft limit
+ulimit -f
+ulimit > /dev/null; echo "alone $?"
+command -v ulimit
+type ulimit
+
+# Set, in a subshell so the next form starts over.
+( ulimit -n 64; ulimit -n; ulimit -Sn; ulimit -Hn )
+( ulimit -Sn 64; ulimit -Sn; [ "$(ulimit -Hn)" != 64 ] && echo hard stayed; ulimit -n 128; ulimit -Sn )
+( ulimit -f 100; ulimit -f )
+( ulimit -t 100; ulimit -t )
+( ulimit -s 1000; ulimit -s )
+( ulimit -n 64 2; ulimit -n )
+( ulimit -Sn 64; ulimit -Sn soft; ulimit -Sn; ulimit -Sn hard; [ "$(ulimit -Sn)" = "$(ulimit -Hn)" ] && echo soft is hard )
+
+# A hard limit only comes down, and soft stays under it.
+( ulimit -n 64; ulimit -n 128 2>/dev/null; echo "raise $?"; ulimit -n )
+( ulimit -n 64; ulimit -n 128; echo "raise $?" )
+( ulimit -Hn 64; ulimit -Sn 128 2>/dev/null; echo "soft over $?"; ulimit -Sn )
+( ulimit -Sn 50; ulimit -Hn 40 2>/dev/null; echo "hard under $?" )
+
+# What it does not take.
+ulimit -n abc; echo "word $?"
+ulimit -n -1 2>/dev/null || echo negative failed
+ulimit -Q 2>/dev/null || echo option failed
+
+# More than one prints with labels; bash 3.2 and 5 pad them differently.
+ulimit -n -s | sed 's/  */ /g; s/[0-9][0-9]*$/N/; s/unlimited$/N/'
+ulimit -a | wc -l | tr -d ' '
+ulimit -a | grep -c 'open files.*(-n)'
+ulimit -Ha > /dev/null; echo "all hard $?"
+
+# Each of these ends with what it set.
+[ "$(ulimit -n)" = "$n0" ] && echo unchanged
+x=$(ulimit -n 64; ulimit -n); echo "$x"; [ "$(ulimit -n)" = "$n0" ] && echo after substitution
+ulimit -n 64 | cat; [ "$(ulimit -n)" = "$n0" ] && echo after stage
+ulimit -n 64 & wait; [ "$(ulimit -n)" = "$n0" ] && echo after job
+( ulimit -n 64 ); [ "$(ulimit -n)" = "$n0" ] && echo after subshell
+{ ulimit -n 64; } | cat; [ "$(ulimit -n)" = "$n0" ] && echo after piped group
+f() { ulimit -n 64; }; f | cat; [ "$(ulimit -n)" = "$n0" ] && echo after piped function
+x=$(y=$(ulimit -n 64; ulimit -n); echo "$y"; ulimit -n 100; ulimit -n); echo "$x" | tr '\n' ' '; echo
+
+# These do not, in the shell itself.
+{ ulimit -Sn 64; ulimit -Sn; }; ulimit -Sn "$n0"; [ "$(ulimit -Sn)" = "$n0" ] && echo group came back
+f() { ulimit -Sn 77; }; f; ulimit -Sn; ulimit -Sn "$n0"
+eval 'ulimit -Sn 78'; ulimit -Sn; ulimit -Sn "$n0"
+
+# What it starts has them.
+( ulimit -n 64; x=$(ulimit -n); echo "in a substitution $x"; ulimit -n | cat; { ulimit -n; } | cat; ulimit -n & wait )
+
+# The limit holds a descriptor to it.
+( ulimit -n 12; exec 13>/dev/null ) 2>/dev/null; echo "above $?"
+( ulimit -n 64; exec 63>/dev/null; echo "below $?" )
+
+cd /
+rm -rf "$d"

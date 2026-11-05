@@ -193,6 +193,8 @@ static int shellRunExshShebang(const char *path, char *const *argv) {
     const char *previous_arg0 = shellRuntimeGetArg0();
     char *saved_arg0 = previous_arg0 ? strdup(previous_arg0) : NULL;
     shellRuntimeSetArg0(path);
+    void *caller_calls = shellRuntimeCallStackPutAside();
+    shellRuntimeSetScriptName(path);
 
     ShellRunOptions opts = {0};
     opts.no_cache = 1;
@@ -207,6 +209,7 @@ static int shellRunExshShebang(const char *path, char *const *argv) {
     int status = shellRunSource(source, path, &opts, &exit_requested);
     shellCwdScopeLeave(&cwd_scope);
 
+    shellRuntimeCallStackBack(caller_calls);
     shellRuntimeSetArg0(saved_arg0);
     free(saved_arg0);
 
@@ -698,15 +701,6 @@ int shellRunSource(const char *source,
 
     shellRuntimePushScript();
 
-    bool source_pushed = false;
-    if (!shellRuntimeTrackSourcePush(path ? path : "")) {
-        shellRuntimePopScript();
-        shellRuntimeSetExitOnSignal(previous_exit_on_signal);
-        shellSemanticsSetWarningSuppressed(previous_suppress);
-        return EXIT_FAILURE;
-    }
-    source_pushed = true;
-
     vmSetVerboseErrors(options->verbose_errors);
 
     if (options->exit_on_signal) {
@@ -719,10 +713,6 @@ int shellRunSource(const char *source,
     if (!shellSymbolTableScopeIsActive()) {
         if (!shellSymbolTableScopePush(&table_scope)) {
             fprintf(stderr, "shell: failed to allocate symbol tables.\n");
-            if (source_pushed) {
-                shellRuntimeTrackSourcePop();
-                source_pushed = false;
-            }
             shellRuntimePopScript();
             shellRuntimeSetExitOnSignal(previous_exit_on_signal);
             shellSemanticsSetWarningSuppressed(previous_suppress);
@@ -1019,10 +1009,6 @@ cleanup:
         snprintf(dump_label, sizeof(dump_label), "shell final exit %d", exit_code);
         vmDumpStackInfoDetailed(vm, dump_label);
         vm_stack_dumped = true;
-    }
-    if (source_pushed) {
-        shellRuntimeTrackSourcePop();
-        source_pushed = false;
     }
     shellSemanticsSetWarningSuppressed(previous_suppress);
     shellRuntimeSetExitOnSignal(previous_exit_on_signal);

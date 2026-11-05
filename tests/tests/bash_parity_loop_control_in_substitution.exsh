@@ -1,0 +1,59 @@
+#!/usr/bin/env exsh
+# The loops around a command substitution are the shell's, and it cannot leave them: break and
+# continue end the substitution, quietly, and the loop goes on. It used to warn and go on with
+# the next command.
+d="${TMPDIR:-/tmp}/exsh_parity_substloop.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+for i in 1 2; do x=$(break; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(continue; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(echo a; break; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(false; break; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(if true; then break; fi; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$({ break; echo no; }; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(eval break; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(eval 'break; echo in'; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(break 2; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(case a in (a) break; esac; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(true && break; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(false || break; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(! break; echo not); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(exit 5; echo not); echo "[$x] $? $i"; done
+
+# Its own loops are still its own, however many are asked for.
+for i in 1 2; do x=$(for j in a b; do echo $j; break; done; echo after); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(for j in a b; do echo $j; break 2; done; echo after); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(for j in a b; do echo $j; continue 2; done; echo after); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(for j in a b; do echo $j; done; break; echo after); echo "[$x] $? $i"; done
+
+# One inside another.
+for i in 1 2; do x=$(y=$(break; echo a); echo "<$y>"); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(while :; do y=$(break; echo a); echo "<$y>"; break; done; echo after); echo "[$x] $? $i"; done
+
+# A stage has only itself to leave.
+for i in 1 2; do x=$(break | cat; echo y); echo "[$x] $? $i"; done
+for i in 1 2; do x=$(echo p | break; echo y); echo "[$x] $? $i"; done
+
+# Where the substitution stands.
+for i in 1 2; do : $(break; echo not); echo "colon $? $i"; done
+for i in 1 2; do echo "$(break; echo not)|$i"; done
+for i in 1 2; do y=$(echo before; break) z=$(echo after); echo "[$y][$z] $i"; done
+for i in 1 2; do if x=$(break; echo not); then echo "t [$x] $i"; else echo "f [$x] $i"; fi; done
+n=0; while [ $n -lt 2 ]; do n=$((n+1)); x=$(break; echo not); echo "while [$x] $n"; done
+n=0; until [ $n -ge 2 ]; do n=$((n+1)); x=$(continue; echo not); echo "until [$x] $n"; done
+
+# A sourced file in one, and no trap's commands after it.
+printf 'break\necho in-file\n' > brk.inc
+for i in 1 2; do x=$(. ./brk.inc; echo not); echo "src [$x] $? $i"; done
+for i in 1 2; do x=$(trap 'echo t' EXIT; break; echo not); echo "trap [$x] $? $i"; done
+
+# With no loop around it there is nothing to end: it says so and goes on.
+x=$(break 2>&1 >/dev/null | sed 's/.*: //'; echo not); echo "top [$x] $?"
+x=$(break 2>/dev/null; echo not); echo "top [$x] $?"
+x=$(continue 2>/dev/null; echo not); echo "top [$x] $?"
+x=$(for j in a; do :; done; break 2>/dev/null; echo not); echo "top2 [$x] $?"
+
+cd /
+rm -rf "$d"

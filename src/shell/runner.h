@@ -49,8 +49,11 @@ bool shellSymbolTableScopePush(ShellSymbolTableScope *scope);
 void shellSymbolTableScopePop(ShellSymbolTableScope *scope);
 bool shellSymbolTableScopeIsActive(void);
 
-bool shellRuntimeTrackSourcePush(const char *path);
-void shellRuntimeTrackSourcePop(void);
+/* The script this shell runs, which sits under its calls as "main". */
+void shellRuntimeSetScriptName(const char *path);
+const char *shellRuntimeGetScriptName(void);
+void *shellRuntimeCallStackPutAside(void);
+void shellRuntimeCallStackBack(void *saved);
 
 char *shellLoadFile(const char *path);
 int shellRunSource(const char *source,
