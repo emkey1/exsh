@@ -784,12 +784,11 @@
         },
         {
             "id": "grammar_for_invalid_name",
-            "name": "For loops reject invalid names",
+            "name": "A for loop with an invalid name",
             "category": "grammar",
-            "description": "Parser emits a syntax error when the loop variable is not a name token.",
+            "description": "Not a syntax error: the loop doesn't run, status 1, and the script goes on.",
             "script": "Tests/exsh/tests/parser_for_invalid_name.exsh",
-            "expect": "parse_error",
-            "expected_stderr_substring": "Expected name after 'for'"
+            "expect": "match_bash"
         },
         {
             "id": "grammar_function_valid_keyword",
@@ -807,7 +806,7 @@
             "description": "Parser emits a syntax error when function names are not NAME tokens.",
             "script": "Tests/exsh/tests/parser_function_invalid_name.exsh",
             "expect": "parse_error",
-            "expected_stderr_substring": "Expected function name"
+            "expected_stderr_substring": "syntax error near unexpected token `('"
         },
         {
             "id": "grammar_function_missing_parens",
@@ -1417,10 +1416,35 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_syntax_errors",
+            "name": "Syntax errors in bash's words, and what is not one",
+            "category": "parity",
+            "description": "Doubled separators, a wrong keyword, case patterns, function bodies, redirection targets, words after a compound command, reserved words where only a word can stand, a bad for name. What may follow a compound command still runs.",
+            "script": "Tests/exsh/tests/bash_parity_syntax_errors.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "syntax_error_text_runs_out",
+            "name": "Text that runs out",
+            "category": "grammar",
+            "description": "What 3.2 and 5.3 agree on: an open construct, an open quote or expansion, an array, and a here-document that ends with the text. 5.3 adds the construct's line, and 3.2 a second line after a quote, so this has fixed answers.",
+            "script": "Tests/exsh/tests/syntax_error_text_runs_out.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "syntax error: unexpected end of file status 2\nsyntax error: unexpected end of file status 2\nsyntax error: unexpected end of file status 2\nsyntax error: unexpected end of file status 2\nsyntax error: unexpected end of file status 2\nsyntax error: unexpected end of file status 2\nsyntax error: unexpected end of file status 2\nsyntax error: unexpected end of file status 2\nunexpected EOF while looking for matching `\"' status 2\nunexpected EOF while looking for matching `'' status 2\nunexpected EOF while looking for matching ``' status 2\nunexpected EOF while looking for matching `)' status 2\nunexpected EOF while looking for matching `}' status 2\nunexpected EOF while looking for matching `)' status 2\nunexpected EOF while looking for matching `)' status 1\nwarning: here-document at line 9 delimited by end-of-file (wanted `E') status 0\nwarning: here-document at line 9 delimited by end-of-file (wanted `E')\nbody status 0\nstill running"
+        },
+        {
+            "id": "bash_parity_syntax_error_after_lines",
+            "name": "The lines before a syntax error run",
+            "category": "parity",
+            "description": "What came on earlier lines has run by the time the error is reported, the line holding it does not, status 2, and the EXIT trap after the message.",
+            "script": "Tests/exsh/tests/bash_parity_syntax_error_after_lines.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_empty_body_script",
             "name": "An empty loop body ends the script with status 2",
             "category": "parity",
-            "description": "A syntax error in the script itself: bash's message, status 2, and nothing after it runs.",
+            "description": "A syntax error in the script itself: what came before has run, bash's message, status 2, and nothing after it runs.",
             "script": "Tests/exsh/tests/bash_parity_empty_body_script.exsh",
             "expect": "match_bash"
         },

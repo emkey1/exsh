@@ -275,14 +275,30 @@ static ShellToken makeErrorToken(ShellLexer *lexer, const char *message) {
     return tok;
 }
 
-/* A lexer error that is really "the source stopped here".  Marking the lexer
- * lets an interactive caller read another line instead of reporting a syntax
- * error; a truncation in the middle of the text is a genuine error and is left
- * alone. */
-static ShellToken makeUnterminatedToken(ShellLexer *lexer, const char *message) {
-    if (lexer && lexer->pos >= lexer->length) {
-        lexer->unterminated = true;
+/* The source ended inside something that `closer` would finish, opened on `line`. A caller at
+ * a prompt can read another line; anything else reports it. The first one counts. */
+static void lexerMarkUnterminated(ShellLexer *lexer, char closer, int line) {
+    lexer->unterminated = true;
+    if (!lexer->unterminated_closer) {
+        lexer->unterminated_closer = closer;
+        lexer->unterminated_line = line;
     }
+}
+
+/* Bash reports `$(` where the text ended, and everything else where it opened. */
+static int lexerLineAtEnd(const ShellLexer *lexer) {
+    int line = lexer->line;
+    for (size_t i = lexer->pos; i < lexer->length; ++i) {
+        if (lexer->src[i] == '\n') {
+            line++;
+        }
+    }
+    return (lexer->length > 0 && lexer->src[lexer->length - 1] != '\n') ? line + 1 : line;
+}
+
+/* A lexer error that is really "the source stopped here". */
+static ShellToken makeUnterminatedToken(ShellLexer *lexer, const char *message, char closer, int line) {
+    lexerMarkUnterminated(lexer, closer, line);
     return makeErrorToken(lexer, message);
 }
 
@@ -296,8 +312,9 @@ static ShellToken scanParameter(ShellLexer *lexer) {
     if (c == '{') {
         size_t stop = shellScanBraceParam(lexer->src, lexer->length, lexer->pos + 1, false);
         if (stop == SHELL_SCAN_UNTERMINATED) {
+            int line = lexer->line;
             lexer->pos = lexer->length;
-            return makeUnterminatedToken(lexer, "Unterminated parameter expansion");
+            return makeUnterminatedToken(lexer, "Unterminated parameter expansion", '}', line);
         }
         while (lexer->pos < stop) {
             advanceChar(lexer);
@@ -313,8 +330,10 @@ static ShellToken scanParameter(ShellLexer *lexer) {
             command_sub = true;
         }
         if (stop == SHELL_SCAN_UNTERMINATED) {
+            bool arith_open = lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(';
+            int line = arith_open ? lexer->line : lexerLineAtEnd(lexer);
             lexer->pos = lexer->length;
-            return makeUnterminatedToken(lexer, "Unterminated command substitution");
+            return makeUnterminatedToken(lexer, "Unterminated command substitution", ')', line);
         }
         while (lexer->pos < stop) {
             advanceChar(lexer);
@@ -414,7 +433,7 @@ static bool appendAnsiCQuoted(ShellLexer *lexer, char **buffer, size_t *len, siz
     size_t decoded_len = 0;
     size_t stop = shellScanAnsiC(lexer->src, lexer->length, lexer->pos, decoded, &decoded_len);
     if (stop == SHELL_SCAN_UNTERMINATED) {
-        lexer->unterminated = true;
+        lexerMarkUnterminated(lexer, '\'', lexer->line);
         stop = lexer->length;
     }
     while (lexer->pos < stop) {
@@ -463,6 +482,8 @@ static ShellToken scanWord(ShellLexer *lexer) {
 
     bool inBacktick = false;
     bool hasArithmetic = false;
+    int quoteLine = lexer->line;
+    int arrayLine = lexer->line;
 
     bool allowStructuralLiterals = lexerAllowsStructuralWordLiterals(lexer);
 
@@ -488,7 +509,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
             lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(') {
             size_t stop = shellScanDollarParen(lexer->src, lexer->length, lexer->pos + 2);
             if (stop == SHELL_SCAN_UNTERMINATED) {
-                lexer->unterminated = true;
+                lexerMarkUnterminated(lexer, ')', lexer->line);
                 stop = lexer->length;
             }
             while (lexer->pos < stop) {
@@ -569,6 +590,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
             if (startingArrayLiteral) {
                 inArrayLiteral = true;
                 arrayParenDepth = 1;
+                arrayLine = lexer->line;
             } else if (inArrayLiteral) {
                 if (c == '(') {
                     arrayParenDepth++;
@@ -615,6 +637,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
         } else if (c == '\'' && !doubleQuoted) {
             bool enteringSingle = !singleQuoted;
             singleQuoted = !singleQuoted;
+            quoteLine = enteringSingle ? lexer->line : quoteLine;
             if (bufLen + 1 >= bufCap) {
                 bufCap = bufCap ? bufCap * 2 : 32;
                 char *tmp = (char *)realloc(buffer, bufCap);
@@ -632,6 +655,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
         } else if (c == '"' && !singleQuoted) {
             bool enteringDouble = !doubleQuoted;
             doubleQuoted = !doubleQuoted;
+            quoteLine = enteringDouble ? lexer->line : quoteLine;
             if (bufLen + 1 >= bufCap) {
                 bufCap = bufCap ? bufCap * 2 : 32;
                 char *tmp = (char *)realloc(buffer, bufCap);
@@ -681,7 +705,10 @@ static ShellToken scanWord(ShellLexer *lexer) {
                     }
                 }
                 if (stop == SHELL_SCAN_UNTERMINATED) {
-                    lexer->unterminated = true;
+                    bool brace = lexer->pos < lexer->length && lexer->src[lexer->pos] == '{';
+                    bool arith_open = lexer->pos + 1 < lexer->length && lexer->src[lexer->pos + 1] == '(';
+                    lexerMarkUnterminated(lexer, brace ? '}' : ')',
+                                          (brace || arith_open) ? lexer->line : lexerLineAtEnd(lexer));
                     stop = lexer->length;
                 }
                 while (lexer->pos < stop) {
@@ -719,6 +746,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
             if (!inBacktick) {
                 hasCommand = true;
                 inBacktick = true;
+                quoteLine = lexer->line;
             } else {
                 inBacktick = false;
             }
@@ -748,7 +776,10 @@ static ShellToken scanWord(ShellLexer *lexer) {
 
     if ((singleQuoted || doubleQuoted || inBacktick) && lexer->pos >= lexer->length) {
         /* The word ran to the end of the source with a quote still open. */
-        lexer->unterminated = true;
+        lexerMarkUnterminated(lexer, singleQuoted ? '\'' : (doubleQuoted ? '"' : '`'), quoteLine);
+    } else if (inArrayLiteral && arrayParenDepth > 0 && lexer->pos >= lexer->length) {
+        lexerMarkUnterminated(lexer, ')', arrayLine);
+        lexer->unterminated_array = true;
     }
 
     if (buffer && bufLen < bufCap) {
@@ -826,6 +857,11 @@ void shellInitLexer(ShellLexer *lexer, const char *source) {
     lexer->at_line_start = true;
     lexer->rule_mask = SHELL_LEXER_RULE_1;
     lexer->unterminated = false;
+    lexer->unterminated_closer = '\0';
+    lexer->unterminated_line = 0;
+    lexer->unterminated_array = false;
+    lexer->token_start = 0;
+    lexer->final_newline_given = false;
     lexer->rparen_closes = false;
     lexer->dbracket = false;
     lexer->dbracket_regex = false;
@@ -882,6 +918,7 @@ static ShellToken scanDoubleBracketToken(ShellLexer *lexer) {
     if (c == EOF) {
         return makeEOFToken(lexer);
     }
+    lexer->token_start = lexer->pos;
     bool regex = lexer->dbracket_regex;
     if (!regex || (c != '(' && c != '|')) {
         size_t rest = lexer->length - lexer->pos;
@@ -922,9 +959,19 @@ ShellToken shellNextToken(ShellLexer *lexer) {
     while (true) {
         int c = peekChar(lexer);
         if (c == EOF) {
+            /* A last line with no newline ends in one all the same, as it does for bash, so
+             * `for` at the end of a string says the same as `for` at the end of a line. */
+            if (lexer->length > 0 && lexer->src[lexer->length - 1] != '\n' && !lexer->final_newline_given) {
+                lexer->final_newline_given = true;
+                lexer->token_start = lexer->length;
+                lexer->line++;
+                lexer->column = 1;
+                return makeSimpleToken(lexer, SHELL_TOKEN_NEWLINE, "\n", 1);
+            }
             return makeEOFToken(lexer);
         }
         if (c == '\n') {
+            lexer->token_start = lexer->pos;
             advanceChar(lexer);
             ShellToken tok = makeSimpleToken(lexer, SHELL_TOKEN_NEWLINE, "\n", 1);
             return tok;
@@ -960,6 +1007,7 @@ ShellToken shellNextToken(ShellLexer *lexer) {
     if (c == EOF) {
         return makeEOFToken(lexer);
     }
+    lexer->token_start = lexer->pos;
 
     if (c == '{') {
         size_t variable_length = redirectionVariableLength(lexer);

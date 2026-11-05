@@ -1,0 +1,271 @@
+#!/usr/bin/env exsh
+# A token that can't stand where it stands is a syntax error, in bash's words, with the line it is
+# on. Through eval and source, so the script goes on to the next form; each says only that it
+# failed, since 3.2 gives 1 there and 5 gives 2.
+
+# A doubled separator.
+eval 'echo no; ;' || echo rejected
+eval 'echo no & ;' || echo rejected
+eval 'echo no ; & echo no' || echo rejected
+eval 'echo no & & echo no' || echo rejected
+eval 'echo no;;' || echo rejected
+eval 'while false; do :; ; done' || echo rejected
+eval 'if true; then :; ; fi' || echo rejected
+eval '{ :; ; }' || echo rejected
+eval '( :; ; )' || echo rejected
+eval 'for x in a; do :; & done' || echo rejected
+
+# A keyword or closer where another one has to come.
+eval 'if true; done' || echo rejected
+eval 'if true; then :; done' || echo rejected
+eval 'if true; then :; esac' || echo rejected
+eval 'if true; then :; else :; done' || echo rejected
+eval 'if true; else :; fi' || echo rejected
+eval 'while true; done' || echo rejected
+eval 'while true; fi' || echo rejected
+eval 'while true; do :; fi' || echo rejected
+eval 'until true; fi' || echo rejected
+eval 'until true; do :; esac' || echo rejected
+eval 'for x in a; done' || echo rejected
+eval 'for x in a; fi' || echo rejected
+eval 'for x in a b; do :; fi' || echo rejected
+eval 'for x in a; echo no; done' || echo rejected
+eval 'for x y; do :; done' || echo rejected
+eval 'for x "y"; do :; done' || echo rejected
+eval 'for x in a do :; done' || echo rejected
+eval 'for ; do :; done' || echo rejected
+eval 'for do :; done' || echo rejected
+eval 'for ((i = 0; i < 1; i++)); done' || echo rejected
+eval 'for ((i = 0; i < 1; i++)); do :; fi' || echo rejected
+eval 'for ((i = 0; i < 1; i++)) echo no; done' || echo rejected
+eval '{ :; )' || echo rejected
+eval '{ :; fi' || echo rejected
+eval '( :; }' || echo rejected
+eval '( :; fi' || echo rejected
+
+# case.
+eval 'case ; esac' || echo rejected
+eval 'case x ; esac' || echo rejected
+eval 'case x done' || echo rejected
+eval 'case x in ;; esac' || echo rejected
+eval 'case x in a b) ;; esac' || echo rejected
+eval 'case x in a) :; fi' || echo rejected
+eval 'case x in a) ;; fi' || echo rejected
+eval 'case x in a) ;; ;; esac' || echo rejected
+eval 'case x in ) ;; esac' || echo rejected
+eval 'case x in a|) ;; esac' || echo rejected
+eval 'case x in |a) ;; esac' || echo rejected
+eval 'case x in (a b) ;; esac' || echo rejected
+
+# A function's body is a compound command.
+eval 'f() ;' || echo rejected
+eval 'f() done' || echo rejected
+eval 'f() echo no' || echo rejected
+eval 'f() fi' || echo rejected
+eval 'function ;' || echo rejected
+eval 'function () { :; }' || echo rejected
+eval 'function f() done' || echo rejected
+eval 'function f; { :; }' || echo rejected
+
+# A redirection with nothing to go to.
+eval 'echo no >' || echo rejected
+eval 'echo no > ;' || echo rejected
+eval 'echo no > &' || echo rejected
+eval 'echo no > |' || echo rejected
+eval 'echo no > )' || echo rejected
+eval 'echo no <' || echo rejected
+eval 'echo no >>' || echo rejected
+eval 'echo no >&' || echo rejected
+eval 'echo no <&' || echo rejected
+eval 'echo no &>' || echo rejected
+eval 'echo no 2>' || echo rejected
+eval 'echo no > && echo no' || echo rejected
+eval '> ;' || echo rejected
+eval '< ;' || echo rejected
+eval 'cat <<' || echo rejected
+eval 'cat << ;' || echo rejected
+eval 'cat <<< ;' || echo rejected
+
+# Operators with nothing on one side.
+eval 'a | | b' || echo rejected
+eval 'a || || b' || echo rejected
+eval 'a && && b' || echo rejected
+eval 'a | && b' || echo rejected
+eval 'a && | b' || echo rejected
+eval '| a' || echo rejected
+eval '|| a' || echo rejected
+eval '&& a' || echo rejected
+eval '; a' || echo rejected
+eval '& a' || echo rejected
+eval 'a ; | b' || echo rejected
+eval 'a | ;' || echo rejected
+eval 'a || ;' || echo rejected
+eval 'a && ;' || echo rejected
+eval '! |' || echo rejected
+eval '! && a' || echo rejected
+eval '}' || echo rejected
+eval ') a' || echo rejected
+
+# What follows a compound command, with no separator.
+eval '( echo no ) b' || echo rejected
+eval '{ echo no; } b' || echo rejected
+eval 'if true; then echo no; fi c' || echo rejected
+eval 'for x in a; do echo no; done c' || echo rejected
+eval 'while false; do :; done c' || echo rejected
+eval 'case x in a) :;; esac c' || echo rejected
+eval 'f() { :; } b' || echo rejected
+eval '( echo no ) ( echo no )' || echo rejected
+eval '{ echo no; } { echo no; }' || echo rejected
+eval '{ echo no; } ( echo no )' || echo rejected
+eval 'if true; then :; fi if true; then :; fi' || echo rejected
+eval 'while false; do :; done while false; do :; done' || echo rejected
+eval 'f() { :; } g() { :; }' || echo rejected
+eval 'if true; then :; fi then' || echo rejected
+eval '{ :; } }' || echo rejected
+eval '( : ) )' || echo rejected
+eval '{ :; } done' || echo rejected
+eval '( : ) fi' || echo rejected
+eval 'if ( : ) fi' || echo rejected
+eval 'while ( : ) fi' || echo rejected
+eval '(( 1 )) b' || echo rejected
+eval '[[ a ]] b' || echo rejected
+eval 'echo no; ( echo no ) b' || echo rejected
+
+# A newline where a word has to come. The end of the text counts as one.
+eval 'for' || echo rejected
+eval 'case' || echo rejected
+eval 'case x in a' || echo rejected
+eval 'function' || echo rejected
+
+# Over several lines: the line number and the line are where the token is.
+d="${TMPDIR:-/tmp}/exsh_parity_syntax_errors.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+printf 'if true\n  # only a comment\nfi\n' > one
+. ./one || echo rejected
+printf 'for x in a b\n\n  ; ; do :; done\n' > two
+. ./two || echo rejected
+printf 'case x in\n  a)\n    :\n  ;;\n  b c) :;;\nesac\n' > three
+. ./three || echo rejected
+printf '( echo no )\t \\\n  b # more\n' > four
+. ./four || echo rejected
+printf 'echo no >\n' > five
+. ./five || echo rejected
+printf 'for\n' > six
+. ./six || echo rejected
+printf 'for' > seven
+. ./seven || echo rejected
+
+# Sourced, what came on the lines before has run, and the same goes for an open quote. An exit
+# before the error means nothing reports it.
+printf 'echo before\necho "before too"; echo also\nif true; fi\necho no\n' > before
+. ./before || echo rejected
+printf 'echo before;\nif true; fi\n' > separator
+. ./separator || echo rejected
+printf 'echo before &\nwait\n( echo no ) b\n' > job
+. ./job || echo rejected
+printf 'echo no; if true; fi\necho no\n' > sameline
+. ./sameline || echo rejected
+printf 'echo before\nexit 3\nif true; fi\n' > leaves
+( . ./leaves; echo no ); echo "left with $?"
+printf 'echo before\nreturn 3\nif true; fi\n' > returns
+. ./returns; echo "returned $?"
+h() { . ./returns; echo "in h $?"; }; h
+printf 'set -e\nfalse\nif true; fi\necho no\n' > stops
+( . ./stops; echo no ); echo "stopped with $?"
+printf 'x=1\nif true; fi\n' > assigns
+. ./assigns || echo "rejected x=$x"
+printf 'g() { echo "g from a file with an error"; }\nif true; fi\n' > defines
+. ./defines || g
+
+# A reserved word is a word wherever only a word can stand.
+for in in in; do echo "$in"; done
+for do in a; do echo "$do"; done
+for if in a b; do echo "$if"; done
+for x in do; do echo "$x"; done
+for x in in; do echo "$x"; done
+for x in if then fi; do echo "$x"; done
+for x in a in; do echo "$x"; done
+case in in in) echo "case in";; esac
+case if in if) echo "case if";; esac
+case x in if) echo no;; x) echo "pattern after if";; esac
+case esac in (esac) echo "case esac";; esac
+echo x > in; cat in
+echo y > do; cat do
+echo z > fi; cat < fi
+cat <<< if
+cat <<< done
+cat << in
+here
+in
+rm -f in do fi
+
+# A name that can't be one is an error only when the loop runs, and the script goes on.
+for 1 in a; do echo no; done; echo "bad name $?"
+for "x" in a; do echo no; done; echo "bad name $?"
+for a=b in a; do echo no; done; echo "bad name $?"
+for 1bad in $(echo no 1>&2); do echo no; done; echo "bad name $?"
+( set -e; for 1 in a; do :; done; echo "goes on under set -e $?" )
+
+# What has a separator or a closer after it still runs. A keyword needs none after a `)` or `}`.
+if (true) then echo y; fi
+if (true) then (echo a) else (echo b) fi
+if (false) then :; elif (true) then (echo c) fi
+for x in a; do (echo "$x") done
+for x do (echo no) done
+for ((i = 0; i < 1; i++)) do (echo c-for) done
+for ((i = 0; i < 1; i++)); do (echo c-for) done
+while (false) do :; done
+while (false) do (echo no) done
+until (true) do (echo no) done
+{ (echo group) }
+{ { echo group; } }
+( (echo nested) )
+( { echo nested; } )
+{ (echo piped) } | cat
+case x in x) (echo arm) ;; esac
+case x in x) (echo arm) esac
+case x in x) { echo arm; } esac
+(echo a) | cat
+(echo a) && (echo b)
+(echo a) || (echo no)
+(echo no) > /dev/null; echo b
+{ echo a; } 2>&1 | cat
+(echo a) & wait
+(echo a); (echo b)
+(echo a)& wait
+{ echo a; }& wait
+(echo comment) # c
+{ echo comment; } # c
+if true; then echo a; fi; echo b
+if true; then echo a; fi & wait
+if true; then echo a; fi | cat
+if true; then echo no; fi > /dev/null
+if true; then echo a; fi && echo b
+until true; do :; done > /dev/null; echo b
+for x in a; do :; done & wait
+(( 1 )) && echo a
+(( 1 )); echo a
+[[ a ]] && echo a
+[[ a ]] > /dev/null; echo a
+echo no > /dev/null & echo b; wait
+! (echo a)
+! { echo a; }
+! if true; then :; fi
+f() (( 1 )); f; echo "arithmetic body $?"
+f() [[ a ]]; f; echo "conditional body $?"
+f() [[ -z a ]]; f; echo "conditional body $?"
+f() { :; } > /dev/null; f; echo "redirected body $?"
+f()
+{
+  echo "body on the next line"
+}
+f
+function g
+{
+  echo "function keyword, next line"
+}
+g
+cd /
+rm -rf "$d"

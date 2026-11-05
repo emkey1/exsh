@@ -1,7 +1,6 @@
 echo "parser-for-invalid:start"
 
-for 1bad in one two; do
-  echo "parser-for-invalid:body"
-done
+# On one line: over several, 3.2 names the line of `done`.
+for 1bad in one two; do echo "parser-for-invalid:body"; done
 
 echo "parser-for-invalid:end"

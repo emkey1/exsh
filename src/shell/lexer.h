@@ -111,6 +111,14 @@ typedef struct {
      * expansion or a line continuation still open.  The text is not wrong, it
      * just stopped early: an interactive caller can ask for another line. */
     bool unterminated;
+    /* What would finish it, and the line bash names. A trailing line continuation has neither,
+     * and it is no error: only a prompt asks for more. */
+    char unterminated_closer;
+    int unterminated_line;
+    bool unterminated_array;
+    /* Where the token just read starts in the source. */
+    size_t token_start;
+    bool final_newline_given;
     /* Set by the parser inside a subshell, where an unquoted ')' that opened
      * nothing in its word closes the subshell instead of being a literal. */
     bool rparen_closes;

@@ -1541,6 +1541,38 @@ def scenario_halt_ends_its_callers(shell: PtyShell) -> tuple[bool, str]:
     ])
 
 
+def scenario_newline_is_no_continuation(shell: PtyShell) -> tuple[bool, str]:
+    """Where only a word can come, a newline is an error at once, as under bash; no second prompt."""
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("newline-token")
+    _unlink_if_exists(marker)
+
+    for text in ("for", "echo x >", "case x in a"):
+        shell.send_line(text)
+        if not shell.wait_for_substring("syntax error near unexpected token `newline'", timeout=2.0):
+            return False, f"{text!r} did not report the newline"
+        shell._pump(0.30)
+    shell.send_line(f"touch {_shell_path(marker)}")
+    if not shell.wait_for_path(marker, timeout=2.5):
+        return False, "shell stayed unresponsive after a newline error"
+    _unlink_if_exists(marker)
+    # A `!` with nothing to name after it is no history reference.
+    shell.send_line("!")
+    shell._pump(0.30)
+    shell.send_line('echo "__BANG_ALONE_$?"')
+    if not shell.wait_for_substring("__BANG_ALONE_1", timeout=2.0):
+        return False, "`!` alone did not give status 1"
+    shell._pump(0.30)
+    shell.send_line("! false")
+    shell._pump(0.30)
+    shell.send_line('echo "__BANG_CMD_$?"')
+    if not shell.wait_for_substring("__BANG_CMD_0", timeout=2.0):
+        return False, "`! false` did not give status 0"
+    return True, "a newline where a word has to come reported without waiting for more input"
+
+
 SCENARIOS: List[Scenario] = [
     Scenario(
         test_id="interactive_history_file_limit",
@@ -1576,6 +1608,11 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_syntax_error_no_hang",
         name="Genuine syntax error reports without waiting",
         run=scenario_syntax_error_does_not_hang,
+    ),
+    Scenario(
+        test_id="interactive_newline_no_continuation",
+        name="A newline where a word has to come reports without waiting",
+        run=scenario_newline_is_no_continuation,
     ),
     Scenario(
         test_id="interactive_substitution_at_prompt",

@@ -147,15 +147,16 @@ extends it with orchestration helpers implemented in
   `set -aCefuvx`. Aliases expand at a prompt, and in a script only after
   `shopt -s expand_aliases`. The `bash_parity_*` tests compare the two directly. Still
   different: `select`, `compgen`/`complete`/`compopt`, `suspend`, `declare -n`,
-  `printf '%(fmt)T'`, `for in in in` and `exit abc`. `set` and `declare` list variables
+  `printf '%(fmt)T'` and `exit abc`. `set` and `declare` list variables
   but not functions, since a function keeps no source to print. A script with no `#!`
   goes to the system's `sh` on a host where bash would read it itself. A failed
   assignment with no command, such as `readonly r=1; r=2`, ends the script where bash
-  goes on with the next line. A syntax error stops a script before any of it runs, where
-  bash runs the lines before it. `set -o posix` does not make a
+  goes on with the next line. Unquoted parentheses among a command's words are plain words,
+  so `find . ( -name a )` runs where bash reports a syntax error. `set -o posix` does not make a
   failing special builtin end the script, `set -v` is accepted but prints nothing,
   `set -x` does not show compound commands, a `DEBUG` trap runs only for top-level
-  commands, and `[[ ]]` expands all of its operands first. On iOS, where nothing
+  commands, and `[[ ]]` expands all of its operands first and runs one bash can't parse, such
+  as `[[ a == ]]`. On iOS, where nothing
   execs, `./f` runs without the execute bit and `cd` resolves links at once; `/bin/x`
   means `x`, so `/bin/cd` moves the shell, and `which` names builtins and applets, since
   they have no file; `exec` and `env` run a program as a call, and `exec -a` and `-l`

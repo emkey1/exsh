@@ -12,6 +12,11 @@ extern "C" {
 typedef struct ShellPendingHereDocArray ShellPendingHereDocArray;
 
 typedef struct {
+    int line;
+    char *message;
+} ShellParseWarning;
+
+typedef struct {
     ShellLexer lexer;
     ShellToken current;
     ShellToken previous;
@@ -26,13 +31,21 @@ typedef struct {
     /* Suppress diagnostics: set for a completeness probe, which parses text the
      * user may well be in the middle of typing. */
     bool quiet;
-    /* A token stood where a command has to start. Nothing is printed here: the caller
-     * knows what to call the text, and says so the way bash does. Freed by
-     * shellParserFree, apart from the flag. */
+    /* A syntax error in bash's words. Nothing is printed here: the caller knows what to call
+     * the text. The line itself comes second, when bash shows it. Freed by shellParserFree,
+     * apart from the flag, the number and the status. */
     bool syntax_error;
+    int syntax_error_status;
+    /* The program a syntax error leaves: the commands on lines finished before it. The caller
+     * runs them and reports the error after. */
+    size_t complete_commands;
+    const ShellProgram *top_level;
     int syntax_error_line;
-    char *syntax_error_token;
+    char *syntax_error_message;
     char *syntax_error_text;
+    /* Here-documents the text ended inside: read as far as they went, and reported. */
+    ShellParseWarning *warnings;
+    size_t warning_count;
 } ShellParser;
 
 ShellProgram *shellParseString(const char *source, ShellParser *parser);

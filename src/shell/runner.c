@@ -600,9 +600,8 @@ static InterpretResult shellRunAfterDiscard(VM *vm, const ShellProgram *program,
     return result;
 }
 
-/* Bash's words, and its name for what it was reading: a file by its name, anything else as
- * $0 and the kind of text. At a prompt it gives the shell's own name and neither the line
- * number nor the line. */
+/* Bash's name for what it was reading: a file by its name, anything else as $0 and the kind
+ * of text. At a prompt it is only the shell's own name, with no line number and no line. */
 static void shellReportSyntaxError(const ShellParser *parser, const char *path) {
     static const struct {
         const char *path;
@@ -622,15 +621,18 @@ static void shellReportSyntaxError(const ShellParser *parser, const char *path) 
     if (!name || !*name) {
         name = "exsh";
     }
-    const char *token = parser->syntax_error_token ? parser->syntax_error_token : "";
-    const char *text = parser->syntax_error_text ? parser->syntax_error_text : "";
-    int line = parser->syntax_error_line;
     const char *kind = "";
 
     bool from_prompt = path && (strcmp(path, "<stdin>") == 0 || strcmp(path, "<eval>") == 0);
     if (from_prompt && shellRuntimeIsInteractive()) {
         const char *slash = strrchr(name, '/');
-        fprintf(stderr, "%s: syntax error near unexpected token `%s'\n", slash ? slash + 1 : name, token);
+        const char *shell = slash ? slash + 1 : name;
+        for (size_t i = 0; i < parser->warning_count; ++i) {
+            fprintf(stderr, "%s: %s\n", shell, parser->warnings[i].message);
+        }
+        if (parser->syntax_error) {
+            fprintf(stderr, "%s: %s\n", shell, parser->syntax_error_message ? parser->syntax_error_message : "");
+        }
         return;
     }
     if (path && path[0] == '<') {
@@ -644,8 +646,18 @@ static void shellReportSyntaxError(const ShellParser *parser, const char *path) 
     } else if (path && *path) {
         name = path;
     }
-    fprintf(stderr, "%s: %sline %d: syntax error near unexpected token `%s'\n", name, kind, line, token);
-    fprintf(stderr, "%s: %sline %d: `%s'\n", name, kind, line, text);
+    /* A warning comes while the text runs, so it has no kind. */
+    for (size_t i = 0; i < parser->warning_count; ++i) {
+        fprintf(stderr, "%s: line %d: %s\n", name, parser->warnings[i].line, parser->warnings[i].message);
+    }
+    if (parser->syntax_error) {
+        int line = parser->syntax_error_line;
+        fprintf(stderr, "%s: %sline %d: %s\n", name, kind, line,
+                parser->syntax_error_message ? parser->syntax_error_message : "");
+        if (parser->syntax_error_text) {
+            fprintf(stderr, "%s: %sline %d: `%s\'\n", name, kind, line, parser->syntax_error_text);
+        }
+    }
 }
 
 int shellRunSource(const char *source,
@@ -746,6 +758,7 @@ int shellRunSource(const char *source,
     bool exit_flag = false;
     bool should_run_exit_trap = false;
     bool trap_exit_requested = false;
+    bool syntax_error_later = false;
 
     /* `#ifdef` is a comment in a shell script, and in a string or here document it is text. */
     const char *parse_src = source;
@@ -755,20 +768,23 @@ int shellRunSource(const char *source,
         fprintf(stderr, "[shell-run] parsing\n");
     }
     program = shellParseStringAtLine(parse_src, &parser, options->first_line);
-    if (parser.syntax_error) {
+    syntax_error_later = parser.syntax_error && program;
+    if (!syntax_error_later && (parser.syntax_error || parser.warning_count > 0)) {
         shellReportSyntaxError(&parser, path);
     }
-    shellParserFree(&parser);
+    if (!syntax_error_later) {
+        shellParserFree(&parser);
+    }
     if (getenv("PSCALI_PROMPT_DEBUG")) {
         fprintf(stderr, "[shell-run] parsed had_error=%d program=%p\n",
                 (int)parser.had_error,
                 (void *)program);
     }
-    if (parser.had_error || !program) {
+    if ((parser.had_error && !syntax_error_later) || !program) {
         if (!parser.syntax_error) {
             fprintf(stderr, "Parsing failed.\n");
         }
-        exit_code = 2;
+        exit_code = parser.syntax_error ? parser.syntax_error_status : 2;
         goto cleanup;
     }
 
@@ -931,6 +947,17 @@ int shellRunSource(const char *source,
     should_run_exit_trap = !options->keep_line_state && shellRuntimeIsOutermostScript() &&
                            (!shellRuntimeIsInteractive() || exit_flag);
     exit_code = (result == INTERPRET_OK) ? last_status : EXIT_FAILURE;
+    if (syntax_error_later) {
+        syntax_error_later = false;
+        /* What ended the run before bash would read that far means nothing reports it. */
+        const volatile bool *errexit_pending = shellRuntimePendingExitFlag();
+        if (!exit_flag && !shellRuntimeReturnPending() && !(errexit_pending && *errexit_pending)) {
+            shellReportSyntaxError(&parser, path);
+            exit_code = parser.syntax_error_status;
+            shellRuntimeSetLastStatus(exit_code);
+        }
+        shellParserFree(&parser);
+    }
     {
         char log_buf[256];
         snprintf(log_buf, sizeof(log_buf),
@@ -948,6 +975,11 @@ int shellRunSource(const char *source,
         vm_stack_dumped = true;
     }
 cleanup:
+    if (syntax_error_later) {
+        shellReportSyntaxError(&parser, path);
+        exit_code = parser.syntax_error_status;
+        shellParserFree(&parser);
+    }
     if (should_run_exit_trap) {
         /* What the script's last command was sent. */
         shellRuntimeProcessPendingSignals();
