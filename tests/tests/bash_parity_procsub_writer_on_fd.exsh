@@ -1,0 +1,15 @@
+#!/usr/bin/env exsh
+# >(cmd) on a descriptor of the script's own, for as long as the script keeps it. Hosts only: on iOS
+# a file stands in, and the command reads it when the exec is done.
+d="${TMPDIR:-/tmp}/exsh_parity_procsub_writer.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+appears() { i=0; while [ ! -s "$1" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done; }
+
+exec 3> >(cat > a); echo hi >&3; exec 3>&-; appears a; cat a
+exec 4>&1; exec > >(sed s/^/p:/ > b); echo hello; exec 1>&4 4>&-; appears b; cat b
+exec 4>&2; exec 2> >(sed s/^/e:/ > c); echo oops >&2; exec 2>&4 4>&-; appears c; cat c
+( exec >&-; cat <(echo x) ) 2>/dev/null; echo "closed stdout rc=$?"
+
+cd /
+rm -rf "$d"

@@ -45,6 +45,38 @@ static int advanceChar(ShellLexer *lexer) {
     return c;
 }
 
+/* {name}> f or {name[i]}> f: the word has to touch the operator, and `{fd}<(cmd)` is a word as
+ * `a<(cmd)` is. Gives the length of the word, or 0. */
+static size_t redirectionVariableLength(const ShellLexer *lexer) {
+    const char *text = lexer->src + lexer->pos;
+    size_t left = lexer->length - lexer->pos;
+    size_t i = 1;
+    if (left < 4 || text[0] != '{' || !(isalpha((unsigned char)text[1]) || text[1] == '_')) {
+        return 0;
+    }
+    while (i < left && (isalnum((unsigned char)text[i]) || text[i] == '_')) {
+        i++;
+    }
+    if (i < left && text[i] == '[') {
+        size_t close = i + 1;
+        /* The runtime gets this text in a list of its own, between `;` and `=`. */
+        while (close < left && text[close] != ']' && !strchr(" \t\n;=&|<>(){}\"'`\\", text[close])) {
+            close++;
+        }
+        if (close >= left || text[close] != ']' || close == i + 1) {
+            return 0;
+        }
+        i = close + 1;
+    }
+    if (i + 1 >= left || text[i] != '}' || (text[i + 1] != '<' && text[i + 1] != '>')) {
+        return 0;
+    }
+    if (i + 2 < left && text[i + 2] == '(') {
+        return 0;
+    }
+    return i + 1;
+}
+
 static void skipCommentToNewline(ShellLexer *lexer) {
     if (!lexer) {
         return;
@@ -927,6 +959,17 @@ ShellToken shellNextToken(ShellLexer *lexer) {
     int c = peekChar(lexer);
     if (c == EOF) {
         return makeEOFToken(lexer);
+    }
+
+    if (c == '{') {
+        size_t variable_length = redirectionVariableLength(lexer);
+        if (variable_length > 0) {
+            size_t start = lexer->pos;
+            for (size_t i = 0; i < variable_length; ++i) {
+                advanceChar(lexer);
+            }
+            return makeTokenFromRange(lexer, SHELL_TOKEN_IO_NUMBER, start, lexer->pos, false, false, false, false);
+        }
     }
 
     bool command_starts = (lexer->rule_mask & SHELL_LEXER_RULE_1) != 0;

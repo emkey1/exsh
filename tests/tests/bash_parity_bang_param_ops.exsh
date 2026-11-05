@@ -1,0 +1,35 @@
+#!/usr/bin/env exsh
+# An operator right after the ! is $! with that operator. No job has started yet.
+echo "${!:-x}"
+echo "${!-x}"
+echo "[${!:+y}]"
+echo "[${!+y}]"
+echo "${!:-one two}"
+echo ${!:-one   two}
+echo "[${!}]"
+echo "[${#!}]"
+( echo "${!:?gone}"; echo not-reached ) 2>/dev/null; echo "colon question rc=$?"
+( echo "${!:=x}"; echo not-reached ) 2>/dev/null; echo "colon assign rc=$?"
+( echo "${!=x}"; echo not-reached ) 2>/dev/null; echo "assign rc=$?"
+( set -u; echo "$!"; echo not-reached ) 2>/dev/null; echo "nounset rc=$?"
+( set -u; echo "${!}"; echo not-reached ) 2>/dev/null; echo "nounset in braces rc=$?"
+( echo "${!!}"; echo not-reached ) 2>/dev/null; echo "bang rc=$?"
+( echo "${!$}"; echo not-reached ) 2>/dev/null; echo "dollar rc=$?"
+# And now one has.
+sleep 0 & wait
+[ "${!:-x}" = "$!" ] && echo default
+[ "${!-x}" = "$!" ] && echo default
+echo "[${!:+y}]" "[${!+y}]"
+[ "${!}" = "$!" ] && echo braces
+p=$!; [ "${!:0:1}" = "${p:0:1}" ] && echo slice
+[ "${!%?}" != "$!" ] && echo stripped
+[ "${!/?/x}" != "$!" ] && echo replaced
+[ "${#!}" -gt 0 ] && echo length
+( set -u; [ -n "$!" ] && echo "nounset is happy" )
+# What it still means before a name.
+a=b; b=c; echo "${!a}"
+ab1=1; ab2=2; echo "${!ab*}" "${!ab@}"
+arr=(x y); echo "${!arr[@]}"
+set -- p q; echo "${!#}"
+n=2; echo "${!n}"
+a=b; b=; echo "${!a:-d}"; b=v; echo "${!a:+y}"

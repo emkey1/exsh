@@ -1,0 +1,10 @@
+#!/usr/bin/env exsh
+# A redirection on a closed descriptor leaves it closed afterwards. On iOS it came back as the host's.
+( exec >&-; { :; } > /dev/null; echo leak ) 2>/dev/null; echo "group rc=$?"
+( exec >&-; : <(echo a); echo leak ) 2>/dev/null; echo "process substitution rc=$?"
+( exec >&-; eval ': > /dev/null'; echo leak ) 2>/dev/null; echo "eval rc=$?"
+( exec >&-; for i in 1; do :; done > /dev/null; echo leak ) 2>/dev/null; echo "loop rc=$?"
+( exec >&-; f() { :; }; f > /dev/null; echo leak ) 2>/dev/null; echo "function rc=$?"
+( exec >&-; : > /dev/null; echo leak ) 2>/dev/null; echo "builtin rc=$?"
+( exec 2>&-; { :; } 2> /dev/null; ( echo leak >&2 ); echo "stderr rc=$?" )
+( exec <&-; { :; } < /dev/null; read l 2>/dev/null; echo "stdin rc=$?" )

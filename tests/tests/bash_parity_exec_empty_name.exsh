@@ -1,0 +1,18 @@
+#!/usr/bin/env exsh
+# An empty name is a program that cannot be found: 127, and the script ends, as with any other.
+( exec ""; echo not-reached ) 2>/dev/null; echo "empty rc=$?"
+( exec "" a b; echo not-reached ) 2>/dev/null; echo "with arguments rc=$?"
+( exec -- ""; echo not-reached ) 2>/dev/null; echo "after -- rc=$?"
+( exec -a name ""; echo not-reached ) 2>/dev/null; echo "with a name rc=$?"
+( e=""; exec "$e"; echo not-reached ) 2>/dev/null; echo "from a variable rc=$?"
+( f() { exec ""; echo not-reached; }; f; echo not-reached ) 2>/dev/null; echo "in a function rc=$?"
+( command exec ""; echo not-reached ) 2>/dev/null; echo "under command rc=$?"
+( builtin exec ""; echo not-reached ) 2>/dev/null; echo "under builtin rc=$?"
+x=$(exec "" 2>/dev/null; echo not-reached); echo "in a substitution [$x] rc=$?"
+( exec "" 2>/dev/null; echo not-reached ); echo "its own redirection rc=$?"
+( shopt -s execfail; exec ""; echo "execfail goes on $?" ) 2>/dev/null; echo "execfail rc=$?"
+shopt -s execfail; exec "" 2>/dev/null; echo "execfail at the top $?"; shopt -u execfail
+# No word at all is only redirections.
+e=""; exec $e; echo "no word rc=$?"
+exec "" 2>/dev/null
+echo not-reached

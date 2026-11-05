@@ -1,0 +1,17 @@
+#!/usr/bin/env exsh
+# <(cmd) on a low descriptor: what the word named goes when the command is done, and the script's stays.
+exec 3< <(echo x); read l <&3; echo "[$l]"; exec 3<&-
+exec 3< <(printf 'a\nb\n'); read l <&3; read m <&3; echo "[$l][$m]"; exec 3<&-
+exec 3< <(echo a) 5< <(echo b); read l <&3; read m <&5; echo "[$l][$m]"; exec 3<&- 5<&-
+exec 3< <(echo later); echo first; x=$(cat <&3); echo "[$x]"; exec 3<&-
+exec 3< <(echo option); read -u 3 l; echo "[$l]"; exec 3<&-
+{ read l <&3; echo "[$l]"; } 3< <(echo group)
+f() { read l; echo "[$l]"; }; f < <(echo function)
+f() { exec 3< <(echo stays); }; f; read l <&3; echo "[$l]"; exec 3<&-
+eval 'exec 3< <(echo eval)'; read l <&3; echo "[$l]"; exec 3<&-
+for i in 1 2 3; do exec 3< <(echo "$i"); read l <&3; echo "[$l]"; exec 3<&-; done
+exec 9< <(echo nine); read l <&9; echo "[$l]"; exec 9<&-
+exec 3< /dev/null 4< /dev/null 5< /dev/null; exec 6< <(echo past); read l <&6; echo "[$l]"; exec 3<&- 4<&- 5<&- 6<&-
+x=$(exec 3< <(echo substitution); read l <&3; echo "$l"); echo "[$x]"
+( exec < <(echo stdin); read l; echo "[$l]" )
+( exec <&-; cat <(echo closed); echo "rc=$?" )

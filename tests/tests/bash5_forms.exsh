@@ -65,3 +65,105 @@ echo "too many $?"
 (trap 'echo r1' RETURN; f() { trap 'echo r2' RETURN; }; f; . /dev/null; echo "a function's own stays")
 time -- echo dashes 2>/dev/null
 printf '%S|%C|\n' abc def
+# {name}> f: the shell picks a descriptor from 10 up, and it stays until the script closes it.
+d="${TMPDIR:-/tmp}/exsh_fdvar.$$"; rm -rf "$d"; mkdir -p "$d"; cd "$d"
+exec {fd}> /dev/null; echo "ok ${fd:+set}"; [ "$fd" -ge 10 ] && echo high; exec {fd}>&-
+exec {fd}> f; echo hi >&$fd; exec {fd}>&-; cat f
+echo a > f; exec {fd}< f; read l <&$fd; echo "[$l]"; exec {fd}<&-
+exec {a}> /dev/null {b}> /dev/null; [ "$a" != "$b" ] && echo differ; exec {a}>&- {b}>&-
+exec {a}> /dev/null; exec {a}>&-; exec {b}> /dev/null; [ "$a" = "$b" ] && echo reused; exec {b}>&-
+echo a > f; exec {fd}>> f; echo b >&$fd; exec {fd}>&-; cat f
+echo a > f; exec {fd}<> f; read l <&$fd; echo "[$l]"; exec {fd}>&-
+exec {fd}>&1; echo viadup >&$fd; exec {fd}>&-
+echo a > f; exec 3< f; exec {fd}<&3; read l <&$fd; echo "[$l]"; exec {fd}<&- 3<&-
+exec {fd}<<'END'
+line
+END
+read l <&$fd; echo "[$l]"; exec {fd}<&-
+exec {fd}<<< text; read l <&$fd; echo "[$l]"; exec {fd}<&-
+(set -C; exec {fd}>| f; echo b >&$fd; exec {fd}>&-; cat f)
+declare -a arr; exec {arr[2]}> /dev/null; echo "ok ${arr[2]:+set} ${!arr[@]}"; exec {arr[2]}>&-
+declare -A kv; exec {kv[k]}> /dev/null; [ -n "${kv[k]}" ] && echo keyed; exec {kv[k]}>&-
+i=1; ix=(); exec {ix[i+1]}> /dev/null; echo "${!ix[@]}"; exec {ix[i+1]}>&-
+exec {fd}< <(echo procsub); read l <&$fd; echo "[$l]"; exec {fd}<&-
+X=1 exec {fd}> /dev/null; echo "prefix ${fd:+set} [${X:-}]"; exec {fd}>&-
+# What only looks like one.
+(exec {1}> /dev/null; echo no) 2>/dev/null; echo "digit $?"
+(exec {a-b}> /dev/null; echo no) 2>/dev/null; echo "not a name $?"
+(exec {}> /dev/null; echo no) 2>/dev/null; echo "empty $?"
+(exec {a*}> /dev/null; echo no) 2>/dev/null; echo "star $?"
+({fd} > /dev/null; echo "space $?") 2>/dev/null
+("{fd}"> /dev/null; echo "quoted $?") 2>/dev/null
+echo a{fd}> f; cat f
+eval 'echo a > {fd}> f' 2>/dev/null || echo "not a target"
+# What fails.
+(readonly fd=1; exec {fd}> /dev/null; echo "readonly $? $fd") 2>/dev/null
+(unset fd; exec {fd}>&-; echo "unset $?") 2>/dev/null
+(fd=-3; exec {fd}>&-; echo "negative $?") 2>/dev/null
+(fd=77; exec {fd}>&-; echo "not open $?") 2>/dev/null
+(unset fd; exec {fd}< missing.in; echo "no file $? [${fd:-none}]") 2>/dev/null
+(unset fd; exec {fd}>&7; echo "closed source $? [${fd:-none}]") 2>/dev/null
+(unset fd; echo x {fd}< missing.in; echo "on a builtin $? [${fd:-none}]") 2>/dev/null
+# On any command that stays in the shell.
+unset fd; echo line > f; read l {fd}< f; echo "[$l] ${fd:+set}"; read m <&$fd; echo "[$m]"; exec {fd}<&-
+unset fd; echo x {fd}> f; echo y >&$fd; exec {fd}>&-; cat f
+unset fd; { echo in; } {fd}> f; echo out >&$fd; exec {fd}>&-; cat f
+unset fd; fn() { :; }; fn {fd}> f; echo y >&$fd; exec {fd}>&-; cat f
+unset fd; while :; do break; done {fd}> f; echo y >&$fd; exec {fd}>&-; cat f
+unset fd; command true {fd}> /dev/null; echo "command ${fd:+set}"; exec {fd}>&-
+unset fd; A=1 true {fd}> /dev/null; echo "prefix ${fd:+set}"; exec {fd}>&-
+# dash on Linux cannot name a descriptor above 9, and iOS has no /dev/fd.
+(exec {fd}> f; if [ -e /dev/fd/0 ]; then sh -c "cat > /dev/fd/$fd" <<< child; else sh -c "echo child >&$fd"; fi; exec {fd}>&-; cat f)
+(exec {fd}> f; true {fd}>&-; echo back >&$fd; exec {fd}>&-; cat f)
+(exec {fd}> f; ls . >&$fd; exec {fd}>&-; [ -s f ] && echo wrote)
+(exec {fd}>&2; exec {fd}>&-; echo closed >&$fd; echo "closed $?") 2>/dev/null
+(exec 10>&2; exec 10>&-; echo closed >&10; echo "ten closed $?") 2>/dev/null
+eval 'exec {fd}> f'; echo in >&$fd; eval 'exec {fd}>&-'; cat f; unset fd
+echo 'exec {fd}> f' > s; . ./s; echo in >&$fd; exec {fd}>&-; cat f; unset fd
+for n in 1 2 3; do exec {fd}> "g$n"; echo "$n" >&$fd; exec {fd}>&-; done; cat g1 g2 g3; unset fd
+(exec {fd}> f; for n in 1 2; do echo "$n" >&$fd; done; exec {fd}>&-; cat f)
+echo a > f; (exec {fd}< f; while read l <&$fd; do echo "[$l]"; done; exec {fd}<&-)
+# With no command it makes the file and leaves nothing.
+(unset fd; {fd}> made; [ -e made ] && echo made; echo "[${fd:-none}]")
+(exec {fd}> f; {fd}>&-; echo open >&$fd; echo "still open $?"; exec {fd}>&-; cat f)
+# What is a process of its own under bash keeps it there.
+unset fd; x=$(exec {fd}> /dev/null; echo "${fd:+set}"); echo "[$x] [${fd:-none}]"
+( exec {fd}> /dev/null; echo "${fd:+set}" ); echo "[${fd:-none}]"
+f2() { local fd; exec {fd}> /dev/null; echo "${fd:+set}"; exec {fd}>&-; }; f2; echo "[${fd:-none}]"
+f2() { exec {fd}> /dev/null; }; f2; echo "${fd:+set}"; exec {fd}>&-; unset fd
+exec {fd}> /dev/null | cat; echo "[${fd:-none}]"
+true {fd}> /dev/null & wait; echo "[${fd:-none}]"
+true | echo x {fd}> /dev/null; echo "[${fd:-none}]"
+( echo a > f; cat {fd}< f > /dev/null; echo "[${fd:-none}]" )
+{ echo a >&$fd; } {fd}> g | cat; echo "[${fd:-none}]"; cat g
+true | { echo b >&$fd; } {fd}> g; echo "[${fd:-none}]"; cat g
+{ echo c >&$fd; } {fd}> g & wait; echo "[${fd:-none}]"; cat g
+x=$(exec {fd}> /dev/null; echo "$fd"); ( : >&$x ) 2>/dev/null; echo "gone with it $?"
+x=$(echo y {fd}> g; echo z >&$fd; echo "$fd"); ( : >&$x ) 2>/dev/null; echo "gone with it $?"; cat g
+x=$({ echo y; } {fd}> g; echo w >&$fd; echo "$fd"); ( : >&$x ) 2>/dev/null; echo "gone with it $?"; cat g
+x=$(exec {fd}> g; echo v >&$fd; exec {fd}>&-; echo "$fd"); ( : >&$x ) 2>/dev/null; echo "closed in it $?"; cat g
+x=$(y=$(exec {fd}> g; echo "$fd"); ( : >&$y ) 2>/dev/null; echo "nested $?"); echo "[$x]"
+(exec {fd}> g true; echo no); echo "replaced $?"
+cd /; rm -rf "$d"
+# wait -n in a substitution: what the shell started is no child of its own. Bash finds it has no
+# child, calls them all ended and gives 0 for each, at once.
+( sleep 0.3 & x=$(wait -n; echo "rc $?"); echo "[$x]" )
+( sleep 0.3 & x=$(wait -n; echo "rc $?"; wait -n; echo "rc $?"); echo "[$x]" )
+( sleep 0.3 & sleep 0.3 & x=$(wait -n; echo "rc $?"; wait -n; echo "rc $?"; wait -n; echo "rc $?"); echo "[$x]" )
+( sleep 0.5 & x=$(( exit 4 ) & wait -n; echo "rc $?"; wait -n; echo "rc $?"; wait -n; echo "rc $?"); echo "[$x]" )
+( ( exit 3 ) & sleep 0.2; x=$(wait -n; echo "rc $?"); echo "[$x]"; wait -n; echo "after $?" )
+( ( sleep 0.2; exit 6 ) & x=$(wait -n; echo "rc $?"); echo "[$x]"; wait -n; echo "after $?" )
+( sleep 0.3 & x=$(y=$(wait -n; echo "in $?"); echo "$y"; wait -n; echo "out $?"); echo "[$x]" )
+( sleep 0.3 & x=$(wait -n; jobs > /dev/null; jobs; echo "listed"); echo "[$x]" )
+( sleep 5 & p=$!; x=$(wait -n; echo "rc $?"); echo "[$x]"; kill $p; wait $p; echo "still its own $?" ) 2>/dev/null
+( sleep 5 & x=$(wait -n; kill %1 2>/dev/null; echo "kill $?"); echo "[$x]"; kill %1; wait; echo "done" ) 2>/dev/null
+( sleep 0.2 & x=$(wait -n; wait; echo "rc $?"); echo "[$x]" )
+( sleep 0.2 & x=$(eval 'wait -n; echo "rc $?"'); echo "[$x]" )
+( fw() { wait -n; echo "rc $?"; }; sleep 0.2 & x=$(fw); echo "[$x]" )
+( sleep 0.2 & x=$({ wait -n; echo "rc $?"; } 2>&1); echo "[$x]" )
+( sleep 0.2 | sleep 0.2 & x=$(wait -n; echo "rc $?"; wait -n; echo "rc $?"); echo "[$x]" )
+( sleep 0.2 & disown; x=$(wait -n; echo "rc $?"); echo "disowned [$x]" )
+( x=$(wait -n; echo "rc $?"); echo "none [$x]" )
+sleep 0.2 & ( wait -n; echo "a subshell has none $?" ); wait
+sleep 0.2 & ( x=$(wait -n; echo "rc $?"); echo "nor one inside it [$x]" ); wait
+sleep 0.2 & x=$(echo a | { wait -n; echo "rc $?"; }); echo "nor a stage [$x]"; wait

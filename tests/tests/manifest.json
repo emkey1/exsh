@@ -1792,7 +1792,7 @@
             "description": "Case modification, negative subscripts, zero-padded ranges, ;& and ;;&, [[ -v ]], declare -A, declare -l and -u, ${x@Q}.",
             "script": "Tests/exsh/tests/bash5_forms.exsh",
             "expect": "runtime_ok",
-            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9\n3\n127\n4\n127\n3\nv w\none\ntwo\n3\ndeclare -i n=\"3\"\ndeclare -- v=\"1\"\ndeclare -x pe\ndeclare -- gv=\"l\"\ndeclare -- gv=\"g\"\ndeclare -- lv\ndeclare -- lv\ndeclare -x lx=\"1\"\ndeclare -- a=\"1\"\ndeclare -- b=\"x y\"\n[unset] [e] [0]\ndeclare -- v\nrc=0\n1\ndeclare -- sa=\"1\"\n0\nv\n[in 3]\nout 3\n[in 0]\nout 0\nreturn word 2\nreturn outside 2\neval return outside 2\nbreak word 2\ntoo many 2\nbare return in ERR 5\nx\nbare return after a command 6\nnumber in ERR 8\narithmetic in ERR 2\nnested with -E 7\nr2\nr2\na function's own stays\ndashes\nabc|d|"
+            "expected_stdout": "Abc ABC\naBC abc\nABc\nAB CD\nbcde\nz y\n01 02 03\n1\n2\n1\n2\n2\n3\nset\nunset\nv x y 2\n12\n9 9\nabc\nABC\n'it'\\''s'\n1 3 5 7 9 10 7 4 1\ny\n2\n2 0 1\nstatus 1\n0\nstatus 1\ny\nz\nw\nv\nu\na.c b.c\nb.c\na.c a.h\nyes\nversioned\n5\n3\n127\n4\n4\n127\n6\n7\n9\n3\n127\n4\n127\n3\nv w\none\ntwo\n3\ndeclare -i n=\"3\"\ndeclare -- v=\"1\"\ndeclare -x pe\ndeclare -- gv=\"l\"\ndeclare -- gv=\"g\"\ndeclare -- lv\ndeclare -- lv\ndeclare -x lx=\"1\"\ndeclare -- a=\"1\"\ndeclare -- b=\"x y\"\n[unset] [e] [0]\ndeclare -- v\nrc=0\n1\ndeclare -- sa=\"1\"\n0\nv\n[in 3]\nout 3\n[in 0]\nout 0\nreturn word 2\nreturn outside 2\neval return outside 2\nbreak word 2\ntoo many 2\nbare return in ERR 5\nx\nbare return after a command 6\nnumber in ERR 8\narithmetic in ERR 2\nnested with -E 7\nr2\nr2\na function's own stays\ndashes\nabc|d|\nok set\nhigh\nhi\n[a]\ndiffer\nreused\na\nb\n[a]\nviadup\n[a]\n[line]\n[text]\nb\nok set 2\nkeyed\n2\n[procsub]\nprefix set []\ndigit 127\nnot a name 127\nempty 127\nstar 127\nspace 127\nquoted 127\na{fd}\nnot a target\nreadonly 1 1\nunset 1\nnegative 1\nnot open 0\nno file 1 [none]\nclosed source 1 [none]\non a builtin 1 [none]\n[] set\n[line]\nx\ny\nin\nout\ny\ny\ncommand set\nprefix set\nchild\nback\nwrote\nclosed 1\nten closed 1\nin\nin\n1\n2\n3\n1\n2\n[a]\nmade\n[none]\nstill open 0\nopen\n[set] [none]\nset\n[none]\nset\n[none]\nset\n[none]\n[none]\nx\n[none]\n[none]\n[none]\na\n[none]\nb\n[none]\nc\ngone with it 1\ngone with it 1\nz\ngone with it 1\nw\nclosed in it 1\nv\n[nested 1]\nreplaced 0\n[rc 0]\n[rc 0\nrc 127]\n[rc 0\nrc 0\nrc 127]\n[rc 4\nrc 0\nrc 127]\n[rc 3]\nafter 3\n[rc 0]\nafter 6\n[in 0\nout 0]\n[listed]\n[rc 0]\nstill its own 143\n[kill 1]\ndone\n[rc 0]\n[rc 0]\n[rc 0]\n[rc 0]\n[rc 0\nrc 127]\ndisowned [rc 127]\nnone [rc 127]\na subshell has none 127\nnor one inside it [rc 127]\nnor a stage [rc 127]"
         },
         {
             "id": "bash_parity_condition_list",
@@ -2133,6 +2133,46 @@
             "category": "parity",
             "description": "eval and source share a VM from call to call. After a failure, a break, a return, an exit in a subshell, a syntax error, deep recursion or a trap, the next one still runs as new, and one inside another still works.",
             "script": "Tests/exsh/tests/bash_parity_eval_after_eval.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_exec_empty_name",
+            "name": "exec of an empty name",
+            "category": "parity",
+            "description": "Not found and status 127, the script ends, in a subshell or substitution too, and what execfail changes.",
+            "script": "Tests/exsh/tests/bash_parity_exec_empty_name.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_procsub_on_fd",
+            "name": "<(cmd) on a descriptor the script names",
+            "category": "parity",
+            "description": "exec 3< <(cmd) and the like: descriptor 3 stays when the command that named the word is done.",
+            "script": "Tests/exsh/tests/bash_parity_procsub_on_fd.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_procsub_writer_on_fd",
+            "name": ">(cmd) on a descriptor the script names",
+            "category": "parity",
+            "description": "Hosts only: exec 3> >(cmd), stdout and stderr, for as long as the script keeps them.",
+            "script": "Tests/exsh/tests/bash_parity_procsub_writer_on_fd.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_bang_param_ops",
+            "name": "${!...} with an operator",
+            "category": "parity",
+            "description": "An operator after the ! is $! with that operator, $! under set -u, and what ! still means before a name.",
+            "script": "Tests/exsh/tests/bash_parity_bang_param_ops.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_stdout_stays_closed",
+            "name": "A redirection on a closed descriptor leaves it closed",
+            "category": "parity",
+            "description": "After a group, loop, function, builtin or process substitution redirects stdout, stderr or stdin that were closed, they are closed again.",
+            "script": "Tests/exsh/tests/bash_parity_stdout_stays_closed.exsh",
             "expect": "match_bash"
         }
     ]
