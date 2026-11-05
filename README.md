@@ -24,6 +24,11 @@ cmake --build build -j
 The binary lands at `build/exsh`. Run it interactively with no arguments, pass
 a script path to run it, or use `-c 'command'` to run an inline command.
 
+A plain configure gives `RelWithDebInfo` (`-O2 -g`). Pass
+`-DCMAKE_BUILD_TYPE=Debug` for a debugger or a sanitizer, or `Release` for `-O3`
+with no debug info. A build directory keeps the type it was first configured
+with.
+
 ## Install
 
 ```sh
