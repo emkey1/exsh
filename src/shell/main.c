@@ -4468,6 +4468,8 @@ static int runInteractiveSession(const ShellRunOptions *options) {
 #if defined(PSCAL_TARGET_IOS)
 int exsh_main(int argc, char **argv);
 extern void smallclueAppSetCommandRunner(int (*runner)(int argc, char **argv));
+extern void smallclueUtmpTerminalOpened(uint64_t session, pid_t pid);
+extern void smallclueUtmpTerminalClosed(uint64_t session);
 
 /* What smallclue runs when a program started from an applet is a frontend or a script. Its
  * thread may have no context of its own, and a new thread's default is one that other shells
@@ -4597,6 +4599,12 @@ int exsh_main(int argc, char **argv) {
     setvbuf(stderr, NULL, _IONBF, 0);
     if (!nested) {
         shellSetupSelfVproc();
+        /* A tab's login, now that its shell has a pid and before its startup
+         * file can ask who is on. */
+        VProcSessionStdio *terminal = vprocSessionStdioCurrent();
+        if (terminal && terminal->session_id != 0) {
+            smallclueUtmpTerminalOpened(terminal->session_id, vprocGetShellSelfPid());
+        }
     }
 #endif
 
@@ -4979,6 +4987,10 @@ static int shellRunSessionArgv(int argc, char **argv) {
     return exsh_main(argc, argv);
 }
 
+static void shellSessionTerminalClosed(void *arg) {
+    smallclueUtmpTerminalClosed(((ShellSessionContext *)arg)->session_id);
+}
+
 static void *shellRunSessionThread(void *arg) {
     ShellSessionContext *ctx = (ShellSessionContext *)arg;
     if (!ctx) {
@@ -5058,6 +5070,9 @@ static void *shellRunSessionThread(void *arg) {
         session_ctx = shellRuntimeCreateContext();
         session_ctx_owned = (session_ctx != NULL);
     }
+    /* In a handler, since exit() on this thread is pthread_exit in the app, and a
+     * shell that ended that way is still a terminal that ended. */
+    pthread_cleanup_push(shellSessionTerminalClosed, ctx);
     if (session_ctx) {
         ShellRuntimeState *prev_ctx = shellRuntimeActivateContext(session_ctx);
         shellRuntimeInitSignals();
@@ -5067,6 +5082,7 @@ static void *shellRunSessionThread(void *arg) {
             shellRuntimeDestroyContext(session_ctx);
         }
     }
+    pthread_cleanup_pop(1);
 
     if (PSCALRuntimeSetCurrentRuntimeStdio) {
         PSCALRuntimeSetCurrentRuntimeStdio(NULL);
