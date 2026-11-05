@@ -9,10 +9,13 @@ import os
 import pty
 import re
 import selectors
+import shutil
 import signal
+import struct
 import subprocess
 import termios
 import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -75,6 +78,7 @@ class PtyShell:
         self.proc: Optional[subprocess.Popen[bytes]] = None
         self.selector: Optional[selectors.BaseSelector] = None
         self.output = ""
+        self.raw = bytearray()
         self._spawn()
 
     def _spawn(self) -> None:
@@ -150,14 +154,15 @@ class PtyShell:
         if self.selector is None or self.master_fd is None:
             return
         end = time.monotonic() + duration
-        while time.monotonic() < end:
-            events = self.selector.select(timeout=0.05)
+        while (left := end - time.monotonic()) > 0:
+            events = self.selector.select(timeout=min(0.05, left))
             for key, _ in events:
                 try:
                     chunk = os.read(key.fd, 8192)
                 except OSError:
                     chunk = b""
                 if chunk:
+                    self.raw += chunk
                     self.output += self._normalise(chunk)
 
     def wait_for_substring(self, needle: str, timeout: Optional[float] = None) -> bool:
@@ -177,6 +182,11 @@ class PtyShell:
 
     def send_line(self, line: str) -> None:
         self.send(line.encode("utf-8") + b"\n")
+
+    def set_size(self, cols: int, rows: int) -> None:
+        if self.master_fd is None:
+            raise RuntimeError("PTY closed")
+        fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
     def wait_for_path(self, path: Path, timeout: Optional[float] = None) -> bool:
         if timeout is None:
@@ -248,6 +258,427 @@ def _latest_pid_for_command(text: str, command_substring: str) -> Optional[int]:
         if match:
             latest = int(match.group(1))
     return latest
+
+
+class TerminalScreen:
+    """What a terminal shows for the bytes it is sent, enough of one to check the line editor.
+
+    As on a real terminal, the cursor stays on the last column of a full row until the next glyph
+    arrives, and a two-cell glyph that doesn't fit goes to the next row whole. Rows scrolled off the
+    top are kept, so a row the editor overwrites or a line it draws twice can't hide up there."""
+
+    def __init__(self, cols: int, rows: int):
+        self.cols = cols
+        self.rows = rows
+        self.scrolled: list[list[str]] = []
+        self.grid = [[" "] * cols for _ in range(rows)]
+        self.row = 0
+        self.col = 0
+        self.at_margin = False
+
+    def _next_row(self) -> None:
+        if self.row == self.rows - 1:
+            self.scrolled.append(self.grid.pop(0))
+            self.grid.append([" "] * self.cols)
+        else:
+            self.row += 1
+
+    @staticmethod
+    def _cells(ch: str) -> int:
+        if unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+            return 0
+        return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+    def _put(self, ch: str) -> None:
+        cells = self._cells(ch)
+        if cells == 0:
+            return
+        if self.at_margin or self.col + cells > self.cols:
+            self.col = 0
+            self.at_margin = False
+            self._next_row()
+        self.grid[self.row][self.col] = ch
+        if cells == 2:
+            self.grid[self.row][self.col + 1] = ""
+        self.col += cells
+        if self.col >= self.cols:
+            self.col = self.cols - 1
+            self.at_margin = True
+
+    def _csi(self, params: str, final: str) -> None:
+        count = int(params) if params.isdigit() else 0
+        if final == "A":
+            self.row = max(0, self.row - max(count, 1))
+        elif final == "B":
+            self.row = min(self.rows - 1, self.row + max(count, 1))
+        elif final == "C":
+            self.col = min(self.cols - 1, self.col + max(count, 1))
+        elif final == "D":
+            self.col = max(0, self.col - max(count, 1))
+        elif final == "J":
+            self.grid[self.row][self.col:] = [" "] * (self.cols - self.col)
+            for row in range(self.row + 1, self.rows):
+                self.grid[row] = [" "] * self.cols
+        elif final == "K":
+            self.grid[self.row][self.col:] = [" "] * (self.cols - self.col)
+        elif final != "m":
+            raise ValueError(f"the screen model has no CSI {params}{final}")
+        if final in "ABCD":
+            self.at_margin = False
+
+    def feed(self, data: bytes) -> None:
+        text = data.decode("utf-8", errors="replace")
+        pos = 0
+        while pos < len(text):
+            ch = text[pos]
+            if ch == "\x1b":
+                match = ANSI_CSI_RE.match(text, pos)
+                if match:
+                    seq = match.group(0)
+                    self._csi(seq[2:-1], seq[-1])
+                    pos = match.end()
+                    continue
+                pos += 2
+                continue
+            if ch == "\r":
+                self.col = 0
+                self.at_margin = False
+            elif ch == "\n":
+                self.at_margin = False
+                self._next_row()
+            elif ch >= " " and ch != "\x7f":
+                self._put(ch)
+            pos += 1
+
+    def lines(self) -> list[str]:
+        rows = ["".join(row).rstrip() for row in self.scrolled + self.grid]
+        while rows and not rows[-1]:
+            rows.pop()
+        return rows
+
+    def cursor(self) -> tuple[int, int]:
+        return len(self.scrolled) + self.row, self.col
+
+    def cursor_for_more_text(self) -> tuple[int, int]:
+        """Where the cursor belongs after what it was fed: past a full row, on the next one."""
+        row, col = self.cursor()
+        return (row + 1, 0) if self.at_margin else (row, col)
+
+
+WRAP_SCREEN_ROWS = 60
+WRAP_WIDTHS = (20, 21, 23, 30, 40, 64, 79, 80, 81, 120, 132)
+WRAP_ABOVE = "ROW-ABOVE"
+
+
+def _wrap_filler(length: int) -> str:
+    return "".join(str(i % 10) if i % 7 else " " for i in range(1, length + 1))
+
+
+def _printed_once(cols: int, text: str) -> TerminalScreen:
+    screen = TerminalScreen(cols, WRAP_SCREEN_ROWS)
+    screen.feed(text.encode("utf-8"))
+    return screen
+
+
+def _fresh_prompt(shell: PtyShell, cols: int, shown_prompt: str, rows: int = WRAP_SCREEN_ROWS) -> int:
+    """Asks for a new prompt on a terminal this wide, and waits for it. What draws it starts at the
+    returned mark."""
+    shell.set_size(cols, rows)
+    start = len(shell.raw)
+    shell.send(b"\x05\x15\n")
+    last_row = shown_prompt.split("\r\n")[-1]
+    end = time.monotonic() + max(shell.timeout, 10.0)
+    mark = start
+    while time.monotonic() < end:
+        shell._pump(0.01)
+        newline = shell.raw.find(b"\n", start)
+        mark = max(start, shell.raw.rfind(b"\r\x1b[J"))
+        if 0 <= newline < mark and shell._normalise(bytes(shell.raw[mark:])).endswith(last_row):
+            break
+    return mark
+
+
+def _type_text(shell: PtyShell, text: str) -> None:
+    data = text.encode("utf-8")
+    for start in range(0, len(data), 256):
+        shell.send(data[start:start + 256])
+        shell._pump(0.01)
+
+
+def _screen_shows(
+    shell: PtyShell,
+    mark: int,
+    cols: int,
+    want_lines: list[str],
+    want_cursor: tuple[int, int],
+    rows: int = WRAP_SCREEN_ROWS,
+) -> Optional[str]:
+    """Waits for the terminal to show this. Returns what it shows instead if it never does."""
+    end = time.monotonic() + max(shell.timeout, 10.0)
+    seen = -1
+    while True:
+        shell._pump(0.03)
+        if len(shell.raw) != seen:
+            seen = len(shell.raw)
+            screen = TerminalScreen(cols, rows)
+            screen.feed(f"{WRAP_ABOVE}\r\n".encode("utf-8") + bytes(shell.raw[mark:]))
+            got_lines, got_cursor = screen.lines(), screen.cursor()
+            if got_lines == want_lines and got_cursor == want_cursor:
+                return None
+        if time.monotonic() >= end:
+            shown = "\n".join(f"        |{line}|" for line in got_lines)
+            wanted = "\n".join(f"        |{line}|" for line in want_lines)
+            return f"at {cols} columns the cursor is at {got_cursor}, not {want_cursor}, and the screen shows\n{shown}\n    not\n{wanted}"
+
+
+def _wants_line(cols: int, shown_prompt: str, text: str, cursor: Optional[int] = None) -> tuple[list[str], tuple[int, int]]:
+    """The screen for a prompt and a line printed once, under the row above, with the cursor at
+    that many characters of the line, or at its end."""
+    lines = [WRAP_ABOVE] + _printed_once(cols, shown_prompt + text).lines()
+    upto = len(text) if cursor is None else cursor
+    row, col = _printed_once(cols, shown_prompt + text[:upto]).cursor_for_more_text()
+    if upto < len(text) and col + TerminalScreen._cells(text[upto]) > cols:
+        row, col = row + 1, 0
+    return lines, (row + 1, col)
+
+
+def _start_wrap_scenario(shell: PtyShell, shown_prompt: str) -> tuple[bool, str]:
+    if shell.wait_for_substring(shown_prompt.split("\r\n")[-1], timeout=max(shell.timeout, 10.0)):
+        return True, "prompt ready"
+    return False, "interactive prompt did not appear"
+
+
+def _scenario_wrapped_line_shows_once(shown_prompt: str) -> Callable[[PtyShell], tuple[bool, str]]:
+    prompt_cells = sum(TerminalScreen._cells(ch) for ch in shown_prompt.split("\r\n")[-1])
+
+    def run(shell: PtyShell) -> tuple[bool, str]:
+        ok, reason = _start_wrap_scenario(shell, shown_prompt)
+        if not ok:
+            return False, reason
+        for cols in WRAP_WIDTHS:
+            # A line of over three rows, and one that ends exactly on the last column of a row.
+            for length in (cols * 3 + cols // 2, cols * 2 - prompt_cells):
+                text = _wrap_filler(length)
+                mark = _fresh_prompt(shell, cols, shown_prompt)
+                _type_text(shell, text)
+                want_lines, want_cursor = _wants_line(cols, shown_prompt, text)
+                problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+                if problem:
+                    return False, problem
+        return True, ""
+
+    return run
+
+
+def scenario_wrapped_line_typed_a_key_at_a_time(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    cols = 40
+    text = _wrap_filler(cols * 2 + 11)
+    mark = _fresh_prompt(shell, cols, "p> ")
+    for ch in text:
+        shell.send(ch.encode("utf-8"))
+        shell._pump(0.002)
+    want_lines, want_cursor = _wants_line(cols, "p> ", text)
+    problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+    return (False, problem) if problem else (True, "")
+
+
+def scenario_wrapped_line_on_a_short_screen(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    cols, rows = 30, 4
+    text = _wrap_filler(cols * 3 + 5)
+    mark = _fresh_prompt(shell, cols, "p> ", rows)
+    _type_text(shell, text)
+    want_lines, want_cursor = _wants_line(cols, "p> ", text)
+    problem = _screen_shows(shell, mark, cols, want_lines, want_cursor, rows)
+    return (False, problem) if problem else (True, "")
+
+
+def scenario_wrapped_line_cursor_keys(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    cols = 30
+    text = _wrap_filler(cols * 3 + 4)
+    mark = _fresh_prompt(shell, cols, "p> ")
+    _type_text(shell, text)
+
+    def check(want_text: str, cursor: int) -> Optional[str]:
+        want_lines, want_cursor = _wants_line(cols, "p> ", want_text, cursor)
+        return _screen_shows(shell, mark, cols, want_lines, want_cursor)
+
+    steps: list[tuple[bytes, str, int]] = []
+    # To the start of the line, then a key: every row of it stays where it was.
+    steps.append((b"\x01", text, 0))
+    text = "A" + text
+    steps.append((b"A", text, 1))
+    # Across rows, each way.
+    steps.append((b"\x1b[C" * (cols + 3), text, 1 + cols + 3))
+    steps.append((b"\x1b[D" * 2, text, 1 + cols + 1))
+    text = text[:cols + 2] + "B" + text[cols + 2:]
+    steps.append((b"B", text, cols + 3))
+    # A deletion that takes the line up a row, from a row above its end.
+    steps.append((b"\x01" + b"\x0b", "", 0))
+    for data, want_text, cursor in steps:
+        shell.send(data)
+        problem = check(want_text, cursor)
+        if problem:
+            return False, f"after {data!r}: {problem}"
+    return True, ""
+
+
+def scenario_wrapped_line_enter_from_its_start(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    cols = 30
+    word = "w" * (cols * 2 + 5)
+    text = f"echo {word}"
+    mark = _fresh_prompt(shell, cols, "p> ")
+    _type_text(shell, text)
+    shell.send(b"\x01\n")
+    want_lines = [WRAP_ABOVE] + _printed_once(cols, "p> " + text).lines()
+    want_lines += _printed_once(cols, word).lines() + ["p>"]
+    problem = _screen_shows(shell, mark, cols, want_lines, (len(want_lines) - 1, 3))
+    return (False, problem) if problem else (True, "")
+
+
+def scenario_full_row_then_enter(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    cols = 30
+    text = "echo " + "w" * (cols * 2 - 3 - 5)
+    mark = _fresh_prompt(shell, cols, "p> ")
+    _type_text(shell, text)
+    shell.send(b"\n")
+    # No empty row between the line and what it prints, as in bash.
+    want_lines = [WRAP_ABOVE] + _printed_once(cols, "p> " + text).lines()
+    want_lines += _printed_once(cols, text[5:]).lines() + ["p>"]
+    problem = _screen_shows(shell, mark, cols, want_lines, (len(want_lines) - 1, 3))
+    return (False, problem) if problem else (True, "")
+
+
+def scenario_wrapped_line_ctrl_c_from_its_start(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    cols = 30
+    text = _wrap_filler(cols * 2 + 5)
+    mark = _fresh_prompt(shell, cols, "p> ")
+    _type_text(shell, text)
+    shell.send(b"\x01\x03")
+    # Only a build that reads the key itself sees it here: elsewhere it is the terminal's, which
+    # has no process to signal, as this pty is no shell's controlling terminal.
+    if not shell.wait_for_substring("^C", timeout=1.0):
+        return True, ""
+    want_lines = [WRAP_ABOVE] + _printed_once(cols, "p> " + text + "^C").lines() + ["p>"]
+    problem = _screen_shows(shell, mark, cols, want_lines, (len(want_lines) - 1, 3))
+    return (False, problem) if problem else (True, "")
+
+
+def scenario_wrapped_line_completion_list(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    folder = _new_marker_path("wrap_list").with_suffix("")
+    folder.mkdir(parents=True)
+    try:
+        (folder / "aa1").write_text("")
+        (folder / "aa2").write_text("")
+        cols = 30
+        where = _shell_path(folder).removeprefix("./")
+        text = ": " + _wrap_filler(cols + 3) + " " + where + "/aa"
+        mark = _fresh_prompt(shell, cols, "p> ")
+        _type_text(shell, text)
+        shell.send(b"\t")
+        line = _printed_once(cols, "p> " + text)
+        # These names are wider than the screen, so each has a row of its own.
+        names = _printed_once(cols, f"{where}/aa1").lines() + _printed_once(cols, f"{where}/aa2").lines()
+        want_lines = [WRAP_ABOVE] + line.lines() + names + line.lines()
+        row, col = line.cursor_for_more_text()
+        want_cursor = (1 + len(line.lines()) + len(names) + row, col)
+        problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+        return (False, problem) if problem else (True, "")
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def scenario_wrapped_line_reverse_search(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    cols = 30
+    token = f"wrapsearch{os.getpid()}"
+    text = f": {token} " + _wrap_filler(cols * 2)
+    mark = _fresh_prompt(shell, cols, "p> ")
+    _type_text(shell, text)
+    shell.send(b"\n")
+    earlier = [WRAP_ABOVE] + _printed_once(cols, "p> " + text).lines()
+    problem = _screen_shows(shell, mark, cols, earlier + ["p>"], (len(earlier), 3))
+    if problem:
+        return False, problem
+    # Each step of the search draws over the last, however many rows the match takes.
+    shell.send(b"\x12" + token.encode("utf-8"))
+    search = _printed_once(cols, f"(reverse-i-search) '{token}': {text}")
+    row, col = search.cursor_for_more_text()
+    problem = _screen_shows(shell, mark, cols, earlier + search.lines(), (len(earlier) + row, col))
+    if problem:
+        return False, f"searching: {problem}"
+    # Ctrl-G puts back the empty line that was there.
+    shell.send(b"\x07")
+    problem = _screen_shows(shell, mark, cols, earlier + ["p>"], (len(earlier), 3))
+    if problem:
+        return False, f"after Ctrl-G: {problem}"
+    return True, ""
+
+
+def scenario_wrapped_line_with_glyphs(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    folder = _new_marker_path("wrap_glyphs").with_suffix("")
+    folder.mkdir(parents=True)
+    # Typed text can't hold these yet, so they come from completing a file's name.
+    name = "日本語éé⚡" * 12
+    try:
+        (folder / name).write_text("")
+        for cols in (21, 40, 41):
+            start = "ls " + _shell_path(folder).removeprefix("./") + "/"
+            mark = _fresh_prompt(shell, cols, "p> ")
+            _type_text(shell, start)
+            shell.send(b"\t")
+            text = start + name + " "
+            want_lines, want_cursor = _wants_line(cols, "p> ", text)
+            problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+            if problem:
+                return False, f"completing: {problem}"
+            # A key takes the whole of a glyph, with any mark that follows it.
+            shell.send(b"\x7f\x7f")
+            text = start + name[:-1]
+            want_lines, want_cursor = _wants_line(cols, "p> ", text)
+            problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+            if problem:
+                return False, f"after Backspace: {problem}"
+            shell.send(b"\x1b[D\x1b[D")
+            at = len(text) - 3  # back over é, and over e with its mark
+            want_lines, want_cursor = _wants_line(cols, "p> ", text, at)
+            problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+            if problem:
+                return False, f"after two Lefts: {problem}"
+            shell.send(b"\x1b[3~x")
+            text = text[:at] + "x" + text[at + 2:]
+            want_lines, want_cursor = _wants_line(cols, "p> ", text, at + 1)
+            problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+            if problem:
+                return False, f"after Delete and a key: {problem}"
+        return True, ""
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def scenario_ctrl_c_interrupts_sleep(shell: PtyShell) -> tuple[bool, str]:
@@ -1823,6 +2254,90 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_halt_callers",
         name="halt in a function in a loop ends them and the shell",
         run=scenario_halt_ends_its_callers,
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_plain_prompt",
+        name="A line that wraps shows once at any width",
+        run=_scenario_wrapped_line_shows_once("p> "),
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_lightning_prompt",
+        name="A line that wraps shows once under a prompt with colours and a two-cell glyph",
+        run=_scenario_wrapped_line_shows_once("exsh ⚡ "),
+        env={"PS1": "\\e[38;5;39mexsh\\e[0m ⚡ "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_narrow_glyph_prompt",
+        name="A line that wraps shows once under a prompt with a one-cell glyph of two bytes",
+        run=_scenario_wrapped_line_shows_once("é> "),
+        env={"PS1": "é> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_wide_prompt",
+        name="A line that wraps shows once under a prompt of two-cell glyphs",
+        run=_scenario_wrapped_line_shows_once("日本語> "),
+        env={"PS1": "日本語> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_two_row_prompt",
+        name="A line that wraps shows once under a prompt of two rows",
+        run=_scenario_wrapped_line_shows_once("top\r\nbottom> "),
+        env={"PS1": "top\\nbottom> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_keys",
+        name="A line typed a key at a time wraps as one that arrives together",
+        run=scenario_wrapped_line_typed_a_key_at_a_time,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_short_screen",
+        name="A line that wraps shows once when it scrolls the screen",
+        run=scenario_wrapped_line_on_a_short_screen,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_cursor_keys",
+        name="Moving the cursor across the rows of a line leaves them where they are",
+        run=scenario_wrapped_line_cursor_keys,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_enter",
+        name="Enter on the first row of a line prints below all of it",
+        run=scenario_wrapped_line_enter_from_its_start,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_full_row",
+        name="Enter on a line that fills its last row leaves no empty row",
+        run=scenario_full_row_then_enter,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_ctrl_c",
+        name="Ctrl-C on the first row of a line shows after all of it",
+        run=scenario_wrapped_line_ctrl_c_from_its_start,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_completion",
+        name="A completion list goes below a wrapped line, and the line again below that",
+        run=scenario_wrapped_line_completion_list,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_search",
+        name="A reverse search with a match that wraps shows once",
+        run=scenario_wrapped_line_reverse_search,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_glyphs",
+        name="A line holding glyphs of two cells and none wraps as the terminal does",
+        run=scenario_wrapped_line_with_glyphs,
+        env={"PS1": "p> "},
     ),
 ]
 

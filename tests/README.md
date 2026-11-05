@@ -22,3 +22,11 @@ or to keep the standard iOS host suite and include interactive tests in one run:
 ```sh
 RUN_INTERACTIVE_SIGNAL_TESTS=1 Tests/run_exsh_ios_host_tests.sh
 ```
+
+The `line_wrap` tests in that harness replay what the line editor sends on a small model of a
+terminal and compare the screen with the line printed once, at many widths. `tests/run.sh` runs
+them after the manifest, on either build:
+
+```sh
+python3 tests/exsh_interactive_test_harness.py --executable build/exsh --only line_wrap
+```

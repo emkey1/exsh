@@ -34,6 +34,7 @@ void shellHistoryLoadFromFile(void);
 #include "shell/builtins.h"
 #include "vm/vm.h"
 #include "shell/runner.h"
+#include "shell/interactive_width.h"
 #include "core/preproc.h"
 #include "core/build_info.h"
 #include "core/cache.h"
@@ -91,6 +92,8 @@ static _Thread_local volatile sig_atomic_t gInteractiveHasOldSigtstp = 0;
  * interruption - this flag is that way. */
 static _Thread_local volatile sig_atomic_t gInteractiveSigintSeen = 0;
 static _Thread_local bool gInteractiveLineDrawn = false;
+/* The line as drawn ended on the last column of a row, so the cursor is already on a new row. */
+static _Thread_local bool gInteractiveLineFilledRow = false;
 
 static void shellSetPromptReadActive(bool active) {
 #if defined(PSCAL_TARGET_IOS)
@@ -372,10 +375,11 @@ static int interactiveTerminalWidth(void) {
     return 80;
 }
 
-static void interactiveAdvancePosition(size_t term_width,
-                                       size_t *row,
-                                       size_t *col,
-                                       unsigned char ch) {
+/* Where \n, \r or \t leaves the cursor. A tab stops at the last column, it doesn't wrap. */
+static void interactiveAdvanceControl(size_t term_width,
+                                      size_t *row,
+                                      size_t *col,
+                                      unsigned char ch) {
     if (!row || !col) {
         return;
     }
@@ -388,15 +392,20 @@ static void interactiveAdvancePosition(size_t term_width,
         *col = 0;
         return;
     }
-    if (ch == '\t') {
-        size_t next_tab_stop = ((*col) / 8 + 1) * 8;
-        *col = next_tab_stop;
-    } else {
-        (*col)++;
+    size_t next_tab_stop = ((*col) / 8 + 1) * 8;
+    if (term_width > 0 && next_tab_stop >= term_width) {
+        next_tab_stop = term_width - 1;
     }
-    if (term_width > 0 && *col >= term_width) {
-        *row += *col / term_width;
-        *col %= term_width;
+    *col = next_tab_stop;
+}
+
+/* A terminal wraps when the next glyph arrives, not when the last column fills, so col equals
+ * term_width while a row is full and nothing has followed it. A glyph that doesn't fit in what is
+ * left of a row goes to the next row whole. */
+static void interactiveWrapForGlyph(size_t term_width, size_t *row, size_t *col, size_t width) {
+    if (width > 0 && term_width > 0 && *col + width > term_width) {
+        (*row)++;
+        *col = 0;
     }
 }
 
@@ -450,6 +459,26 @@ static const unsigned char *interactiveSkipAnsiSequence(const unsigned char *p) 
     return p;
 }
 
+static bool interactiveInCodeRanges(uint32_t cp, const InteractiveCodeRange *ranges, size_t count) {
+    size_t lo = 0;
+    size_t hi = count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (cp < ranges[mid].lo) {
+            hi = mid;
+        } else if (cp > ranges[mid].hi) {
+            lo = mid + 1;
+        } else {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The cells a glyph takes and the bytes it is. The terminal decodes UTF-8 whatever this shell's
+ * locale says, and the shell runs in the C locale, where mbrtowc hands back each byte and wcwidth
+ * calls it unprintable: the terminal gives the prompt's ⚡ two cells, and it used to count as
+ * none. A byte that starts no character is one byte and one cell. */
 static int interactiveGlyphWidth(const char *s, size_t max_len, size_t *out_bytes) {
     if (out_bytes) {
         *out_bytes = 1;
@@ -457,33 +486,82 @@ static int interactiveGlyphWidth(const char *s, size_t max_len, size_t *out_byte
     if (!s || max_len == 0) {
         return 0;
     }
-    mbstate_t st;
-    memset(&st, 0, sizeof(st));
-    wchar_t wc;
-    size_t consumed = mbrtowc(&wc, s, max_len, &st);
-    if (consumed == (size_t)-1 || consumed == (size_t)-2 || consumed == 0) {
-        if (out_bytes) {
-            *out_bytes = 1;
-        }
+    const unsigned char *u = (const unsigned char *)s;
+    if (u[0] < 0x80) {
+        return (u[0] >= 0x20 && u[0] < 0x7F) ? 1 : 0;
+    }
+    size_t expected = 0;
+    uint32_t cp = 0;
+    if (u[0] >= 0xC2 && u[0] <= 0xDF) {
+        expected = 2;
+        cp = u[0] & 0x1Fu;
+    } else if (u[0] >= 0xE0 && u[0] <= 0xEF) {
+        expected = 3;
+        cp = u[0] & 0x0Fu;
+    } else if (u[0] >= 0xF0 && u[0] <= 0xF4) {
+        expected = 4;
+        cp = u[0] & 0x07u;
+    }
+    if (expected == 0 || expected > max_len) {
         return 1;
     }
+    for (size_t i = 1; i < expected; ++i) {
+        if ((u[i] & 0xC0) != 0x80) {
+            return 1;
+        }
+        cp = (cp << 6) | (u[i] & 0x3Fu);
+    }
     if (out_bytes) {
-        *out_bytes = consumed;
+        *out_bytes = expected;
     }
-    int width = wcwidth(wc);
-    if (width < 0) {
-        width = 0;
+    if (cp < 0xA0 ||
+        interactiveInCodeRanges(cp,
+                                kInteractiveZeroWidthRanges,
+                                sizeof(kInteractiveZeroWidthRanges) / sizeof(kInteractiveZeroWidthRanges[0]))) {
+        return 0;
     }
-    return width;
+    return interactiveInCodeRanges(cp,
+                                   kInteractiveWideRanges,
+                                   sizeof(kInteractiveWideRanges) / sizeof(kInteractiveWideRanges[0]))
+               ? 2
+               : 1;
 }
 
-static void interactiveAdvanceColumns(size_t term_width,
-                                      size_t *row,
-                                      size_t *col,
-                                      size_t width) {
-    for (size_t i = 0; i < width; ++i) {
-        interactiveAdvancePosition(term_width, row, col, ' ');
+/* The cursor moves and deletes by the glyph: half a character left behind is a cell the terminal
+ * and this count disagree on. Marks that take no cell stay with the glyph they follow. */
+static size_t interactivePrevGlyph(const char *buffer, size_t cursor) {
+    while (cursor > 0) {
+        size_t start = cursor - 1;
+        while (start > 0 && cursor - start < 4 && ((unsigned char)buffer[start] & 0xC0) == 0x80) {
+            start--;
+        }
+        size_t bytes = 1;
+        int width = interactiveGlyphWidth(buffer + start, cursor - start, &bytes);
+        if (bytes != cursor - start) {
+            return cursor - 1;
+        }
+        cursor = start;
+        if (width > 0 || (unsigned char)buffer[start] < 0x80) {
+            break;
+        }
     }
+    return cursor;
+}
+
+static size_t interactiveNextGlyph(const char *buffer, size_t length, size_t cursor) {
+    if (cursor >= length) {
+        return length;
+    }
+    size_t bytes = 1;
+    (void)interactiveGlyphWidth(buffer + cursor, length - cursor, &bytes);
+    cursor += bytes;
+    while (cursor < length && (unsigned char)buffer[cursor] >= 0x80) {
+        if (interactiveGlyphWidth(buffer + cursor, length - cursor, &bytes) > 0) {
+            break;
+        }
+        cursor += bytes;
+    }
+    return cursor;
 }
 
 static void interactiveComputeDisplayMetrics(const char *prompt,
@@ -491,14 +569,13 @@ static void interactiveComputeDisplayMetrics(const char *prompt,
                                              size_t length,
                                              size_t cursor,
                                              size_t term_width,
-                                             size_t *out_total_rows,
                                              size_t *out_cursor_row,
                                              size_t *out_cursor_col,
                                              size_t *out_end_row,
-                                             size_t *out_end_col) {
+                                             size_t *out_end_col,
+                                             bool *out_filled_row) {
     size_t row = 0;
     size_t col = 0;
-    size_t total_rows = 1;
 
     if (prompt) {
         const char *p = prompt;
@@ -513,64 +590,49 @@ static void interactiveComputeDisplayMetrics(const char *prompt,
                 continue;
             }
             if (*p == '\n' || *p == '\r' || *p == '\t') {
-                interactiveAdvancePosition(term_width, &row, &col, (unsigned char)*p);
-                if (*p == '\n' || *p == '\r') {
-                    size_t used_rows = row + 1;
-                    if (used_rows > total_rows) {
-                        total_rows = used_rows;
-                    }
-                }
+                interactiveAdvanceControl(term_width, &row, &col, (unsigned char)*p);
                 ++p;
                 continue;
             }
             size_t bytes = 1;
             int width = interactiveGlyphWidth(p, strlen(p), &bytes);
-            if (width > 0) {
-                interactiveAdvanceColumns(term_width, &row, &col, (size_t)width);
-            }
-            size_t used_rows = row + 1;
-            if (used_rows > total_rows) {
-                total_rows = used_rows;
-            }
+            interactiveWrapForGlyph(term_width, &row, &col, (size_t)width);
+            col += (size_t)width;
             p += bytes;
         }
-    }
-
-    if (cursor == 0 && out_cursor_row && out_cursor_col) {
-        *out_cursor_row = row;
-        *out_cursor_col = col;
     }
 
     if (buffer && length > 0) {
         size_t byte_index = 0;
         while (byte_index < length) {
-            if (byte_index == cursor && out_cursor_row && out_cursor_col) {
-                *out_cursor_row = row;
-                *out_cursor_col = col;
-            }
             unsigned char c = (unsigned char)buffer[byte_index];
-            if (c == '\n' || c == '\r' || c == '\t') {
-                interactiveAdvancePosition(term_width, &row, &col, c);
-                if (c == '\n' || c == '\r') {
-                    size_t used_rows = row + 1;
-                    if (used_rows > total_rows) {
-                        total_rows = used_rows;
-                    }
-                }
-                byte_index++;
-                continue;
-            }
+            bool control = (c == '\n' || c == '\r' || c == '\t');
             size_t bytes = 1;
-            int width = interactiveGlyphWidth(buffer + byte_index, length - byte_index, &bytes);
-            if (width > 0) {
-                interactiveAdvanceColumns(term_width, &row, &col, (size_t)width);
+            int width = 0;
+            if (!control) {
+                width = interactiveGlyphWidth(buffer + byte_index, length - byte_index, &bytes);
+                interactiveWrapForGlyph(term_width, &row, &col, (size_t)width);
             }
-            size_t used_rows = row + 1;
-            if (used_rows > total_rows) {
-                total_rows = used_rows;
+            if (byte_index <= cursor && cursor < byte_index + bytes && out_cursor_row && out_cursor_col) {
+                bool row_full = term_width > 0 && col >= term_width;
+                *out_cursor_row = row_full ? row + 1 : row;
+                *out_cursor_col = row_full ? 0 : col;
+            }
+            if (control) {
+                interactiveAdvanceControl(term_width, &row, &col, c);
+            } else {
+                col += (size_t)width;
             }
             byte_index += bytes;
         }
+    }
+
+    /* Text that ends on the last column ends on the next row, once the redraw has made the
+     * terminal wrap. */
+    bool filled_row = term_width > 0 && col >= term_width;
+    if (filled_row) {
+        row++;
+        col = 0;
     }
 
     if (cursor >= length && out_cursor_row && out_cursor_col) {
@@ -584,8 +646,8 @@ static void interactiveComputeDisplayMetrics(const char *prompt,
     if (out_end_col) {
         *out_end_col = col;
     }
-    if (out_total_rows) {
-        *out_total_rows = total_rows;
+    if (out_filled_row) {
+        *out_filled_row = filled_row;
     }
 }
 
@@ -1492,25 +1554,6 @@ static void shellSyncIdentityEnvFromPasswd(void) {
     setenv("USERNAME", name, 1);
 }
 
-static size_t shellPromptLineBreakCount(const char *prompt) {
-    size_t total_rows = 1;
-    size_t term_width = (size_t)interactiveTerminalWidth();
-    interactiveComputeDisplayMetrics(prompt,
-                                     NULL,
-                                     0,
-                                     0,
-                                     term_width,
-                                     &total_rows,
-                                     NULL,
-                                     NULL,
-                                     NULL,
-                                     NULL);
-    if (total_rows == 0) {
-        return 0;
-    }
-    return (total_rows > 0) ? (total_rows - 1) : 0;
-}
-
 static void shellWriteStdout(const char *buf, size_t len) {
     if (!buf || len == 0) {
         return;
@@ -1546,6 +1589,8 @@ static void shellWriteStdoutChar(char ch) {
     shellWriteStdout(&ch, 1);
 }
 
+/* Draws the prompt and the line again, from where the last draw left the cursor:
+ * *displayed_prompt_lines is how many rows that is below the row the prompt starts on. */
 static void redrawInteractiveLine(const char *prompt,
                                   const char *buffer,
                                   size_t length,
@@ -1556,21 +1601,21 @@ static void redrawInteractiveLine(const char *prompt,
         displayed_prompt_lines ? *displayed_prompt_lines : 0;
     size_t term_width = (size_t)interactiveTerminalWidth();
 
-    size_t total_rows = 1;
     size_t cursor_row = 0;
     size_t cursor_col = 0;
     size_t end_row = 0;
     size_t end_col = 0;
+    bool filled_row = false;
     interactiveComputeDisplayMetrics(prompt,
                                      buffer,
                                      length,
                                      cursor,
                                      term_width,
-                                     &total_rows,
                                      &cursor_row,
                                      &cursor_col,
                                      &end_row,
-                                     &end_col);
+                                     &end_col,
+                                     &filled_row);
 
     size_t rows_to_prompt = gInteractiveLineDrawn ? previous_prompt_lines : 0;
     for (size_t i = 0; i < rows_to_prompt; ++i) {
@@ -1583,6 +1628,11 @@ static void redrawInteractiveLine(const char *prompt,
     }
     if (buffer && length > 0) {
         shellWriteStdout(buffer, length);
+    }
+    if (filled_row) {
+        /* The terminal's cursor is still on the last column, waiting for a glyph. A space takes
+         * it to the next row, where the count above says it is, as readline does. */
+        shellWriteStdoutStr(" \r");
     }
 
     if (end_row > cursor_row) {
@@ -1613,10 +1663,42 @@ static void redrawInteractiveLine(const char *prompt,
         *displayed_length = length;
     }
     if (displayed_prompt_lines) {
-        *displayed_prompt_lines =
-            (total_rows > 0) ? (total_rows - 1) : 0;
+        *displayed_prompt_lines = cursor_row;
     }
+    gInteractiveLineFilledRow = filled_row;
     gInteractiveLineDrawn = true;
+}
+
+/* Puts the cursor after the last glyph of the line. The line can run on below the cursor, and
+ * what prints next must not land on it. */
+static void interactiveMoveToLineEnd(const char *prompt,
+                                     const char *buffer,
+                                     size_t length,
+                                     size_t cursor,
+                                     size_t *displayed_length,
+                                     size_t *displayed_prompt_lines) {
+    if (cursor < length) {
+        redrawInteractiveLine(prompt,
+                              buffer,
+                              length,
+                              length,
+                              displayed_length,
+                              displayed_prompt_lines);
+    }
+}
+
+/* Goes to the row below the line, for what prints next. The next redraw starts there. */
+static void interactiveLeaveLine(const char *prompt,
+                                 const char *buffer,
+                                 size_t length,
+                                 size_t cursor,
+                                 size_t *displayed_length,
+                                 size_t *displayed_prompt_lines) {
+    interactiveMoveToLineEnd(prompt, buffer, length, cursor, displayed_length, displayed_prompt_lines);
+    if (!gInteractiveLineFilledRow) {
+        shellWriteStdoutChar('\n');
+    }
+    gInteractiveLineDrawn = false;
 }
 
 static bool interactiveEnsureCapacity(char **buffer, size_t *capacity, size_t needed) {
@@ -1933,15 +2015,26 @@ static bool interactiveFindHistoryMatch(const char *query,
     return false;
 }
 
-static void interactiveRenderSearchPrompt(const char *query, const char *match) {
-    shellWriteStdoutStr("\r");
-    shellWriteStdoutStr("\033[K");
-    shellWriteStdoutStr("(reverse-i-search) '");
-    shellWriteStdoutStr(query ? query : "");
-    shellWriteStdoutStr("': ");
-    if (match) {
-        shellWriteStdoutStr(match);
+static void interactiveRenderSearchPrompt(const char *query,
+                                          const char *match,
+                                          size_t *displayed_length,
+                                          size_t *displayed_prompt_lines) {
+    const char *shown_query = query ? query : "";
+    size_t size = strlen("(reverse-i-search) '") + strlen(shown_query) + strlen("': ") + 1;
+    char *search_prompt = (char *)malloc(size);
+    if (!search_prompt) {
+        shellWriteStdoutChar('\a');
+        return;
     }
+    snprintf(search_prompt, size, "(reverse-i-search) '%s': ", shown_query);
+    size_t match_length = match ? strlen(match) : 0;
+    redrawInteractiveLine(search_prompt,
+                          match,
+                          match_length,
+                          match_length,
+                          displayed_length,
+                          displayed_prompt_lines);
+    free(search_prompt);
 }
 
 static bool interactiveReverseSearch(const char *prompt,
@@ -1981,7 +2074,7 @@ static bool interactiveReverseSearch(const char *prompt,
     char *match = NULL;
     size_t match_index = 0;
     bool has_match = interactiveFindHistoryMatch(query, 0, &match, &match_index);
-    interactiveRenderSearchPrompt(query, has_match ? match : NULL);
+    interactiveRenderSearchPrompt(query, has_match ? match : NULL, displayed_length, displayed_prompt_lines);
 
     while (true) {
         unsigned char input = 0;
@@ -1997,8 +2090,6 @@ static bool interactiveReverseSearch(const char *prompt,
             memcpy(*buffer, saved_line, saved_length + 1);
             *length = saved_length;
             *cursor = saved_cursor;
-            shellWriteStdoutStr("\r");
-            shellWriteStdoutStr("\033[K");
             redrawInteractiveLine(prompt,
                                   *buffer,
                                   *length,
@@ -2044,7 +2135,7 @@ static bool interactiveReverseSearch(const char *prompt,
                     shellWriteStdoutChar('\a');
                 }
             }
-            interactiveRenderSearchPrompt(query, has_match ? match : NULL);
+            interactiveRenderSearchPrompt(query, has_match ? match : NULL, displayed_length, displayed_prompt_lines);
             continue;
         }
 
@@ -2062,7 +2153,7 @@ static bool interactiveReverseSearch(const char *prompt,
             } else {
                 shellWriteStdoutChar('\a');
             }
-            interactiveRenderSearchPrompt(query, has_match ? match : NULL);
+            interactiveRenderSearchPrompt(query, has_match ? match : NULL, displayed_length, displayed_prompt_lines);
             continue;
         }
 
@@ -2085,15 +2176,13 @@ static bool interactiveReverseSearch(const char *prompt,
             if (!has_match) {
                 shellWriteStdoutChar('\a');
             }
-            interactiveRenderSearchPrompt(query, has_match ? match : NULL);
+            interactiveRenderSearchPrompt(query, has_match ? match : NULL, displayed_length, displayed_prompt_lines);
             continue;
         }
 
         shellWriteStdoutChar('\a');
     }
 
-    shellWriteStdoutStr("\r");
-    shellWriteStdoutStr("\033[K");
     redrawInteractiveLine(prompt,
                           *buffer,
                           *length,
@@ -2689,7 +2778,12 @@ static bool interactiveHandleTabCompletion(const char *prompt,
             } else {
                 replacement_len = interactiveCommonPrefixLength(matches, match_count);
                 if (replacement_len <= word_len) {
-                    shellWriteStdoutChar('\n');
+                    interactiveLeaveLine(prompt,
+                                         *buffer,
+                                         *length,
+                                         *cursor,
+                                         displayed_length,
+                                         displayed_prompt_lines);
                     interactivePrintMatchesInColumns(matches, match_count);
                     interactiveFreeMatches(matches, match_count);
 
@@ -2834,7 +2928,12 @@ static bool interactiveHandleTabCompletion(const char *prompt,
     } else {
         replacement_len = interactiveCommonPrefixLength(results.gl_pathv, results.gl_pathc);
         if (replacement_len <= word_len) {
-            shellWriteStdoutChar('\n');
+            interactiveLeaveLine(prompt,
+                                 *buffer,
+                                 *length,
+                                 *cursor,
+                                 displayed_length,
+                                 displayed_prompt_lines);
             interactivePrintMatchesInColumns(results.gl_pathv, results.gl_pathc);
             globfree(&results);
 
@@ -3283,7 +3382,7 @@ static char *readInteractiveLine(const char *prompt,
     buffer[0] = '\0';
     size_t length = 0;
     size_t displayed_length = 0;
-    size_t displayed_prompt_lines = shellPromptLineBreakCount(prompt);
+    size_t displayed_prompt_lines = 0;
     gInteractiveLineDrawn = false;
     size_t cursor = 0;
     size_t history_index = 0;
@@ -3339,7 +3438,12 @@ static char *readInteractiveLine(const char *prompt,
         }
 
         if (ch == '\r' || ch == '\n') {
-            shellWriteStdoutChar('\n');
+            interactiveLeaveLine(prompt,
+                                 buffer,
+                                 length,
+                                 cursor,
+                                 &displayed_length,
+                                 &displayed_prompt_lines);
             done = true;
             alt_dot_active = false;
             break;
@@ -3353,8 +3457,9 @@ static char *readInteractiveLine(const char *prompt,
                 break;
             }
             if (cursor < length) {
-                memmove(buffer + cursor, buffer + cursor + 1, length - cursor);
-                length--;
+                size_t next = interactiveNextGlyph(buffer, length, cursor);
+                memmove(buffer + cursor, buffer + next, length - next);
+                length -= next - cursor;
                 buffer[length] = '\0';
                 redrawInteractiveLine(prompt,
                                       buffer,
@@ -3373,7 +3478,14 @@ static char *readInteractiveLine(const char *prompt,
         if (ch == 3) { /* Ctrl-C */
             alt_dot_active = false;
             alt_dot_offset = 0;
+            interactiveMoveToLineEnd(prompt,
+                                     buffer,
+                                     length,
+                                     cursor,
+                                     &displayed_length,
+                                     &displayed_prompt_lines);
             shellWriteStdoutStr("^C\n");
+            gInteractiveLineDrawn = false;
 #if defined(PSCAL_TARGET_IOS)
             /* Never raise host SIGINT on iOS; it can hit app threads. */
             shellRuntimeSetPromptStatus(128 + SIGINT);
@@ -3388,11 +3500,14 @@ static char *readInteractiveLine(const char *prompt,
             length = 0;
             cursor = 0;
             buffer[0] = '\0';
-            displayed_length = 0;
-            displayed_prompt_lines = shellPromptLineBreakCount(prompt);
             history_index = 0;
             interactiveUpdateScratch(&scratch, buffer, length);
-            shellWriteStdoutStr(prompt);
+            redrawInteractiveLine(prompt,
+                                  buffer,
+                                  length,
+                                  cursor,
+                                  &displayed_length,
+                                  &displayed_prompt_lines);
             continue;
         }
 
@@ -3403,13 +3518,18 @@ static char *readInteractiveLine(const char *prompt,
              * session input reader via vproc job-control dispatch. */
             alt_dot_active = false;
             alt_dot_offset = 0;
+            interactiveMoveToLineEnd(prompt,
+                                     buffer,
+                                     length,
+                                     cursor,
+                                     &displayed_length,
+                                     &displayed_prompt_lines);
             shellWriteStdoutStr("^Z\n");
+            gInteractiveLineDrawn = false;
             shellRuntimeSetPromptStatus(128 + SIGTSTP);
             length = 0;
             cursor = 0;
             buffer[0] = '\0';
-            displayed_length = 0;
-            displayed_prompt_lines = shellPromptLineBreakCount(prompt);
             history_index = 0;
             interactiveUpdateScratch(&scratch, buffer, length);
             redrawInteractiveLine(prompt,
@@ -3546,7 +3666,12 @@ static char *readInteractiveLine(const char *prompt,
                                           &submit_line)) {
                 shellWriteStdoutChar('\a');
             } else if (submit_line) {
-                shellWriteStdoutChar('\n');
+                interactiveLeaveLine(prompt,
+                                     buffer,
+                                     length,
+                                     cursor,
+                                     &displayed_length,
+                                     &displayed_prompt_lines);
                 done = true;
                 break;
             }
@@ -3722,7 +3847,7 @@ static char *readInteractiveLine(const char *prompt,
             alt_dot_active = false;
             alt_dot_offset = 0;
             if (cursor > 0) {
-                cursor--;
+                cursor = interactivePrevGlyph(buffer, cursor);
                 redrawInteractiveLine(prompt,
                                       buffer,
                                       length,
@@ -3739,7 +3864,7 @@ static char *readInteractiveLine(const char *prompt,
             alt_dot_active = false;
             alt_dot_offset = 0;
             if (cursor < length) {
-                cursor++;
+                cursor = interactiveNextGlyph(buffer, length, cursor);
                 redrawInteractiveLine(prompt,
                                       buffer,
                                       length,
@@ -3756,9 +3881,10 @@ static char *readInteractiveLine(const char *prompt,
             alt_dot_active = false;
             alt_dot_offset = 0;
             if (cursor > 0) {
-                memmove(buffer + cursor - 1, buffer + cursor, length - cursor + 1);
-                cursor--;
-                length--;
+                size_t prev = interactivePrevGlyph(buffer, cursor);
+                memmove(buffer + prev, buffer + cursor, length - cursor + 1);
+                length -= cursor - prev;
+                cursor = prev;
                 redrawInteractiveLine(prompt,
                                       buffer,
                                       length,
@@ -3840,7 +3966,7 @@ static char *readInteractiveLine(const char *prompt,
                     alt_dot_active = false;
                     alt_dot_offset = 0;
                     if (cursor < length) {
-                        cursor++;
+                        cursor = interactiveNextGlyph(buffer, length, cursor);
                         redrawInteractiveLine(prompt,
                                               buffer,
                                               length,
@@ -3855,7 +3981,7 @@ static char *readInteractiveLine(const char *prompt,
                     alt_dot_active = false;
                     alt_dot_offset = 0;
                     if (cursor > 0) {
-                        cursor--;
+                        cursor = interactivePrevGlyph(buffer, cursor);
                         redrawInteractiveLine(prompt,
                                               buffer,
                                               length,
@@ -3887,8 +4013,9 @@ static char *readInteractiveLine(const char *prompt,
                         alt_dot_active = false;
                         alt_dot_offset = 0;
                         if (cursor < length) {
-                            memmove(buffer + cursor, buffer + cursor + 1, length - cursor);
-                            length--;
+                            size_t next = interactiveNextGlyph(buffer, length, cursor);
+                            memmove(buffer + cursor, buffer + next, length - next);
+                            length -= next - cursor;
                             buffer[length] = '\0';
                             redrawInteractiveLine(prompt,
                                                   buffer,
