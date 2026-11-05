@@ -263,7 +263,8 @@ static void shellAnalyzeSimpleCommand(ShellSemanticContext *ctx, ShellCommand *c
         bool known_builtin = hashTableLookup(ctx->builtin_table, first->text) != NULL;
         bool known_function = ctx->function_table && hashTableLookup(ctx->function_table, first->text);
         if (!shellWordIsDynamicCommand(first) && !known_builtin && !known_function) {
-            Symbol *sym = lookupGlobalSymbol(first->text);
+            // A frontend run on this thread can leave it with no global table.
+            Symbol *sym = globalSymbols ? lookupGlobalSymbol(first->text) : NULL;
             if (!sym && constGlobalSymbols) {
                 sym = hashTableLookup(constGlobalSymbols, first->text);
             }
