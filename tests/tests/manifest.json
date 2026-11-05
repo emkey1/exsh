@@ -1280,6 +1280,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_debug_trap_stage",
+      "name": "A DEBUG trap with a pipeline, its stages and jobs",
+      "category": "parity",
+      "description": "How often it runs for simple and compound stages, jobs and subshells. On iOS it ran between stages, which crashed the app.",
+      "script": "Tests/exsh/tests/bash_parity_debug_trap_stage.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_wait_killed",
       "name": "wait gives a killed job's signal, and killing a job harms nothing else",
       "category": "parity",

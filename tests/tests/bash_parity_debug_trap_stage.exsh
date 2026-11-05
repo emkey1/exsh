@@ -1,0 +1,39 @@
+#!/usr/bin/env exsh
+# A DEBUG trap comes before each simple command, and before none of a compound one's own. In a pipeline
+# on iOS it ran on the shell's thread between stages, which set aside the state the stages were
+# reading, and that crashed the app.
+n=0
+
+echo "a pipeline"
+trap 'n=$((n+1))' DEBUG; true | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; echo a | tr a b; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; true | cat | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; true | cat | cat | cat | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; ! true | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; x=1 | cat; trap - DEBUG; echo "  $n"; n=0
+
+echo "with compound stages"
+trap 'n=$((n+1))' DEBUG; { true; } | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; true | { cat; }; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; ( true ) | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; true | ( cat ); trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; { true; } | { cat; }; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; if true; then true; fi | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; for i in 1; do true; done | cat; trap - DEBUG; echo "  $n"; n=0
+
+echo "functions"
+f() { true; }
+trap 'n=$((n+1))' DEBUG; f | cat; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; true | f; trap - DEBUG; echo "  $n"; n=0
+
+echo "jobs and subshells"
+trap 'n=$((n+1))' DEBUG; true & wait; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; true | cat & wait; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; { true; } & wait; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; ( true ) & wait; trap - DEBUG; echo "  $n"; n=0
+trap 'n=$((n+1))' DEBUG; ( true ); trap - DEBUG; echo "  $n"; n=0
+
+echo "output"
+trap 'echo dbg' DEBUG; true | cat; trap - DEBUG
+trap 'echo dbg' DEBUG; { true; } | cat; trap - DEBUG
+trap ':' DEBUG; echo a | sed 's/a/b/'; trap - DEBUG
