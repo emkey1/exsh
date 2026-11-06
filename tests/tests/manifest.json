@@ -2168,6 +2168,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_glob_locale",
+            "name": "A glob sorts as the locale collates",
+            "category": "parity",
+            "description": "LC_ALL, LC_COLLATE and LANG in that order, exported or not, from the moment one is assigned, wherever a word expands. Skips where the locale is not installed.",
+            "script": "Tests/exsh/tests/bash_parity_glob_locale.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "bash_parity_bracket_word",
             "name": "A word with a [ and no ] after it stays as it is",
             "category": "parity",

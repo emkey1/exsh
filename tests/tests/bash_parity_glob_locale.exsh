@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# A glob's matches sort as LC_ALL, LC_COLLATE or LANG collate them, whichever comes first with a
+# value, exported or not, from the moment one is assigned. Skips where the locale isn't installed.
+# The unsets hide bash's warning when the environment names a locale it lacks.
+set -u
+for wanted in en_US.UTF-8 en_US.utf8; do
+    if locale -a 2>/dev/null | grep -qx -- "$wanted"; then
+        loc=$wanted
+    fi
+done
+if [ -z "${loc:-}" ]; then
+    exit 77
+fi
+unset LC_ALL LC_COLLATE LANG 2>/dev/null
+
+d="${TMPDIR:-/tmp}/glob_locale.$$"
+mkdir -p "$d/sub" && cd "$d" || exit 1
+touch a b Z '[a]' '[x' .h .Y sub/m sub/N sub/_k
+
+echo "none set"
+echo *
+echo "LC_ALL"
+LC_ALL=$loc
+echo *
+echo "LC_ALL back to C"
+LC_ALL=C
+echo *
+unset LC_ALL 2>/dev/null
+
+echo "LANG"
+LANG=$loc
+echo *
+echo "LC_COLLATE comes before LANG"
+LC_COLLATE=C
+echo *
+echo "LC_ALL comes before LC_COLLATE"
+LC_ALL=$loc
+echo *
+unset LC_ALL 2>/dev/null
+LC_COLLATE=$loc
+echo "an empty LC_ALL counts as unset"
+LC_ALL=
+echo *
+unset LC_ALL LC_COLLATE 2>/dev/null
+unset LANG 2>/dev/null
+
+echo "only what stays in the shell changes the words"
+LC_ALL=$loc echo *
+LC_ALL=$loc
+
+echo "every place a word expands"
+for f in *; do printf '%s ' "$f"; done; echo
+files=(*)
+echo "${files[*]}"
+set -- *
+echo "$*"
+set --
+echo sub/*
+echo */*
+echo [[az]*
+( echo * )
+x=$(echo *)
+echo "$x"
+echo * | cat
+f() { echo *; }
+f
+f() { local LC_ALL=C; echo *; }
+f
+echo *
+
+echo "shell options"
+shopt -s dotglob
+echo *
+shopt -u dotglob
+shopt -s nocaseglob
+echo *
+echo [Z]*
+shopt -u nocaseglob
+shopt -s extglob
+echo @(a|Z|b)
+shopt -u extglob
+
+cd .. && rm -rf "$d"
