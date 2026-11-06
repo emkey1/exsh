@@ -1,0 +1,59 @@
+#!/usr/bin/env exsh
+# What a task makes obeys its own file mask, by every route, and nothing a task does moves the
+# mask of the shell or of the app. On iOS every command shares one process: the host's mask is
+# the session shell's, so a route that reached libc's open, mkdir or fopen used that one, and a
+# client that called umask set it for every tab.
+# Each route runs twice, once in the shell with mask M, and once in a subshell with M while the
+# shell has another. The modes must match.
+d="${TMPDIR:-/tmp}/exsh_task_mask.$$"
+# On the host test build $HOME is the shell's root, and OpenSSH's clients, which take host
+# paths there, are given the directory as the host names it.
+hp() { case $PWD in "$HOME"/*) echo "$PWD" ;; *) echo "$HOME$PWD" ;; esac; }
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+
+modes() {
+    ( cd "$1" && find . | sort | while read -r p; do
+        m=$(ls -ld "$p" | cut -c1-10)
+        echo "$m $p"
+      done )
+}
+
+# route NAME CMD: CMD makes things under ./out.
+route() {
+    name=$1; cmd=$2
+    for pair in "077 022" "000 077" "027 000"; do
+        set -- $pair
+        rm -rf a b; mkdir a b
+        umask "$1"; ( cd a && eval "$cmd" ) > /dev/null 2>&1
+        umask "$2"; ( umask "$1"; cd b && eval "$cmd" ) > /dev/null 2>&1
+        umask 022
+        if [ "$(modes a)" = "$(modes b)" ] && [ -n "$(modes a | sed 1d)" ]; then
+            echo "$name $1: same"
+        else
+            echo "$name $1: differs"; modes a; echo --; modes b
+        fi
+    done
+}
+
+route redirect ': > out; exec 3> out2; exec 3>&-'
+route mkdir 'mkdir out out2'
+route applets 'echo x | tee out > /dev/null; cp out out2; touch out3; mkdir -p out4/x'
+route nested 'sh -c ": > out"; x=$(: > out2); { : > out3; } & wait'
+route git 'git init -q out'
+# ssh-keygen once: a second in one shell can abort or hang on the host test build. Looser than
+# the shell's 077, and the private key keeps the 0600 it asks for.
+umask 077; mkdir kg; ( umask 022; cd kg && ssh-keygen -q -t ed25519 -N "" -C t -f "$(hp)/out" < /dev/null ); umask 022
+ls -l kg/out kg/out.pub | cut -c1-10
+
+# A client's umask is its own: the shell's, and what the shell makes, stay as they were.
+umask 002
+ssh -G host-a.invalid > /dev/null 2>&1
+scp -p -O -o BatchMode=yes nosuch.invalid:x scpout > /dev/null 2>&1
+umask
+: > after2; ls -l after2 | cut -c1-10
+umask 022
+
+cd /
+rm -rf "$d"

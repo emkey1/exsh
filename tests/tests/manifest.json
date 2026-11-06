@@ -154,6 +154,15 @@
     "expected_stdout": "alice bob\n# users=2"
   },
   {
+    "id": "task_mask_routes_ios",
+    "name": "What a task makes obeys its own mask, by every route (iOS)",
+    "category": "pipeline_ios",
+    "description": "Redirections, mkdir, applets, nested shells, git and ssh-keygen make what the task's mask says, looser or tighter than the shell's, and ssh and scp leave the shell's mask alone.",
+    "script": "Tests/exsh/tests/task_mask_routes_ios.exsh",
+    "expect": "runtime_ok",
+    "expected_stdout": "redirect 077: same\nredirect 000: same\nredirect 027: same\nmkdir 077: same\nmkdir 000: same\nmkdir 027: same\napplets 077: same\napplets 000: same\napplets 027: same\nnested 077: same\nnested 000: same\nnested 027: same\ngit 077: same\ngit 000: same\ngit 027: same\n-rw-------\n-rw-r--r--\n0002\n-rw-rw-r--"
+  },
+  {
     "id": "pipeline_bg_pipe_redirect_ios",
     "name": "Background pipeline redirection (iOS)",
     "category": "pipeline_ios",
