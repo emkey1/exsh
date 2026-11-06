@@ -1,0 +1,55 @@
+#!/usr/bin/env exsh
+# A command that cannot read its input fails and says so. On iOS these are applets: awk gave 0,
+# wc and base64 failed without a word, gzip wrote its header first, xargs gave 0. The numbers
+# differ between one system's tools and another's, so this asks only whether it failed and said
+# so. base64 and xargs are left out: with the Mac's tools both give 0.
+d="${TMPDIR:-/tmp}/exsh_parity_applets_closed_stdin.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+printf 'b\na\nc\n' > f
+
+report() {
+  [ "$2" -ne 0 ] && r=fails || r=ok
+  [ -s err ] && r="$r, says so"
+  echo "$1: $r"
+}
+
+while IFS= read -r c; do
+  eval "$c <&-" > /dev/null 2> err
+  report "$c" "$?"
+  ( exec <&-; eval "$c" ) > /dev/null 2> err
+  report "exec, $c" "$?"
+done <<'LIST'
+cat
+cat -
+wc -l
+head -1
+tail -1
+sort
+uniq
+grep x
+awk '{print}'
+tr a b
+tee t2
+nl
+dd
+gzip -c
+LIST
+
+# Nothing gets out of a command that stopped before its input.
+gzip -c <&- > out 2> /dev/null
+[ -s out ] && echo "gzip wrote" || echo "gzip wrote nothing"
+( exec <&-; gzip -c ) > out 2> /dev/null
+[ -s out ] && echo "exec, gzip wrote" || echo "exec, gzip wrote nothing"
+
+# A closed stdin is no terminal.
+( exec <&-; [ -t 0 ]; echo "-t 0 closed $?" )
+[ -t 0 ] <&-; echo "-t 0 redirected $?"
+
+# What it says is about that command alone.
+awk '{print}' <&- 2> /dev/null
+awk '{print}' f
+echo "after a failure $?"
+cd /
+rm -rf "$d"

@@ -1634,6 +1634,14 @@
             "expect": "match_bash"
         },
         {
+            "id": "bash_parity_applets_closed_stdin",
+            "name": "A command with a closed stdin fails and says so",
+            "category": "parity",
+            "description": "Commands that cannot read their input fail with a message and write nothing first, and a closed stdin is no terminal. On iOS these are applets.",
+            "script": "Tests/exsh/tests/bash_parity_applets_closed_stdin.exsh",
+            "expect": "match_bash"
+        },
+        {
             "id": "closed_stdout_bash5",
             "name": "A closed stdout, what only bash 5 checks",
             "category": "parity",
