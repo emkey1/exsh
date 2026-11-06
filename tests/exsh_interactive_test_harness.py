@@ -1917,7 +1917,7 @@ def scenario_syntax_error_does_not_hang(shell: PtyShell) -> tuple[bool, str]:
     return True, "a genuine syntax error reported without waiting for more input"
 
 
-def _ends_the_shell(shell: PtyShell, test_id: str, lines: list[str]) -> tuple[bool, str]:
+def _ends_the_shell(shell: PtyShell, test_id: str, lines: list[str], want_status: int | None = 0) -> tuple[bool, str]:
     """On iOS these end the session, wherever they run. Each line's {out} takes only what must not run."""
     # On a host they signal the real pid 1, which a run as root in a container would feel.
     if "ios-host" not in str(shell.executable):
@@ -1940,8 +1940,8 @@ def _ends_the_shell(shell: PtyShell, test_id: str, lines: list[str]) -> tuple[bo
         status = shell.proc.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
         return False, "the shell's process did not end"
-    if status != 0:
-        return False, f"status {status}, want 0: it ended as it was asked to"
+    if want_status is not None and status != want_status:
+        return False, f"status {status}, want {want_status}: it ended as it was asked to"
     return True, ""
 
 
@@ -1970,6 +1970,16 @@ def scenario_halt_ends_its_callers(shell: PtyShell) -> tuple[bool, str]:
         "f() {{ halt; echo in_function >> {out}; }}; for i in 1 2; do f; echo in_loop >> {out}; done; echo same_line >> {out}",
         "echo next_line >> {out}",
     ])
+
+
+def scenario_halt_from_a_job_ends_the_shell_at_its_prompt(shell: PtyShell) -> tuple[bool, str]:
+    """Nothing is typed after: the shell at its prompt ends without waiting for a line."""
+    return _ends_the_shell(shell, "halt_job", ["(sleep 1; halt) &"])
+
+
+def scenario_hangup_from_a_job_ends_the_shell_at_its_prompt(shell: PtyShell) -> tuple[bool, str]:
+    """As under bash, SIGHUP ends an interactive shell waiting at its prompt, then and there."""
+    return _ends_the_shell(shell, "hup_job", ["(sleep 1; kill -HUP $$) &"], want_status=None)
 
 
 def scenario_newline_is_no_continuation(shell: PtyShell) -> tuple[bool, str]:
@@ -2254,6 +2264,16 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_halt_callers",
         name="halt in a function in a loop ends them and the shell",
         run=scenario_halt_ends_its_callers,
+    ),
+    Scenario(
+        test_id="interactive_halt_from_job",
+        name="halt from a job ends the shell waiting at its prompt, with no line typed",
+        run=scenario_halt_from_a_job_ends_the_shell_at_its_prompt,
+    ),
+    Scenario(
+        test_id="interactive_hangup_from_job",
+        name="SIGHUP from a job ends the shell waiting at its prompt, with no line typed",
+        run=scenario_hangup_from_a_job_ends_the_shell_at_its_prompt,
     ),
     Scenario(
         test_id="interactive_line_wrap_plain_prompt",

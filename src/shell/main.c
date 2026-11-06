@@ -91,6 +91,8 @@ static _Thread_local volatile sig_atomic_t gInteractiveHasOldSigtstp = 0;
  * and the read comes back EINTR with no way to tell SIGINT from any other
  * interruption - this flag is that way. */
 static _Thread_local volatile sig_atomic_t gInteractiveSigintSeen = 0;
+/* A signal that ends the shell came while it waited at the prompt. */
+static _Thread_local bool gPromptSignalEnded = false;
 static _Thread_local bool gInteractiveLineDrawn = false;
 /* The line as drawn ended on the last column of a row, so the cursor is already on a new row. */
 static _Thread_local bool gInteractiveLineFilledRow = false;
@@ -319,6 +321,10 @@ static void shellTeardownSelfVproc(int status) {
     vprocDestroy(gShellSelfVproc);
     gShellSelfVproc = NULL;
     if (session_stdio) {
+        /* Its reader first: a close of a host terminal waits for a read of it to end. */
+        if (session_stdio->stdin_host_fd >= 0) {
+            vprocSessionInputStop(session_stdio);
+        }
         if (session_stdio->stdin_host_fd >= 0) close(session_stdio->stdin_host_fd);
         if (session_stdio->stdout_host_fd >= 0) close(session_stdio->stdout_host_fd);
         if (session_stdio->stderr_host_fd >= 0) close(session_stdio->stderr_host_fd);
@@ -3420,6 +3426,16 @@ static char *readInteractiveLine(const char *prompt,
                     interrupted = true;
                     break;
                 }
+#if defined(PSCAL_TARGET_IOS)
+                /* The read woke for a signal that ends this shell, as halt sends from a job:
+                 * it ends now, not when the next line is typed. */
+                shellRuntimeProcessPendingSignals();
+                if (shellRuntimeConsumeExitRequested()) {
+                    gPromptSignalEnded = true;
+                    eof_requested = true;
+                    break;
+                }
+#endif
                 continue;
             }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -4162,7 +4178,7 @@ static char *readInteractiveLine(const char *prompt,
         return NULL;
     }
 
-    if (eof_requested && length == 0) {
+    if (eof_requested && (length == 0 || gPromptSignalEnded)) {
         free(buffer);
         if (out_eof) {
             *out_eof = true;
@@ -4287,6 +4303,7 @@ static int runInteractiveSession(const ShellRunOptions *options) {
     exec_opts.keep_line_state = true;
 
     int last_status = shellRuntimeLastStatus();
+    gPromptSignalEnded = false;
     bool tty = pscalRuntimeStdinIsInteractive();
     const char *force_no_tty = getenv("PSCAL_FORCE_NO_TTY");
     if (force_no_tty && *force_no_tty && force_no_tty[0] != '0') {
@@ -4327,6 +4344,9 @@ static int runInteractiveSession(const ShellRunOptions *options) {
             if (!line && interactive_eof) {
                 shellWriteStdoutChar('\n');
                 free(prompt_storage);
+                if (gPromptSignalEnded) {
+                    last_status = shellRuntimeLastStatus();
+                }
                 break;
             }
         }
@@ -4414,6 +4434,11 @@ static int runInteractiveSession(const ShellRunOptions *options) {
             }
             line = appendContinuationLine(line, more);
             free(more);
+        }
+        if (gPromptSignalEnded) {
+            free(line);
+            last_status = shellRuntimeLastStatus();
+            break;
         }
         if (!line) {
             fprintf(stderr, "exsh: out of memory reading continuation line\n");
