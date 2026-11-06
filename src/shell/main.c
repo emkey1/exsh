@@ -4533,6 +4533,16 @@ int exsh_main(int argc, char **argv) {
         }
         pthread_sigmask(SIG_BLOCK, &block_set, NULL);
     }
+    /* SIGPIPE ignored for the host process, as the app does before it starts a shell. signal()
+     * here and in shellRunSource goes to the vproc's own table, so on the host build a write
+     * to a FIFO whose reader had gone ended the whole shell with 141. A write gets EPIPE. */
+    if (!nested) {
+        struct sigaction ignore_pipe;
+        memset(&ignore_pipe, 0, sizeof(ignore_pipe));
+        sigemptyset(&ignore_pipe.sa_mask);
+        ignore_pipe.sa_handler = SIG_IGN;
+        (void)vprocHostSigaction(SIGPIPE, &ignore_pipe, NULL);
+    }
     const int saved_param_count = gParamCount;
     char **const saved_param_values = gParamValues;
     const bool saved_param_owned = gParamValuesOwned;
