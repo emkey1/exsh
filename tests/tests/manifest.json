@@ -1217,6 +1217,14 @@
       "expect": "match_bash"
     },
     {
+      "id": "bash_parity_reader_left_stage",
+      "name": "A compound stage goes on when its reader leaves",
+      "category": "parity",
+      "description": "A group, subshell, if, while or function as the first stage: only the command writing to the closed pipe ends, with 141, and the rest runs. A builtin's own write still ends the stage.",
+      "script": "Tests/exsh/tests/bash_parity_reader_left_stage.exsh",
+      "expect": "match_bash"
+    },
+    {
       "id": "bash_parity_background_group",
       "name": "A compound command in the background runs beside the shell",
       "category": "parity",

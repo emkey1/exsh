@@ -1,0 +1,41 @@
+#!/usr/bin/env exsh
+# A compound first stage whose reader left goes on: only the command that wrote to the closed pipe
+# dies of SIGPIPE (141), as a forked child does under bash. On iOS the program runs on the stage's
+# own thread, and its failed write ended the whole stage. A builtin writing there is the stage
+# itself, so that one still ends it.
+d="${TMPDIR:-/tmp}/exsh_parity_reader_left.$$"
+rm -rf "$d"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+seq 1 40000 > big
+
+show() {
+  if [ -f s ]; then echo "$1: $(cat s)"; else echo "$1: ended"; fi
+  rm -f s
+}
+
+{ cat big; echo "x $?" > s; } | head -1 > /dev/null
+show group
+( cat big; echo "x $?" > s ) | head -1 > /dev/null
+show subshell
+if true; then cat big; echo "x $?" > s; fi | head -1 > /dev/null
+show if
+while :; do cat big; echo "x $?" > s; break; done | head -1 > /dev/null
+show while
+f() { cat big; echo "x $?" > s; }
+f | head -1 > /dev/null
+show function
+{ cat big; cat big; echo "x $?" > s; } | head -1 > /dev/null
+show twice
+{ cat big | cat; echo "x $?" > s; } | head -1 > /dev/null
+show "inner pipeline"
+{ command cat big; echo "x $?" > s; } | head -1 > /dev/null
+show "command cat"
+
+# The builtin's own write is the stage's: under bash the subshell dies there.
+{ i=0; while [ "$i" -lt 100000 ]; do echo y; i=$((i + 1)); done; echo "x $?" > s; } | head -1 > /dev/null
+show "builtin writes"
+{ i=0; while [ "$i" -lt 100000 ]; do printf 'y\n'; i=$((i + 1)); done; echo "x $?" > s; } | head -1 > /dev/null
+show "printf writes"
+cd /
+rm -rf "$d"
