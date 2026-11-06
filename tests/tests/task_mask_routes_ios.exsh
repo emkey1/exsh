@@ -5,10 +5,16 @@
 # client that called umask set it for every tab.
 # Each route runs twice, once in the shell with mask M, and once in a subshell with M while the
 # shell has another. The modes must match.
+# ssh-keygen once: a second in one shell can abort or hang on the host test build. It runs
+# here, by a name from the start directory, which the shell and OpenSSH's clients read alike
+# on every build. Looser than the shell's 077, and the private key keeps the 0600 it asks for.
+kg=".exsh_task_mask_kg.$$"
+rm -rf "$kg"; mkdir "$kg"
+umask 077; ( umask 022; ssh-keygen -q -t ed25519 -N "" -C t -f "$kg/out" < /dev/null ); umask 022
+ls -l "$kg/out" "$kg/out.pub" | cut -c1-10
+rm -rf "$kg"
+
 d="${TMPDIR:-/tmp}/exsh_task_mask.$$"
-# On the host test build $HOME is the shell's root, and OpenSSH's clients, which take host
-# paths there, are given the directory as the host names it.
-hp() { case $PWD in "$HOME"/*) echo "$PWD" ;; *) echo "$HOME$PWD" ;; esac; }
 rm -rf "$d"
 mkdir -p "$d" || exit 1
 cd "$d" || exit 1
@@ -42,11 +48,6 @@ route mkdir 'mkdir out out2'
 route applets 'echo x | tee out > /dev/null; cp out out2; touch out3; mkdir -p out4/x'
 route nested 'sh -c ": > out"; x=$(: > out2); { : > out3; } & wait'
 route git 'git init -q out'
-# ssh-keygen once: a second in one shell can abort or hang on the host test build. Looser than
-# the shell's 077, and the private key keeps the 0600 it asks for.
-umask 077; mkdir kg; ( umask 022; cd kg && ssh-keygen -q -t ed25519 -N "" -C t -f "$(hp)/out" < /dev/null ); umask 022
-ls -l kg/out kg/out.pub | cut -c1-10
-
 # A client's umask is its own: the shell's, and what the shell makes, stay as they were.
 umask 002
 ssh -G host-a.invalid > /dev/null 2>&1
