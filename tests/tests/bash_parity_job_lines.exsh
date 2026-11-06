@@ -47,6 +47,13 @@ gone() { while kill -0 "$1" 2>/dev/null; do sleep 0.02; done; }
 ( true & gone $!; jobs | wc -l | n; jobs | wc -l | n; jobs > /dev/null; jobs | wc -l | n )
 ( true & gone $!; x=$(jobs); echo "$x" | s; jobs > f; s < f; jobs > f; wc -l < f | n )
 ( true & gone $!; x=$(jobs | wc -l | n); echo "[$x]"; jobs > f; wc -l < f | n )
+# A substitution is a fork under bash, whose child drops what has ended but for the job $! names.
+m() { sed -E 's/\][-+ ]/]/; s/  +/ /g'; }
+( false & gone $!; true & gone $!; x=$(jobs); echo "$x" | m )
+( false & gone $!; true & gone $!; x=$(sleep 0.2 & jobs | wc -l | n); echo "[$x]"; wait )
+( false & gone $!; sleep 9 & p=$!; x=$(jobs); echo "$x" | m; kill $p; wait ) 2>/dev/null
+( false & gone $!; true & gone $!; x=$(x=$(jobs); echo "$x"); echo "$x" | m )
+( false & gone $!; true & gone $!; x=$(wait %1 2>/dev/null; echo "w $?"; wait %2; echo "w $?"); echo "$x" )
 
 # Options on one that has ended.
 ( true & gone $!; jobs -r; echo r; jobs -s; echo s; jobs > f; s < f )
