@@ -162,6 +162,8 @@ static const ShellBuiltinEntry kShellBuiltins[] = {
     {"tr", "tr", -1},
     {"su", "su", -1},
     {"sudo", "sudo", -1},
+    {"passwd", "passwd", -1},
+    {"login", "login", -1},
     {"uptime", "uptime", -1},
     {"uname", "uname", -1},
     {"watch", "watch", -1},
