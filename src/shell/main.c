@@ -5044,9 +5044,11 @@ static int shellRunSessionArgv(int argc, char **argv) {
     const char *call_name = (slash && slash[1] != '\0') ? slash + 1 : arg0;
 
 #if defined(PSCAL_TARGET_IOS)
-    int self_pid = vprocGetPidShim();
-    if (self_pid > 0 && call_name && call_name[0] != '\0') {
-        vprocSetCommandLabel(self_pid, call_name);
+    /* Only a task of this thread's own. A new tab's thread has none yet, and getpid there
+     * names the first tab's shell, or the app itself before any shell: both took this name. */
+    VProc *self_vp = vprocCurrent();
+    if (self_vp && call_name && call_name[0] != '\0') {
+        vprocSetCommandLabel(vprocPid(self_vp), call_name);
     }
 #endif
 
