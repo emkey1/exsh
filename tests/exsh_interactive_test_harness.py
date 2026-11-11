@@ -643,7 +643,7 @@ def scenario_wrapped_line_with_glyphs(shell: PtyShell) -> tuple[bool, str]:
         return False, reason
     folder = _new_marker_path("wrap_glyphs").with_suffix("")
     folder.mkdir(parents=True)
-    # Typed text can't hold these yet, so they come from completing a file's name.
+    # These come from completing a file's name; interactive_line_wrap_typed_glyphs types them.
     name = "日本語éé⚡" * 12
     try:
         (folder / name).write_text("")
@@ -679,6 +679,203 @@ def scenario_wrapped_line_with_glyphs(shell: PtyShell) -> tuple[bool, str]:
         return True, ""
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+
+
+def scenario_typed_glyphs_wrap(shell: PtyShell) -> tuple[bool, str]:
+    """As scenario_wrapped_line_with_glyphs, with the glyphs typed or pasted rather than completed."""
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if not ok:
+        return False, reason
+    # Two, three and four bytes; one cell, two and none (an e with a combining acute).
+    text = ": " + ("日本語é" + "e\u0301" + "⚡😀") * 8
+    for cols in (21, 40, 41):
+        mark = _fresh_prompt(shell, cols, "p> ")
+        _type_text(shell, text)
+        want_lines, want_cursor = _wants_line(cols, "p> ", text)
+        problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+        if problem:
+            return False, f"typing: {problem}"
+        shell.send(b"\x7f\x7f")
+        text_now = text[:-2]
+        want_lines, want_cursor = _wants_line(cols, "p> ", text_now)
+        problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+        if problem:
+            return False, f"after Backspace: {problem}"
+        shell.send(b"\x1b[D\x1b[D")
+        at = len(text_now) - 3  # back over e with its mark, and over é
+        want_lines, want_cursor = _wants_line(cols, "p> ", text_now, at)
+        problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+        if problem:
+            return False, f"after two Lefts: {problem}"
+        shell.send("\x1b[3~⚡".encode("utf-8"))
+        text_now = text_now[:at] + "⚡" + text_now[at + 1:]
+        want_lines, want_cursor = _wants_line(cols, "p> ", text_now, at + 1)
+        problem = _screen_shows(shell, mark, cols, want_lines, want_cursor)
+        if problem:
+            return False, f"after Delete and a key: {problem}"
+    return True, ""
+
+
+def _line_writes(shell: PtyShell, keys: bytes, marker: Path) -> Optional[bytes]:
+    """Types keys ending in a command line that writes the marker, and gives what it wrote."""
+    _unlink_if_exists(marker)
+    shell.send(keys)
+    if not shell.wait_for_path(marker, timeout=max(shell.timeout, 10.0)):
+        return None
+    shell._pump(0.2)
+    return marker.read_bytes()
+
+
+def _utf8_ready(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _start_wrap_scenario(shell, "p> ")
+    if ok:
+        shell.set_size(80, 24)
+    return ok, reason
+
+
+def scenario_utf8_typed_runs(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _utf8_ready(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("utf8_typed")
+    where = _shell_path(marker)
+    # A key at a time, as typed, then the same pasted in one write.
+    word = "é⚡x😀ü日e\u0301"
+    line = f"printf '%s' {word} > {where}\r".encode("utf-8")
+    for paste in (False, True):
+        _unlink_if_exists(marker)
+        if paste:
+            shell.send(line)
+        else:
+            for byte in line:
+                shell.send(bytes([byte]))
+                shell._pump(0.001)
+        if not shell.wait_for_path(marker, timeout=max(shell.timeout, 10.0)):
+            return False, f"{'pasted' if paste else 'typed'} line wrote nothing"
+        shell._pump(0.2)
+        got = marker.read_bytes()
+        if got != word.encode("utf-8"):
+            return False, f"{'pasted' if paste else 'typed'} line wrote {got!r}, not {word!r}"
+    return True, ""
+
+
+def scenario_utf8_editing_keys(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _utf8_ready(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("utf8_keys")
+    where = _shell_path(marker)
+    head = "printf %s "
+    cases = [
+        # Delete takes ⚡ whole, Ctrl-T swaps 😀 and b whole.
+        ("aé⚡😀b", b"\x01" + b"\x06" * (len(head) + 2) + b"\x1b[3~" + b"\x06" + b"\x14", "aéb😀"),
+        # Ctrl-T at the end swaps the last two glyphs, one of them with its mark.
+        ("xyé\u0301日", b"\x05\x14", "xy日é\u0301"),
+        # Backspace takes e with its mark, two Lefts go over 😀 and b, ü goes in before them.
+        ("ab😀e\u0301", b"\x7f\x1b[D\x1b[D" + "ü".encode("utf-8"), "aüb😀"),
+    ]
+    for typed, keys, want in cases:
+        data = (head + typed).encode("utf-8") + keys + f"\x05 > {where}\r".encode("utf-8")
+        got = _line_writes(shell, data, marker)
+        if got is None:
+            return False, f"{typed!r} with keys {keys!r} wrote nothing"
+        if got != want.encode("utf-8"):
+            return False, f"{typed!r} with keys {keys!r} wrote {got.decode('utf-8', 'replace')!r}, not {want!r}"
+    return True, ""
+
+
+def scenario_utf8_invalid_bytes(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _utf8_ready(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("utf8_invalid")
+    where = _shell_path(marker).encode("utf-8")
+    # Bytes that make no character go in as they are, as bash takes them, and the byte that cut
+    # one short is still read as itself: a Latin-1 é before x, a lone continuation byte, a
+    # surrogate's lead, a lead byte with nothing after it but the space.
+    cases = [
+        b"\xe9x",
+        b"a\x80b",
+        b"\xff\xfe",
+        b"q\xed\xa0\x80",
+        b"z\xc3",
+        b"\xf0\x9f\x98",
+    ]
+    for raw in cases:
+        got = _line_writes(shell, b"printf %s " + raw + b" > " + where + b"\r", marker)
+        if got is None:
+            return False, f"{raw!r} wrote nothing"
+        if got != raw:
+            return False, f"{raw!r} wrote {got!r}"
+    return True, ""
+
+
+def scenario_utf8_history_and_search(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _utf8_ready(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("utf8_history")
+    where = _shell_path(marker)
+    word = f"hé⚡😀{os.getpid()}"
+    got = _line_writes(shell, f"printf %s {word} > {where}\r".encode("utf-8"), marker)
+    if got != word.encode("utf-8"):
+        return False, f"the first line wrote {got!r}"
+    # Up brings it back, and Delete on it takes é whole.
+    got = _line_writes(shell, b"\x1b[A" + b"\x01" + b"\x06" * len("printf %s h") + b"\x1b[3~" + "ü".encode("utf-8") + b"\r", marker)
+    want = word.replace("é", "ü", 1)
+    if got != want.encode("utf-8"):
+        return False, f"Up and an edit wrote {got!r}, not {want!r}"
+    # A reverse search for non-ASCII text, with a Backspace that takes a whole glyph.
+    query = "ü⚡😀"
+    got = _line_writes(shell, b"\x12" + (query + "日").encode("utf-8") + b"\x7f\r", marker)
+    if got != want.encode("utf-8"):
+        return False, f"searching for {query!r} wrote {got!r}, not {want!r}"
+    return True, ""
+
+
+def scenario_utf8_completion(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _utf8_ready(shell)
+    if not ok:
+        return False, reason
+    folder = _new_marker_path("utf8_complete").with_suffix("")
+    folder.mkdir(parents=True)
+    marker = _new_marker_path("utf8_complete_out")
+    try:
+        name = "é⚡😀-name"
+        (folder / name).write_text("")
+        (folder / "other").write_text("")
+        where = _shell_path(folder).removeprefix("./")
+        # The prefix typed holds two of the name's glyphs, so the match is made on them: without
+        # them both names would match and nothing would complete.
+        data = f"printf %s {where}/é⚡".encode("utf-8") + b"\t" + f"\x05> {_shell_path(marker)}\r".encode("utf-8")
+        got = _line_writes(shell, data, marker)
+        want = f"{where}/{name}"
+        if got != want.encode("utf-8"):
+            return False, f"completion wrote {got!r}, not {want!r}"
+        return True, ""
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def scenario_utf8_meta_keys(shell: PtyShell) -> tuple[bool, str]:
+    ok, reason = _utf8_ready(shell)
+    if not ok:
+        return False, reason
+    marker = _new_marker_path("utf8_meta")
+    where = _shell_path(marker)
+    head = f"printf %s > {where} "
+    cases = [
+        # ESC b and the ∫ macOS's Option+b gives are both a word back.
+        (head.encode("utf-8") + b"aa bb\x1bbX\r", "aaXbb"),
+        (head.encode("utf-8") + "aa bb∫X\r".encode("utf-8"), "aaXbb"),
+        # ESC with a character beyond ASCII is bound to nothing and leaves none of its bytes.
+        (head.encode("utf-8") + "aa\x1bé\r".encode("utf-8"), "aa"),
+    ]
+    for data, want in cases:
+        got = _line_writes(shell, data, marker)
+        if got != want.encode("utf-8"):
+            return False, f"{data!r} wrote {got!r}, not {want!r}"
+    return True, ""
 
 
 def scenario_ctrl_c_interrupts_sleep(shell: PtyShell) -> tuple[bool, str]:
@@ -2357,6 +2554,48 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_line_wrap_glyphs",
         name="A line holding glyphs of two cells and none wraps as the terminal does",
         run=scenario_wrapped_line_with_glyphs,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_typed_glyphs",
+        name="Typed glyphs of two cells and none wrap as the terminal does",
+        run=scenario_typed_glyphs_wrap,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_utf8_typed",
+        name="Characters beyond ASCII, typed or pasted, reach the command whole",
+        run=scenario_utf8_typed_runs,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_utf8_keys",
+        name="Delete, Backspace, Left and Ctrl-T take whole characters",
+        run=scenario_utf8_editing_keys,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_utf8_invalid",
+        name="Bytes that make no character go in as they are",
+        run=scenario_utf8_invalid_bytes,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_utf8_history",
+        name="History and reverse search hold characters beyond ASCII",
+        run=scenario_utf8_history_and_search,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_utf8_completion",
+        name="Completion matches a prefix beyond ASCII",
+        run=scenario_utf8_completion,
+        env={"PS1": "p> "},
+    ),
+    Scenario(
+        test_id="interactive_line_wrap_utf8_meta",
+        name="Meta and Option shortcuts still work beside UTF-8 input",
+        run=scenario_utf8_meta_keys,
         env={"PS1": "p> "},
     ),
 ]

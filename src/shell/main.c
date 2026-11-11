@@ -96,6 +96,9 @@ static _Thread_local bool gPromptSignalEnded = false;
 static _Thread_local bool gInteractiveLineDrawn = false;
 /* The line as drawn ended on the last column of a row, so the cursor is already on a new row. */
 static _Thread_local bool gInteractiveLineFilledRow = false;
+/* A byte read while finishing a UTF-8 character that turned out not to belong to it: the editor
+ * takes it as the next key. */
+static _Thread_local int gInteractivePendingByte = -1;
 
 static void shellSetPromptReadActive(bool active) {
 #if defined(PSCAL_TARGET_IOS)
@@ -1801,49 +1804,97 @@ static bool interactiveMapMacOptionComposedRune(wchar_t wc, unsigned char *out_k
     return false;
 }
 
+/* Every key the editor reads comes through here, so a byte handed back by the UTF-8 reader is
+ * the next one taken. */
+static ssize_t interactiveReadKeyByte(unsigned char *out) {
+    if (gInteractivePendingByte >= 0) {
+        *out = (unsigned char)gInteractivePendingByte;
+        gInteractivePendingByte = -1;
+        return 1;
+    }
+    return shellReadFd(STDIN_FILENO, out, 1);
+}
+
+/* Reads the rest of the character a byte >= 0x80 starts. The shell runs in the C locale, so this
+ * decodes UTF-8 itself; mbrtowc there gives each byte alone. Returns true with the code point
+ * for a whole, well-formed character. Otherwise the bytes read so far are in `bytes` (at least
+ * the first), to be taken literally as bash does, and a byte that could not continue the
+ * character is kept for the next read. */
 static bool interactiveReadUtf8Codepoint(unsigned char first,
-                                         wchar_t *out_wc,
+                                         uint32_t *out_cp,
                                          char *bytes,
                                          size_t *out_len) {
-    if (!out_wc || !bytes || !out_len) {
+    if (!out_cp || !bytes || !out_len) {
         return false;
     }
+    bytes[0] = (char)first;
+    *out_len = 1;
+    *out_cp = first;
     if (first < 0x80) {
-        bytes[0] = (char)first;
-        *out_len = 1;
-        *out_wc = (wchar_t)first;
         return true;
     }
 
     size_t expected = 0;
-    if ((first & 0xE0) == 0xC0) {
+    uint32_t cp = 0;
+    unsigned char lo = 0x80, hi = 0xBF; /* the second byte's range (RFC 3629) */
+    if (first >= 0xC2 && first <= 0xDF) {
         expected = 2;
-    } else if ((first & 0xF0) == 0xE0) {
+        cp = first & 0x1Fu;
+    } else if (first >= 0xE0 && first <= 0xEF) {
         expected = 3;
-    } else if ((first & 0xF8) == 0xF0) {
+        cp = first & 0x0Fu;
+        if (first == 0xE0) {
+            lo = 0xA0;
+        } else if (first == 0xED) {
+            hi = 0x9F;
+        }
+    } else if (first >= 0xF0 && first <= 0xF4) {
         expected = 4;
+        cp = first & 0x07u;
+        if (first == 0xF0) {
+            lo = 0x90;
+        } else if (first == 0xF4) {
+            hi = 0x8F;
+        }
     } else {
         return false;
     }
 
-    bytes[0] = (char)first;
     for (size_t i = 1; i < expected; ++i) {
         unsigned char next = 0;
-        ssize_t count = shellReadFd(STDIN_FILENO, &next, 1);
-        if (count <= 0 || (next & 0xC0) != 0x80) {
+        if (interactiveReadKeyByte(&next) <= 0) {
+            return false;
+        }
+        unsigned char min = (i == 1) ? lo : 0x80;
+        unsigned char max = (i == 1) ? hi : 0xBF;
+        if (next < min || next > max) {
+            gInteractivePendingByte = next;
             return false;
         }
         bytes[i] = (char)next;
+        *out_len = i + 1;
+        cp = (cp << 6) | (next & 0x3Fu);
     }
-
-    mbstate_t st;
-    memset(&st, 0, sizeof(st));
-    size_t consumed = mbrtowc(out_wc, bytes, expected, &st);
-    if (consumed == (size_t)-1 || consumed == (size_t)-2 || consumed == 0) {
-        return false;
-    }
-    *out_len = consumed;
+    *out_cp = cp;
     return true;
+}
+
+static void interactiveReverseBytes(char *buffer, size_t start, size_t end) {
+    while (start + 1 < end) {
+        char tmp = buffer[start];
+        buffer[start++] = buffer[--end];
+        buffer[end] = tmp;
+    }
+}
+
+/* Swaps the spans [a, b) and [b, c) of the line. */
+static void interactiveSwapSpans(char *buffer, size_t a, size_t b, size_t c) {
+    if (a >= b || b >= c) {
+        return;
+    }
+    interactiveReverseBytes(buffer, a, b);
+    interactiveReverseBytes(buffer, b, c);
+    interactiveReverseBytes(buffer, a, c);
 }
 
 static bool interactiveHistoryNavigateUp(const char *prompt,
@@ -2086,7 +2137,7 @@ static bool interactiveReverseSearch(const char *prompt,
 
     while (true) {
         unsigned char input = 0;
-        ssize_t count = shellReadFd(STDIN_FILENO, &input, 1);
+        ssize_t count = interactiveReadKeyByte(&input);
         if (count <= 0) {
             break;
         }
@@ -2149,7 +2200,7 @@ static bool interactiveReverseSearch(const char *prompt,
 
         if (input == 127 || input == 8) { /* Backspace */
             if (query_length > 0) {
-                query_length--;
+                query_length = interactivePrevGlyph(query, query_length);
                 query[query_length] = '\0';
                 size_t next_start = 0;
                 free(match);
@@ -2165,9 +2216,17 @@ static bool interactiveReverseSearch(const char *prompt,
             continue;
         }
 
-        if (isprint(input)) {
-            if (query_length + 1 >= query_capacity) {
-                size_t new_capacity = query_capacity * 2;
+        if (isprint(input) || input >= 0x80) {
+            /* A character beyond ASCII joins the query whole. */
+            char typed[4];
+            size_t typed_len = 1;
+            uint32_t typed_cp = 0;
+            typed[0] = (char)input;
+            if (input >= 0x80) {
+                (void)interactiveReadUtf8Codepoint(input, &typed_cp, typed, &typed_len);
+            }
+            if (query_length + typed_len + 1 > query_capacity) {
+                size_t new_capacity = query_capacity * 2 + typed_len;
                 char *new_query = (char *)realloc(query, new_capacity);
                 if (!new_query) {
                     break;
@@ -2175,7 +2234,8 @@ static bool interactiveReverseSearch(const char *prompt,
                 query = new_query;
                 query_capacity = new_capacity;
             }
-            query[query_length++] = (char)input;
+            memcpy(query + query_length, typed, typed_len);
+            query_length += typed_len;
             query[query_length] = '\0';
             size_t next_start = 0;
             free(match);
@@ -3418,7 +3478,7 @@ static char *readInteractiveLine(const char *prompt,
     shellSetPromptReadActive(true);
     while (!done) {
         unsigned char ch = 0;
-        ssize_t read_count = shellReadFd(STDIN_FILENO, &ch, 1);
+        ssize_t read_count = interactiveReadKeyByte(&ch);
         if (read_count < 0) {
             if (errno == EINTR) {
                 if (out_interrupted && gInteractiveSigintSeen) {
@@ -3804,15 +3864,14 @@ static char *readInteractiveLine(const char *prompt,
         if (ch == 20) { /* Ctrl-T */
             alt_dot_active = false;
             alt_dot_offset = 0;
-            if (length >= 2 && cursor > 0) {
-                size_t pos1 = (cursor == length) ? length - 2 : cursor - 1;
-                size_t pos2 = (cursor == length) ? length - 1 : cursor;
-                char tmp = buffer[pos1];
-                buffer[pos1] = buffer[pos2];
-                buffer[pos2] = tmp;
-                if (cursor < length) {
-                    cursor++;
-                }
+            /* By the glyph, as bash in a UTF-8 locale: at the end of the line the last two
+             * swap, elsewhere the one before the cursor and the one under it. */
+            size_t mid = (cursor == length) ? interactivePrevGlyph(buffer, length) : cursor;
+            size_t first = (cursor > 0) ? interactivePrevGlyph(buffer, mid) : mid;
+            size_t last = (cursor == length) ? length : interactiveNextGlyph(buffer, length, cursor);
+            if (cursor > 0 && first < mid && mid < last) {
+                interactiveSwapSpans(buffer, first, mid, last);
+                cursor = last;
                 redrawInteractiveLine(prompt,
                                       buffer,
                                       length,
@@ -3927,7 +3986,7 @@ static char *readInteractiveLine(const char *prompt,
 
         if (ch == 27) { /* Escape sequence */
             unsigned char seq[3];
-            if (shellReadFd(STDIN_FILENO, &seq[0], 1) <= 0) {
+            if (interactiveReadKeyByte(&seq[0]) <= 0) {
                 continue;
             }
             if (seq[0] == '[') {
@@ -3936,7 +3995,7 @@ static char *readInteractiveLine(const char *prompt,
                 bool csi_complete = false;
                 while (csi_len + 1 < sizeof(csi)) {
                     unsigned char next = 0;
-                    if (shellReadFd(STDIN_FILENO, &next, 1) <= 0) {
+                    if (interactiveReadKeyByte(&next) <= 0) {
                         break;
                     }
                     csi[csi_len++] = next;
@@ -4050,6 +4109,18 @@ static char *readInteractiveLine(const char *prompt,
                 }
                 continue;
             }
+            if (seq[0] >= 0x80) {
+                /* Meta with a character beyond ASCII is bound to nothing: take the whole
+                 * character, so its other bytes don't land on the line. */
+                uint32_t meta_cp = 0;
+                char meta_bytes[4];
+                size_t meta_len = 0;
+                (void)interactiveReadUtf8Codepoint(seq[0], &meta_cp, meta_bytes, &meta_len);
+                alt_dot_active = false;
+                alt_dot_offset = 0;
+                shellWriteStdoutChar('\a');
+                continue;
+            }
             if (interactiveHandleAltShortcut(seq[0],
                                              prompt,
                                              &buffer,
@@ -4088,30 +4159,49 @@ static char *readInteractiveLine(const char *prompt,
             continue;
         }
 
-        if (!isprint(ch)) {
-            if (ch >= 0x80) {
-                wchar_t option_wc = 0;
-                char utf8_bytes[4];
-                size_t utf8_len = 0;
-                unsigned char alt_key = 0;
-                if (interactiveReadUtf8Codepoint(ch, &option_wc, utf8_bytes, &utf8_len) &&
-                    interactiveMapMacOptionComposedRune(option_wc, &alt_key) &&
-                    interactiveHandleAltShortcut(alt_key,
-                                                 prompt,
-                                                 &buffer,
-                                                 &length,
-                                                 &cursor,
-                                                 &capacity,
-                                                 &displayed_length,
-                                                 &displayed_prompt_lines,
-                                                 &history_index,
-                                                 &scratch,
-                                                 &kill_buffer,
-                                                 &alt_dot_offset,
-                                                 &alt_dot_active)) {
-                    continue;
-                }
+        if (ch >= 0x80) {
+            /* A character beyond ASCII goes in whole. Bytes that make no character go in as
+             * they are, as bash takes them. The few runes macOS's Option key composes for a
+             * Meta shortcut still run the shortcut. */
+            uint32_t cp = 0;
+            char utf8_bytes[4];
+            size_t utf8_len = 0;
+            unsigned char alt_key = 0;
+            bool whole = interactiveReadUtf8Codepoint(ch, &cp, utf8_bytes, &utf8_len);
+            if (whole && interactiveMapMacOptionComposedRune((wchar_t)cp, &alt_key) &&
+                interactiveHandleAltShortcut(alt_key,
+                                             prompt,
+                                             &buffer,
+                                             &length,
+                                             &cursor,
+                                             &capacity,
+                                             &displayed_length,
+                                             &displayed_prompt_lines,
+                                             &history_index,
+                                             &scratch,
+                                             &kill_buffer,
+                                             &alt_dot_offset,
+                                             &alt_dot_active)) {
+                continue;
             }
+            alt_dot_active = false;
+            alt_dot_offset = 0;
+            if (!interactiveInsertText(&buffer, &length, &capacity, &cursor, utf8_bytes, utf8_len)) {
+                shellWriteStdoutChar('\a');
+                continue;
+            }
+            redrawInteractiveLine(prompt,
+                                  buffer,
+                                  length,
+                                  cursor,
+                                  &displayed_length,
+                                  &displayed_prompt_lines);
+            history_index = 0;
+            interactiveUpdateScratch(&scratch, buffer, length);
+            continue;
+        }
+
+        if (!isprint(ch)) {
             alt_dot_active = false;
             alt_dot_offset = 0;
             shellWriteStdoutChar('\a');
