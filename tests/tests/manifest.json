@@ -163,6 +163,15 @@
     "expected_stdout": "-rw-------\n-rw-r--r--\nredirect 077: same\nredirect 000: same\nredirect 027: same\nmkdir 077: same\nmkdir 000: same\nmkdir 027: same\napplets 077: same\napplets 000: same\napplets 027: same\nnested 077: same\nnested 000: same\nnested 027: same\ngit 077: same\ngit 000: same\ngit 027: same\n0002\n-rw-rw-r--"
   },
   {
+    "id": "ssh_keygen_forms_ios",
+    "name": "ssh-keygen many times in one shell, reading the command's stdin (iOS)",
+    "category": "pipeline_ios",
+    "description": "A second ssh-keygen in one process used to abort on a free of the last run's argv; no -N with stdin at its end hung; Overwrite (y/n)? and -f - read the host's fd 0; two at once shared options; -y wrote past a pipe.",
+    "script": "Tests/exsh/tests/ssh_keygen_forms_ios.exsh",
+    "expect": "runtime_ok",
+    "expected_stdout": "first 0\nsecond 0\nrsa 0\nencrypted 0\nlist private 0\npublic of encrypted 0\nsame public\necdsa-sha2-nistp256\npublic in substitution\nsubshell 0\nsubshell again 0\nno passphrase given 0\nunencrypted 0\nkept 1\nunchanged\noverwrote 0\nreplaced\nstdin list\npipe list\ntwo at once bad=0"
+  },
+  {
     "id": "pipeline_bg_pipe_redirect_ios",
     "name": "Background pipeline redirection (iOS)",
     "category": "pipeline_ios",

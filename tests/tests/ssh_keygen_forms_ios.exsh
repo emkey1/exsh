@@ -1,0 +1,57 @@
+#!/usr/bin/env exsh
+# ssh-keygen, many times in one shell, as Linux runs it. On iOS every command shares one
+# process, so a second run sees what the first left behind:
+# - its reset freed the -N, -P, -I and -n values, which point into the last run's argv:
+#   the second run aborted (SIGABRT, "pointer being freed was not allocated"), or said
+#   "Too many arguments", or the heap went bad later;
+# - -y wrote the key with fwrite to the host's stdout, past a pipe or $(...);
+# - the passphrase question waited for good at the end of input (no -N, stdin at end);
+# - "Overwrite (y/n)?" and `-f -` read the host's fd 0, not the command's stdin.
+# A hang here fails the test by the harness's timeout.
+d="${TMPDIR:-/tmp}/exsh_keygen_forms.$$"
+rm -rf "$d"; mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+fp() { ssh-keygen -l -f "$1" | cut -d' ' -f2; }
+
+ssh-keygen -q -t ed25519 -N "" -C one -f a < /dev/null; echo "first $?"
+ssh-keygen -q -t ed25519 -N "" -C two -f b < /dev/null; echo "second $?"
+ssh-keygen -q -t rsa -b 1024 -N "" -C three -f c < /dev/null; echo "rsa $?"
+ssh-keygen -q -t ecdsa -N secret1 -C four -f e < /dev/null; echo "encrypted $?"
+ssh-keygen -l -f a > /dev/null; echo "list private $?"
+ssh-keygen -y -P secret1 -f e > e.out; echo "public of encrypted $?"
+cmp -s e.out e.pub && echo "same public" || { echo "public differs"; cat e.out e.pub; }
+# The key itself went to the app's own stdout with fwrite, past a pipe or $(...).
+ssh-keygen -y -P secret1 -f e | cut -d' ' -f1
+k=$(ssh-keygen -y -P secret1 -f e); [ "$k" = "$(cat e.pub)" ] && echo "public in substitution" || echo "substitution got [$k]"
+( ssh-keygen -q -t ed25519 -N "" -f s > /dev/null 2>&1 ); echo "subshell $?"
+( ssh-keygen -q -t ed25519 -N "" -f s2 > /dev/null 2>&1 ); echo "subshell again $?"
+
+# No -N and no terminal: the end of input is an empty passphrase, and the key is made.
+ssh-keygen -q -t ed25519 -C empty -f p < /dev/null > /dev/null 2>&1; echo "no passphrase given $?"
+ssh-keygen -y -P "" -f p > /dev/null; echo "unencrypted $?"
+
+# The answer to "Overwrite (y/n)?" comes from the command's stdin.
+old=$(fp a)
+echo n | ssh-keygen -q -t ed25519 -N "" -f a > /dev/null; echo "kept $?"
+[ "$(fp a)" = "$old" ] && echo "unchanged" || echo "changed"
+echo y | ssh-keygen -q -t ed25519 -N "" -f a > /dev/null; echo "overwrote $?"
+[ "$(fp a)" != "$old" ] && echo "replaced" || echo "not replaced"
+
+# -f - reads the command's stdin, twice in one shell.
+[ "$(ssh-keygen -l -f - < b.pub | cut -d' ' -f2)" = "$(fp b)" ] && echo "stdin list" || echo "stdin list differs"
+[ "$(cat c.pub | ssh-keygen -l -f - | cut -d' ' -f2)" = "$(fp c)" ] && echo "pipe list" || echo "pipe list differs"
+
+# Two at once keep their own options.
+bad=0; i=0
+while [ $i -lt 8 ]; do
+    i=$((i+1)); rm -f x x.pub y y.pub
+    ssh-keygen -q -t rsa -b 1024 -N "" -C xx -f x < /dev/null &
+    ssh-keygen -q -t ed25519 -N "" -C yy -f y < /dev/null &
+    wait
+    case "$(cat x.pub 2>/dev/null)" in "ssh-rsa "*" xx") ;; *) bad=$((bad+1));; esac
+    case "$(cat y.pub 2>/dev/null)" in "ssh-ed25519 "*" yy") ;; *) bad=$((bad+1));; esac
+done
+echo "two at once bad=$bad"
+
+cd /
+rm -rf "$d"

@@ -5,9 +5,9 @@
 # client that called umask set it for every tab.
 # Each route runs twice, once in the shell with mask M, and once in a subshell with M while the
 # shell has another. The modes must match.
-# ssh-keygen once: a second in one shell can abort or hang on the host test build. It runs
-# here, by a name from the start directory, which the shell and OpenSSH's clients read alike
-# on every build. Looser than the shell's 077, and the private key keeps the 0600 it asks for.
+# ssh-keygen by a name from the start directory, which the shell and OpenSSH's clients read
+# alike on every build (ssh_keygen_forms_ios runs it many times in one shell). Looser than the
+# shell's 077, and the private key keeps the 0600 it asks for.
 kg=".exsh_task_mask_kg.$$"
 rm -rf "$kg"; mkdir "$kg"
 umask 077; ( umask 022; ssh-keygen -q -t ed25519 -N "" -C t -f "$kg/out" < /dev/null ); umask 022
