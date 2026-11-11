@@ -1,0 +1,26 @@
+#!/usr/bin/env exsh
+# /proc/$$/fd/N is the shell's descriptor as it stands, redirections of the group it is in
+# included: at top level, in a sourced file, in eval, and from a pipeline stage.
+[ -e "/proc/$$/fd/1" ] || exit 77
+d="${TMPDIR:-/tmp}/exsh_proc_pid_fd.$$"
+mkdir -p "$d" || exit 1
+cd "$d" || exit 1
+cat > inner.sh <<'X'
+{ echo a > /proc/$$/fd/1; } > f1
+echo "sourced [$(cat f1)]"
+{ { echo a >> /proc/$$/fd/1; echo b; } | tr b c > g2; } > f2
+echo "stage [$(cat f2)] [$(cat g2)]"
+{ ls /proc/$$/fd | grep -x 7 > f3b; } 7> f3
+echo "listing [$(cat f3b)]"
+eval '{ echo e > /proc/$$/fd/1; } > f4'
+echo "eval [$(cat f4)]"
+{ a=$(readlink /proc/$$/fd/8); b=$(readlink /proc/self/fd/8); [ -n "$a" ] && [ "$a" = "$b" ] && echo "link same"; } 8> f5
+{ case $(readlink /proc/$$/fd/8) in */f6) echo "link moved";; *) echo "link stale";; esac; } 8> f6
+X
+{ echo a > /proc/$$/fd/1; } > f0
+echo "top [$(cat f0)]"
+. ./inner.sh
+eval '. ./inner.sh' > /dev/null
+{ ls /proc/$$/fd | grep -x 9 > f3b; } 9> f3
+echo "after eval [$(cat f3b)]"
+cd / && rm -f "$d"/inner.sh "$d"/f0 "$d"/f1 "$d"/f2 "$d"/f3 "$d"/f3b "$d"/f4 "$d"/f5 "$d"/f6 "$d"/g2 && rmdir "$d"
