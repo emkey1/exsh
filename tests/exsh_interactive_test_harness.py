@@ -970,9 +970,13 @@ def scenario_ctrl_z_stops_local_vproc_and_restores_prompt(shell: PtyShell) -> tu
         return False, "Unable to capture stopped watch pid after first Ctrl-Z"
 
     prompt_after_stop = _prompt_count(shell)
+    # On a host, watch is a real curses program: in the background its first
+    # terminal change stops it again with SIGTTOU, as under bash on Linux, so
+    # there only bg's success and the job's survival are asked for.
+    running = "Running" if "ios-host" in str(shell.executable) else "-E 'Running|Stopped'"
     shell.send_line(
         "bg %1 >/dev/null 2>&1"
-        " && jobs | grep Running | grep 'watch -n' | grep date >/dev/null"
+        f" && jobs | grep {running} | grep 'watch -n' | grep date >/dev/null"
         f" && touch {_shell_path(marker_bg)}"
     )
     if not shell.wait_for_path(marker_bg, timeout=3.0):
