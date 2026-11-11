@@ -1,0 +1,12 @@
+#!/usr/bin/env exsh
+# exsh's release is MAJOR.MINOR.PATCH: --version and -v print it first, $EXSH_VERSION holds it and
+# EXSH_VERSINFO holds its parts as BASH_VERSINFO does. BASH_VERSION stays as scripts expect it.
+case $EXSH_VERSION in
+    [0-9]*.[0-9]*.[0-9]*) echo "numbered" ;;
+    *) echo "not numbered: $EXSH_VERSION" ;;
+esac
+[ "$(exsh --version | head -1)" = "exsh $EXSH_VERSION" ] && echo "--version"
+[ "$(exsh -v | head -1)" = "exsh $EXSH_VERSION" ] && echo "-v"
+[ "${EXSH_VERSINFO[0]}.${EXSH_VERSINFO[1]}.${EXSH_VERSINFO[2]}" = "$EXSH_VERSION" ] && echo "parts ${#EXSH_VERSINFO[@]}"
+[ "${EXSH_VERSINFO[4]}" = release ] && echo "release"
+echo "$BASH_VERSION ${BASH_VERSINFO[0]}"

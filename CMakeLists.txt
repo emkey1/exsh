@@ -47,12 +47,11 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# exsh version: the date of the last language-affecting change
-# (YYYY-MM-DD-N), checked into VERSION so everything built from this commit
-# reports the same value. Bumped on language changes, never per build, so the
-# date means "semantics last changed". Same arrangement aether already uses;
-# this repo reported a hardcoded 0.0.0 until then, which made `exsh -v`
-# useless for telling two builds apart.
+# exsh version: MAJOR.MINOR.PATCH, checked into VERSION so everything built
+# from this commit reports the same value. Bumped once per release that changes
+# exsh, never per commit: MAJOR for incompatible behaviour, MINOR for new
+# features or changed behaviour, PATCH for fixes only (see README.md and
+# CHANGELOG.md). `exsh --version`, $EXSH_VERSION and EXSH_VERSINFO report it.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" EXSH_VERSION LIMIT_COUNT 1)
 # file(STRINGS) reads VERSION at configure time and bakes it into
 # PROGRAM_VERSION below, so a plain incremental build after a bump would keep
@@ -75,6 +74,7 @@ set(PSCAL_ROOTFS_TAG "untagged" CACHE STRING
 
 add_compile_definitions(
     PROGRAM_VERSION="${EXSH_VERSION}"
+    EXSH_RELEASE_VERSION="${EXSH_VERSION}"
     PSCAL_GIT_TAG="${PSCAL_ROOTFS_TAG}"
     ENABLE_EXT_BUILTIN_MATH ENABLE_EXT_BUILTIN_STRINGS ENABLE_EXT_BUILTIN_SYSTEM
     ENABLE_EXT_BUILTIN_USER ENABLE_EXT_BUILTIN_YYJSON ENABLE_EXT_BUILTIN_3D

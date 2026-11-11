@@ -2318,6 +2318,15 @@
             "expect": "match_bash"
         },
         {
+            "id": "exsh_version",
+            "name": "exsh's version",
+            "category": "builtins",
+            "description": "MAJOR.MINOR.PATCH: --version and -v print it as `exsh X.Y.Z`, $EXSH_VERSION holds it and EXSH_VERSINFO its parts, laid out as BASH_VERSINFO is; BASH_VERSION stays 5.2.0(1)-exsh.",
+            "script": "Tests/exsh/tests/exsh_version.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "numbered\n--version\n-v\nparts 6\nrelease\n5.2.0(1)-exsh 5"
+        },
+        {
             "id": "bash_parity_history_options",
             "name": "history's options",
             "category": "parity",

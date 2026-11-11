@@ -29,6 +29,22 @@ A plain configure gives `RelWithDebInfo` (`-O2 -g`). Pass
 with no debug info. A build directory keeps the type it was first configured
 with.
 
+## Versions
+
+exsh's version is `MAJOR.MINOR.PATCH`, kept in [`VERSION`](VERSION), with what each release
+brings in [`CHANGELOG.md`](CHANGELOG.md). It is bumped once per release that changes exsh, not
+per commit:
+
+- **MAJOR** for a change that breaks a script that worked before,
+- **MINOR** for new features or changed behaviour,
+- **PATCH** for fixes only.
+
+`exsh --version` (or `-v`) prints it as `exsh 2.0.0`, followed by the build's own details. A
+script reads it from `$EXSH_VERSION`, or as parts from `EXSH_VERSINFO`, laid out like
+`BASH_VERSINFO`: major, minor, patch, build, release status, machine. `BASH_VERSION` and
+`BASH_VERSINFO` stay at the bash release exsh matches (`5.2.0(1)-exsh`), since scripts
+branch on them.
+
 ## Install
 
 ```sh
