@@ -4569,20 +4569,19 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         }
         shellRuntimeRecordHistory(line);
         bool exit_requested = false;
+        /* A command gets the terminal as it is anywhere else: line mode with echo, ISIG on,
+         * Ctrl-D as end of file, and raw mode only if it asks. A tab's terminal turns Ctrl-C
+         * and Ctrl-Z into signals to the foreground group itself, as Linux's line discipline
+         * does (L20). */
 #if defined(PSCAL_TARGET_IOS)
+        /* A host terminal (the iOS build run on a Mac, for tests) is read by the session's
+         * reader, which makes the Ctrl-C/Z byte a signal for the foreground job. A SIGINT
+         * from the host terminal would meet the process-wide block, and only a tool thread's
+         * catcher waits for it, so an applet such as sleep never heard it: ISIG is off. */
         struct termios runtime_original_termios;
         bool runtime_isig_disabled = false;
-        /* A command gets the terminal as it is anywhere else: line mode with echo, Ctrl-D
-         * as end of file, and raw mode only if it asks. ISIG is off where a reader takes
-         * the Ctrl-C/Z byte and makes it a signal for the foreground job: a tab whose
-         * session has one, and a host terminal (the iOS build run on a Mac), whose SIGINT
-         * would meet the process-wide block, where only a tool thread's catcher waits for
-         * it, so an applet such as sleep never heard it. A tab with no reader of its own
-         * (a second tab) keeps ISIG: its terminal sends the signal. */
-        VProcSessionStdio *exec_session = vprocSessionStdioCurrent();
-        const bool reader_session = exec_session && !vprocSessionStdioIsDefault(exec_session);
         const bool host_terminal = EXSH_HOST_TERMINAL;
-        if (tty && (reader_session || host_terminal) && pscalRuntimeStdinHasRealTTY() &&
+        if (tty && host_terminal && pscalRuntimeStdinHasRealTTY() &&
             shellTcgetattr(STDIN_FILENO, &runtime_original_termios) == 0) {
             struct termios runtime_termios = runtime_original_termios;
             runtime_termios.c_lflag &= ~ISIG;
