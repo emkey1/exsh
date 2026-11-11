@@ -4568,21 +4568,15 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         if (tty && pscalRuntimeStdinHasRealTTY() &&
             shellTcgetattr(STDIN_FILENO, &runtime_original_termios) == 0) {
             /* A command gets the terminal as it is anywhere else: line mode with
-             * echo, Ctrl-D as end of file, and raw mode only if it asks. Disable
-             * ISIG only when a PTY-backed session reader is active (device path),
-             * which consumes the Ctrl-C/Z byte and converts it to the abort flag.
-             * On a plain host TTY there is no such reader, so KEEP ISIG enabled:
-             * the terminal then generates SIGINT, which the process-wide block
-             * keeps from killing the shell and the tool-runner's sigwait catcher
-             * turns into the SIGUSR1 worker poke + abort flag. */
-            VProcSessionStdio *exec_session = vprocSessionStdioCurrent();
-            bool pty_session = exec_session && !vprocSessionStdioIsDefault(exec_session);
-            if (pty_session) {
-                struct termios runtime_termios = runtime_original_termios;
-                runtime_termios.c_lflag &= ~ISIG;
-                if (shellTcsetattr(STDIN_FILENO, TCSANOW, &runtime_termios) == 0) {
-                    runtime_isig_disabled = true;
-                }
+             * echo, Ctrl-D as end of file, and raw mode only if it asks. ISIG is
+             * off: the session's reader takes the Ctrl-C/Z byte and makes it a signal
+             * for the foreground job. A SIGINT from the host terminal instead would
+             * meet the process-wide block, and only a tool thread's catcher waits
+             * for it, so an applet such as sleep never heard it. */
+            struct termios runtime_termios = runtime_original_termios;
+            runtime_termios.c_lflag &= ~ISIG;
+            if (shellTcsetattr(STDIN_FILENO, TCSANOW, &runtime_termios) == 0) {
+                runtime_isig_disabled = true;
             }
         }
 #endif
