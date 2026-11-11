@@ -4917,6 +4917,29 @@ int exsh_main(int argc, char **argv) {
 
     shellSyncIdentityEnvFromPasswd();
     setenv("EXSH_LAST_STATUS", "0", 1);
+#if defined(PSCAL_TARGET_IOS)
+    if (!nested) {
+        /* $HOME in the app's names, as pwd, realpath and /proc/self/fd give them: the app
+         * starts a tab with the host's (.../Documents/home), and this tab's copy of the
+         * environment gets /home. The process's keeps the host's for what reads that one
+         * and takes no app paths (Swift, Go, libgit2). On the iOS-flavoured host the root
+         * is $HOME itself, whose name would be "/": that one stays as it is. */
+        const char *home = getenv("HOME");
+        char virtual_home[PATH_MAX];
+        if (home && home[0] == '/' && pathTruncateEnabled()) {
+            bool named = pathTruncateStrip(home, virtual_home, sizeof(virtual_home)) &&
+                         strcmp(virtual_home, home) != 0;
+            if (!named) {
+                /* Another spelling of the root (/private/var against /var). */
+                named = pscalPathVirtualized_realpath(home, virtual_home) != NULL &&
+                        strcmp(virtual_home, home) != 0;
+            }
+            if (named && strcmp(virtual_home, "/") != 0) {
+                setenv("HOME", virtual_home, 1);
+            }
+        }
+    }
+#endif
     {
         /* An inherited $PWD counts only if it names where we are. */
         const char *pwd = getenv("PWD");
