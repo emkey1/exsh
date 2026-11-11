@@ -3385,11 +3385,9 @@ static char *readInteractiveLine(const char *prompt,
         }
 
         raw_termios = original_termios;
-#if defined(PSCAL_TARGET_IOS)
+        /* ISIG off: Ctrl-C arrives as a byte, which drops the line below. As a SIGINT it
+         * left the line as it was on a host terminal. */
         raw_termios.c_lflag &= ~(ICANON | ECHO | ISIG);
-#else
-        raw_termios.c_lflag &= ~(ICANON | ECHO);
-#endif
         raw_termios.c_cc[VMIN] = 1;
         raw_termios.c_cc[VTIME] = 0;
         gInteractiveOriginalTermios = original_termios;
