@@ -21,15 +21,27 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 HARNESS_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = HARNESS_ROOT.parent.parent
+
+
+def _find_repo_root() -> Path:
+    """Where the scenarios run: the umbrella checkout, whose Examples/ and etc/words they use.
+    In the umbrella this file is components/exsh/tests, three levels down; alone, exsh's own."""
+    for candidate in HARNESS_ROOT.parents:
+        if (candidate / "Examples").is_dir() and (candidate / "etc").is_dir():
+            return candidate
+    return HARNESS_ROOT.parent.parent
+
+
+REPO_ROOT = _find_repo_root()
 DEFAULT_EXE = REPO_ROOT / "build" / "ios-host" / "bin" / "exsh"
 DEFAULT_TIMEOUT = 2.0
 MARKER_DIR = REPO_ROOT / ".tmp_tests" / "exsh_interactive"
 
 ANSI_CSI_RE = re.compile(r"\x1B\[[0-9;?]*[ -/]*[@-~]")
 ANSI_OSC_RE = re.compile(r"\x1B\][^\x07]*(?:\x07|\x1b\\)")
+# A `jobs -l` line for the watch job: [1]+ PID State watch -n 1 date
 LPS_WATCH_RE = re.compile(
-    r"^\s*(\d+)\s+\d+\s+\w+\s+[0-9]+(?:\.[0-9]+)?\s+[0-9]+(?:\.[0-9]+)?\s+watch -n 1 date\s*$",
+    r"^\s*\[\d+\][+-]?\s+(\d+)\s+\w+.*watch -n 1 date\s*$",
     re.MULTILINE,
 )
 
@@ -40,6 +52,9 @@ class Scenario:
     name: str
     run: Callable[["PtyShell"], tuple[bool, str]]
     env: Optional[dict[str, str]] = None
+    # Commands the scenario runs that a build may not have: watch and top are the iOS
+    # flavour's applets, and a macOS host has neither. Without one it is skipped, not failed.
+    needs: tuple[str, ...] = ()
 
 
 @dataclass
@@ -48,6 +63,7 @@ class Result:
     passed: bool
     reason: str
     output_tail: str
+    skipped: bool = False
 
 
 def _session_members(session: int) -> List[int]:
@@ -67,7 +83,7 @@ class PtyShell:
         self,
         executable: Path,
         timeout: float,
-        controlling_terminal: bool = False,
+        controlling_terminal: bool = True,
         extra_env: Optional[dict[str, str]] = None,
     ):
         self.executable = executable
@@ -89,6 +105,8 @@ class PtyShell:
         env["PS1"] = "PROMPT> "
         env["PS2"] = "CONT> "
         env.update(self.extra_env)
+        # The frontends a scenario runs are the ones built beside this shell.
+        env["PATH"] = f"{self.executable.parent}{os.pathsep}{env.get('PATH', '')}"
         self.proc = subprocess.Popen(
             [str(self.executable)],
             stdin=slave_fd,
@@ -250,11 +268,13 @@ def _latest_watch_pid(text: str) -> Optional[int]:
 
 
 def _latest_pid_for_command(text: str, command_substring: str) -> Optional[int]:
+    """The pid on the last line naming the command, in `jobs -l`'s form ([1]+ PID State
+    command) or a process list's (PID ... command)."""
     latest: Optional[int] = None
     for line in text.splitlines():
         if command_substring not in line:
             continue
-        match = re.match(r"^\s*(\d+)\s+", line)
+        match = re.match(r"^\s*(?:\[\d+\][+-]?\s+)?(\d+)\s+", line)
         if match:
             latest = int(match.group(1))
     return latest
@@ -935,16 +955,16 @@ def scenario_ctrl_z_stops_local_vproc_and_restores_prompt(shell: PtyShell) -> tu
         return False, "Ctrl-Z did not return shell prompt after suspending foreground vproc"
     shell.send_line(
         "jobs | grep Stopped | grep 'watch -n' | grep date >/dev/null"
-        " && lps | grep 'watch -n' >/dev/null"
+        " && jobs -l | grep 'watch -n' >/dev/null"
         f" && touch {_shell_path(marker_stop)}"
     )
     if not shell.wait_for_path(marker_stop, timeout=3.0):
         return False, "Suspended local vproc was not queryable from shell after Ctrl-Z"
     shell.send_line(
-        f"lps | grep 'watch -n 1 date' > {_shell_path(pid_before_path)}"
+        f"jobs -l | grep 'watch -n 1 date' > {_shell_path(pid_before_path)}"
     )
     if not shell.wait_for_path(pid_before_path, timeout=3.0):
-        return False, "Unable to capture lps output for stopped watch"
+        return False, "Unable to capture jobs -l output for stopped watch"
     stopped_pid_before = _latest_watch_pid(pid_before_path.read_text(errors="replace"))
     if stopped_pid_before is None:
         return False, "Unable to capture stopped watch pid after first Ctrl-Z"
@@ -972,10 +992,10 @@ def scenario_ctrl_z_stops_local_vproc_and_restores_prompt(shell: PtyShell) -> tu
         return False, "watch was not stopped again after fg -> Ctrl-Z"
 
     shell.send_line(
-        f"lps | grep 'watch -n 1 date' > {_shell_path(pid_after_path)}"
+        f"jobs -l | grep 'watch -n 1 date' > {_shell_path(pid_after_path)}"
     )
     if not shell.wait_for_path(pid_after_path, timeout=3.0):
-        return False, "Unable to capture lps output after fg -> Ctrl-Z"
+        return False, "Unable to capture jobs -l output after fg -> Ctrl-Z"
     stopped_pid_after = _latest_watch_pid(pid_after_path.read_text(errors="replace"))
     if stopped_pid_after is None:
         return False, "Unable to capture stopped watch pid after fg -> Ctrl-Z"
@@ -1009,7 +1029,7 @@ def scenario_ctrl_z_stops_clike_frontend_and_restores_prompt(shell: PtyShell) ->
     if _prompt_count(shell) <= prompt_before:
         return False, "Ctrl-Z did not return shell prompt after suspending clike frontend"
     check_cmd = (
-        "lps | grep 'hangman5' >/dev/null"
+        "jobs -l | grep Stopped | grep 'hangman5' >/dev/null"
         f" && touch {_shell_path(marker_stop)}"
     )
     if not _send_until_marker(shell, check_cmd, marker_stop, attempts=3, timeout=4.0):
@@ -1047,7 +1067,7 @@ def scenario_ctrl_z_fg_resumes_clike_frontend(shell: PtyShell) -> tuple[bool, st
     if not shell.wait_for_path(marker_stop_first, timeout=3.0):
         return False, "Initial clike stop was not visible in jobs output"
 
-    shell.send_line(f"lps > {_shell_path(pid_before_path)}")
+    shell.send_line(f"jobs -l > {_shell_path(pid_before_path)}")
     if not shell.wait_for_path(pid_before_path, timeout=3.0):
         return False, "Unable to capture clike pid before fg"
     pid_before = _latest_pid_for_command(
@@ -1073,7 +1093,7 @@ def scenario_ctrl_z_fg_resumes_clike_frontend(shell: PtyShell) -> tuple[bool, st
     if not shell.wait_for_path(marker_stop_second, timeout=3.0):
         return False, "clike frontend was not stopped after fg -> Ctrl-Z"
 
-    shell.send_line(f"lps > {_shell_path(pid_after_path)}")
+    shell.send_line(f"jobs -l > {_shell_path(pid_after_path)}")
     if not shell.wait_for_path(pid_after_path, timeout=3.0):
         return False, "Unable to capture clike pid after fg -> Ctrl-Z"
     pid_after = _latest_pid_for_command(
@@ -1273,7 +1293,7 @@ def scenario_ctrl_z_fg_resumes_shebang_frontend(shell: PtyShell) -> tuple[bool, 
     if not shell.wait_for_path(marker_stop_first, timeout=3.0):
         return False, "Initial shebang frontend stop was not visible in jobs output"
 
-    shell.send_line(f"lps > {_shell_path(pid_before_path)}")
+    shell.send_line(f"jobs -l > {_shell_path(pid_before_path)}")
     if not shell.wait_for_path(pid_before_path, timeout=3.0):
         return False, "Unable to capture shebang frontend pid before fg"
     pid_before = _latest_pid_for_command(
@@ -2276,11 +2296,13 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_time_findprimes_prompt",
         name="time FindPrimes returns prompt after stdin input",
         run=scenario_time_findprimes_returns_prompt,
+        needs=('pascal',),
     ),
     Scenario(
         test_id="interactive_findprimes_prompt",
         name="FindPrimes returns prompt after stdin input",
         run=scenario_findprimes_returns_prompt,
+        needs=('pascal',),
     ),
     Scenario(
         test_id="interactive_ctrl_c_sleep",
@@ -2296,26 +2318,31 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_ctrl_z_local_vproc_prompt",
         name="Ctrl-Z stops local vproc and restores shell prompt",
         run=scenario_ctrl_z_stops_local_vproc_and_restores_prompt,
+        needs=('watch',),
     ),
     Scenario(
         test_id="interactive_ctrl_z_clike_frontend_prompt",
         name="Ctrl-Z stops clike frontend and restores shell prompt",
         run=scenario_ctrl_z_stops_clike_frontend_and_restores_prompt,
+        needs=('clike',),
     ),
     Scenario(
         test_id="interactive_ctrl_z_clike_frontend_fg",
         name="Ctrl-Z/fg resumes clike frontend task",
         run=scenario_ctrl_z_fg_resumes_clike_frontend,
+        needs=('clike',),
     ),
     Scenario(
         test_id="interactive_ctrl_c_watch",
         name="Ctrl-C interrupts foreground watch",
         run=scenario_ctrl_c_interrupts_watch,
+        needs=('watch',),
     ),
     Scenario(
         test_id="interactive_ctrl_c_watch_top",
         name="Ctrl-C interrupts foreground watch -n 3 top",
         run=scenario_ctrl_c_interrupts_watch_top,
+        needs=('watch', 'top'),
     ),
     Scenario(
         test_id="interactive_ctrl_c_simple_web_frontend",
@@ -2336,21 +2363,25 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_ctrl_c_pascal_readkey_frontend",
         name="Ctrl-C interrupts Pascal ReadKey frontend (DiceGame)",
         run=scenario_ctrl_c_interrupts_pascal_readkey_frontend,
+        needs=('pascal',),
     ),
     Scenario(
         test_id="interactive_ctrl_z_watch_top",
         name="Ctrl-Z stops foreground watch -n 3 top",
         run=scenario_ctrl_z_stops_watch_top_and_restores_prompt,
+        needs=('watch', 'top'),
     ),
     Scenario(
         test_id="interactive_ctrl_z_shebang_frontend_prompt",
         name="Ctrl-Z stops shebang frontend and restores shell prompt",
         run=scenario_ctrl_z_stops_shebang_frontend_and_restores_prompt,
+        needs=('pascal',),
     ),
     Scenario(
         test_id="interactive_ctrl_z_shebang_frontend_fg",
         name="Ctrl-Z/fg resumes shebang frontend task",
         run=scenario_ctrl_z_fg_resumes_shebang_frontend,
+        needs=('pascal',),
     ),
     Scenario(
         test_id="interactive_status_next_line",
@@ -2621,6 +2652,24 @@ def _stop_run(signum: int, frame: object) -> None:
     raise SystemExit(128 + signum)
 
 
+def _missing_command(shell: "PtyShell", names: tuple[str, ...]) -> Optional[str]:
+    """The first of these the shell can't run, asked of the shell itself, since an applet is
+    no file on PATH. The shell's prompt is waited for, and left as it was found."""
+    if not names:
+        return None
+    ok, _ = _wait_for_prompt(shell)
+    if not ok:
+        return None
+    for name in names:
+        marker = _new_marker_path(f"has-{name}")
+        _unlink_if_exists(marker)
+        shell.send_line(f"type {name} >/dev/null 2>&1 && touch {_shell_path(marker)}")
+        if not shell.wait_for_path(marker, timeout=2.0):
+            return name
+        _unlink_if_exists(marker)
+    return None
+
+
 def main() -> int:
     # The default action would skip the finally that ends a scenario's shell and its jobs.
     signal.signal(signal.SIGTERM, _stop_run)
@@ -2646,6 +2695,11 @@ def main() -> int:
     for scenario in scenarios:
         shell = PtyShell(executable=exe, timeout=args.timeout, extra_env=scenario.env)
         try:
+            missing = _missing_command(shell, scenario.needs)
+            if missing:
+                results.append(Result(scenario=scenario, passed=True, reason=f"no {missing} here",
+                                      output_tail="", skipped=True))
+                continue
             passed, reason = scenario.run(shell)
             results.append(
                 Result(
@@ -2660,8 +2714,10 @@ def main() -> int:
 
     failures = [r for r in results if not r.passed]
     for result in results:
-        status = "PASS" if result.passed else "FAIL"
+        status = "SKIP" if result.skipped else ("PASS" if result.passed else "FAIL")
         print(f"[{status}] {result.scenario.test_id} - {result.scenario.name}")
+        if result.skipped:
+            print(f"    Reason: {result.reason}")
         if not result.passed:
             print(f"    Reason: {result.reason}")
             if result.output_tail.strip():
