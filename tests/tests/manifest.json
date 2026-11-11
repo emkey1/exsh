@@ -20,7 +20,7 @@
         "env": {
             "RUN_VPROC_TESTS": "1"
         },
-    "expected_stdout": "pipeline-help-grep:start\nhistory     Print the interactive history list.\npipeline-help-grep:status:0"
+    "expected_stdout": "pipeline-help-grep:start\nhistory     Display or change the history list.\npipeline-help-grep:status:0"
   },
   {
     "id": "pipeline_clike_head_ios",
@@ -181,7 +181,7 @@
         "env": {
             "RUN_VPROC_TESTS": "1"
         },
-        "expected_stdout": "pipeline-bg-pipe-redirect:start\nhistory     Print the interactive history list.\npipeline-bg-pipe-redirect:end"
+        "expected_stdout": "pipeline-bg-pipe-redirect:start\nhistory     Display or change the history list.\npipeline-bg-pipe-redirect:end"
   },
   {
     "id": "pipeline_bg_tool_redirect_ios",
@@ -2316,6 +2316,58 @@
             "description": "A number touching an operator inside [[ ]] is rejected, and every other word there is not.",
             "script": "Tests/exsh/tests/bash_parity_dbracket_redirect_word.exsh",
             "expect": "match_bash"
+        },
+        {
+            "id": "bash_parity_history_options",
+            "name": "history's options",
+            "category": "parity",
+            "description": "In a script nothing is recorded until -s adds it. Listing and n, -c, -d with positions, ranges and counts from the end, -s, -p, and -w, -r, -a and -n with a file or HISTFILE, keeping bash's count of what -a and -n have yet to do.",
+            "script": "Tests/exsh/tests/bash_parity_history_options.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "bash5_history_options",
+            "name": "history as bash 5 has it",
+            "category": "parity",
+            "description": "-a appends what this shell added, -n reads the file past what it has seen and counts that as its own, and -d takes START-END ranges and positions counted from the end.",
+            "script": "Tests/exsh/tests/bash5_history_options.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "bash 5 -a and -n: what this shell added, and the file past what it has seen\na 0\nw1\nw2\nw1\nw2\nw3\nn 0\n    1  w1\n    2  w2\n    3  w3\n    4  w2\n    5  w3\n    6  ext\nHISTFILE 0\nviahistfile\nbash 5 positions\n    1  c1\n    2  c2\n    3  c3\n    4  c4\n    5  c5\n    1  c1\n    2  c4\n    3  c5\n    1  c1\nrange 1\nall 0"
+        },
+        {
+            "id": "dbracket_collate",
+            "name": "[[ < ]] collates",
+            "category": "parity",
+            "description": "[[ < ]] and [[ > ]] sort as the locale collates, as in bash 5; test and [ compare bytes. Skips where en_US.UTF-8 is not installed.",
+            "script": "Tests/exsh/tests/dbracket_collate.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "dbracket 0\ndbracket 1\ndbracket 0\ntest 1\ntest 1\ndbracket in C 1\ndbracket in C 0"
+        },
+        {
+            "id": "bash_parity_stray_rparen",
+            "name": "A ')' nothing opened is a syntax error",
+            "category": "parity",
+            "description": "Alone, after a word, inside one or after a list, it fails as bash does, and every ')' that closes something or is quoted still works.",
+            "script": "Tests/exsh/tests/bash_parity_stray_rparen.exsh",
+            "expect": "match_bash"
+        },
+        {
+            "id": "stray_rparen_status",
+            "name": "eval's status for a stray ')'",
+            "category": "parity",
+            "description": "2, as bash 5.3 gives for any syntax error in eval (5.2 gives 1). A ')' closing an unquoted '(' word of the same command is a word, as exsh keeps those, and one past them is an error.",
+            "script": "Tests/exsh/tests/stray_rparen_status.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "status 2\nstatus 2\nstatus 2\n( a )\n( b)\n( ( c ) )\nfind 0\nstatus 2\nstatus 2\n( f )"
+        },
+        {
+            "id": "nohup_trap_hup",
+            "name": "A shell nohup starts can't trap HUP",
+            "category": "parity",
+            "description": "HUP is ignored when it starts, so its trap changes nothing, kill -HUP $$ reaches nothing and trap lists it; the same after trap '' HUP. On iOS the disposition is the task's.",
+            "script": "Tests/exsh/tests/nohup_trap_hup.exsh",
+            "expect": "runtime_ok",
+            "expected_stdout": "after\ntrap -- '' SIGHUP\nstatus 0\nafter"
         },
         {
             "id": "bash_parity_indirect_positional",

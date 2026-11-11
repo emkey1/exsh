@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# history's options in a script, where nothing is recorded until -s adds it: listing, n, -c,
+# -d, -s, -p, and -w, -r, -a and -n with a file. Messages differ between bash versions, so
+# only statuses are shown for the errors, and only those 5.2 and 5.3 agree on. What bash 3.2
+# does differently (-a and -n, ranges and negative positions) is in bash5_history_options.
+f="${TMPDIR:-/tmp}/hist_opts.$$"
+rm -f "$f"
+history; echo "empty $?"
+history -s one
+history -s two words
+history -s three
+history; echo "list $?"
+history 2
+history 0; echo "none $?"
+history -d 2; history
+history -d 9 2>/dev/null; echo "out of range $?"
+history -d x 2>/dev/null; echo "not a number $?"
+history -c; history; echo "cleared $?"
+history -s a; history -s b; history -c; history -s c; history
+history -c 3; history; echo "c with a word $?"
+
+echo "-p"
+history -s 'echo hello world'
+history -p '!!' '!$' plain; echo "p $?"
+history -p '!nosuch' 2>/dev/null; echo "p failed $?"
+history; echo "p adds nothing"
+
+echo "files"
+history -c
+history -s w1; history -s w2
+history -w "$f"; echo "w $?"; cat "$f"
+history -c; history -r "$f"; echo "r $?"; history
+history -r "${f}.missing" 2>/dev/null; echo "missing $?"
+history -w -a "$f" 2>/dev/null; echo "two of anrw $?"
+
+echo "errors"
+history -z 2>/dev/null; echo "bad option $?"
+history -d 2>/dev/null; echo "no position $?"
+history -s; echo "s with nothing $?"
+history -p; echo "p with nothing $?"
+
+rm -f "$f"

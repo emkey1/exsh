@@ -1,5 +1,8 @@
 #!/usr/bin/env exsh
 # A number touching < or > is a redirection to bash's grammar, and [[ ]] has no place for one.
+# [[ < ]] and [[ > ]] collate (bash_parity_glob_locale), and a bash built with GNU libintl on
+# macOS takes the Mac's language when no locale variable is set, so C is set here.
+LC_ALL=C
 for form in '[[ 3>2 ]]' '[[ 3<2 ]]' '[[ 12>2 ]]' '[[ a == 3>2 ]]' '[[ 3> 2 ]]'; do
   eval "$form && echo ran || echo ran" 2>/dev/null; echo "next"
 done

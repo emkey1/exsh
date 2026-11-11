@@ -1,0 +1,8 @@
+#!/usr/bin/env exsh
+# A shell nohup starts has HUP ignored when it starts: its trap can't change that, kill -HUP
+# reaches nothing, and trap lists it. bash 3.2 does not list it, so this has a fixed answer.
+nohup exsh -c 'trap "echo got" HUP; kill -HUP $$; echo after; trap -p HUP' 2>/dev/null
+echo "status $?"
+# What `trap '' HUP` leaves ignored is ignored on entry too. (Whether a plain one traps depends on
+# how the suite was started, under nohup or not, so the app's smoke rows check that.)
+( trap '' HUP; exsh -c 'trap "echo got" HUP; kill -HUP $$; echo after' )

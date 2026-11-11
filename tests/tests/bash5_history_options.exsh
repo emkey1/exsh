@@ -1,0 +1,25 @@
+#!/usr/bin/env exsh
+# history as bash 5 has it (3.2 differs, so this has a fixed answer, taken from bash 5.2 and 5.3):
+# -a writes what this shell added since the last -a, -n reads the file past the lines this shell
+# has seen and counts them as its own, and -d takes ranges and positions from the end.
+f="${TMPDIR:-/tmp}/hist5.$$"
+rm -f "$f"
+echo "bash 5 -a and -n: what this shell added, and the file past what it has seen"
+history -c; rm -f "$f"
+history -s w1; history -s w2
+history -w "$f"
+history -s w3; history -a "$f"; echo "a $?"; cat "$f"
+printf 'ext\n' >> "$f"
+history -n "$f"; echo "n $?"; history
+HISTFILE=$f; history -c; history -s viahistfile; history -a; echo "HISTFILE $?"; tail -1 "$f"
+unset HISTFILE
+
+echo "bash 5 positions"
+history -c
+for i in 1 2 3 4 5 6; do history -s "c$i"; done
+history -d -1; history
+history -d 2-3; history
+history -d -2--1; history
+history -d 5-1 2>/dev/null; echo "range $?"
+history -d 1--1; history; echo "all $?"
+rm -f "$f"

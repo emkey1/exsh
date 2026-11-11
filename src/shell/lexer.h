@@ -122,6 +122,9 @@ typedef struct {
     /* Set by the parser inside a subshell, where an unquoted ')' that opened
      * nothing in its word closes the subshell instead of being a literal. */
     bool rparen_closes;
+    /* Unquoted '(' words in this command that no ')' has closed yet, as in `find . ( -name a )`:
+     * a ')' is a word only while one is open, and otherwise a syntax error, as in bash. */
+    int open_literal_parens;
     /* Set by the parser between [[ and ]], and after =~ for the one word it applies to. */
     bool dbracket;
     bool dbracket_regex;

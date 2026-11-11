@@ -1,0 +1,14 @@
+#!/usr/bin/env exsh
+# eval's status for a syntax error is bash 5.3's, 2, for a stray ')' as for any other. Unquoted
+# parentheses among a command's words stay plain words (an exsh extension the owner keeps), so a
+# ')' closing a '(' word is one too, and only one past those is an error.
+eval 'echo )' 2>/dev/null; echo "status $?"
+eval 'echo x)y' 2>/dev/null; echo "status $?"
+eval 'if' 2>/dev/null; echo "status $?"
+echo ( a )
+echo ( b)
+echo ( ( c ) )
+find . ( -name no-such-file ) -print; echo "find $?"
+eval 'echo ( d ) )' 2>/dev/null; echo "status $?"
+eval 'echo ( e; echo )' 2>/dev/null; echo "status $?"
+( echo ( f ) )

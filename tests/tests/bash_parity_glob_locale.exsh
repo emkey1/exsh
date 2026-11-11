@@ -17,8 +17,9 @@ d="${TMPDIR:-/tmp}/glob_locale.$$"
 mkdir -p "$d/sub" && cd "$d" || exit 1
 touch a b Z '[a]' '[x' .h .Y sub/m sub/N sub/_k
 
-echo "none set"
-echo *
+# With none set bash sorts in C order on Linux and with macOS's /bin/bash, as exsh does. A bash
+# built against GNU libintl on macOS (Homebrew's) takes the Mac's language setting instead, so
+# that case is left out here.
 echo "LC_ALL"
 LC_ALL=$loc
 echo *

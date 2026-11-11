@@ -239,7 +239,8 @@ cd /; rm -rf "$d"
 ( set -- a; a='x y'; echo "[${!@@Q}] [${!*@Q}]" )
 eval '[[ {a}>b ]]' 2>/dev/null; [ $? -gt 1 ] && echo "name rejected"
 eval '[[ {a[1]}<b ]]' 2>/dev/null; [ $? -gt 1 ] && echo "element rejected"
-[[ {a} > b ]]; echo "spaced $?"
+# [[ > ]] collates, so this compares in C order whatever the locale.
+( LC_ALL=C; [[ {a} > b ]]; echo "spaced $?" )
 
 # What arithmetic names when it fails, where 3.2 names something else or takes it differently.
 unset x y a n

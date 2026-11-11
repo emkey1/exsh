@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# A ')' that no command opened is a syntax error wherever it falls in the line; one that
+# closes something, or is quoted, is not. eval's status for one is 2 in bash 5.3 and 1 in 5.2,
+# so this only says it failed (stray_rparen_status pins exsh to 5.3's).
+for form in 'echo )' 'echo a ) b' 'echo x)y' 'echo ))' 'true; )' 'echo a; echo )b'; do
+    eval "$form" 2>/dev/null && echo "ran" || echo "error"
+done
+eval 'echo shown )' || echo "error"
+echo $(echo a) "$(echo b)" `echo c`
+(echo d)
+case x in x) echo e;; esac
+case y in (y) echo f;; esac
+g() ( echo g ); g
+a=(h i); echo "${a[1]}"
+[[ ab =~ ^(a)b$ ]] && echo j
+echo \) ')' "k)" l\)
+echo $((2 * (3 + 1)))
+{ echo m; }
+x=$( case z in (z) echo n;; esac ); echo "$x"

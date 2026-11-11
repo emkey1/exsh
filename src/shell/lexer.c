@@ -570,12 +570,17 @@ static ShellToken scanWord(ShellLexer *lexer) {
                 if (treat_as_operator && (c == '(' || c == ')')) {
                     if (allowStructuralLiterals && (lexer->rule_mask & SHELL_LEXER_RULE_1) == 0) {
                         /* `(echo s)`: the ')' is not part of the word. One the
-                         * word opened itself stays in it, as in `^(ab)c$`. */
-                        treat_as_operator = c == ')' && lexer->rparen_closes && literalParenDepth == 0;
+                         * word opened itself stays in it, as in `^(ab)c$`, and so
+                         * does one closing a `(` word before it, as in `( -name a)`.
+                         * Any other ends it, so `echo x)y` is a syntax error. */
+                        treat_as_operator = c == ')' && literalParenDepth == 0 &&
+                                            lexer->open_literal_parens == 0;
                         if (c == '(') {
                             literalParenDepth++;
                         } else if (c == ')' && literalParenDepth > 0) {
                             literalParenDepth--;
+                        } else if (c == ')' && lexer->open_literal_parens > 0) {
+                            lexer->open_literal_parens--;
                         }
                     }
                 }
@@ -846,6 +851,7 @@ static ShellToken scanWord(ShellLexer *lexer) {
         }
     }
 
+    lexer->open_literal_parens += literalParenDepth;
     return tok;
 }
 
@@ -867,6 +873,7 @@ void shellInitLexer(ShellLexer *lexer, const char *source) {
     lexer->token_start = 0;
     lexer->final_newline_given = false;
     lexer->rparen_closes = false;
+    lexer->open_literal_parens = 0;
     lexer->dbracket = false;
     lexer->dbracket_regex = false;
 }
@@ -1025,8 +1032,13 @@ ShellToken shellNextToken(ShellLexer *lexer) {
     }
 
     bool command_starts = (lexer->rule_mask & SHELL_LEXER_RULE_1) != 0;
+    if (command_starts) {
+        lexer->open_literal_parens = 0;
+    }
     if (!command_starts && lexerAllowsStructuralWordLiterals(lexer) && isStructuralWordCandidate(c)) {
-        if (c == ')' && lexer->rparen_closes) {
+        /* A ')' is a word only while a `(` word of this command is open; one nothing opened
+         * is a syntax error, as in bash. */
+        if (c == ')' && lexer->open_literal_parens == 0) {
             advanceChar(lexer);
             return makeSimpleToken(lexer, SHELL_TOKEN_RPAREN, ")", 1);
         }

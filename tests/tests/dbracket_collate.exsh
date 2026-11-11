@@ -1,0 +1,18 @@
+#!/usr/bin/env exsh
+# [[ < ]] and [[ > ]] sort as the locale collates, as in bash 5 (3.2 compares bytes, so this has
+# a fixed answer); test and [ compare bytes in both. Skips where the locale isn't installed.
+for wanted in en_US.UTF-8 en_US.utf8; do
+    if locale -a 2>/dev/null | grep -qx -- "$wanted"; then
+        loc=$wanted
+    fi
+done
+[ -n "${loc:-}" ] || exit 77
+LC_ALL=$loc
+[[ a < B ]]; echo "dbracket $?"
+[[ {a} > b ]]; echo "dbracket $?"
+[[ b > a ]]; echo "dbracket $?"
+[ a \< B ]; echo "test $?"
+test a \< B; echo "test $?"
+LC_ALL=C
+[[ a < B ]]; echo "dbracket in C $?"
+[[ {a} > b ]]; echo "dbracket in C $?"
