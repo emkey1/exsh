@@ -687,7 +687,10 @@ int shellRunSource(const char *source,
                 source ? source : "(null)");
     }
 
-#if defined(SIGPIPE)
+#if defined(SIGPIPE) && !defined(PSCAL_TARGET_IOS)
+    /* On iOS signal() is the shell task's table, where SIGPIPE keeps its default as under bash:
+     * a builtin writing to a pipe whose reader has gone ends the shell. The host ignores it for
+     * the app (exsh_main and the app's launch). */
     static bool sigpipe_ignored = false;
     if (!sigpipe_ignored) {
         signal(SIGPIPE, SIG_IGN);
