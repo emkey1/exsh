@@ -4641,6 +4641,101 @@ static int exshRunChildCommand(int argc, char **argv) {
 }
 #endif
 
+#if defined(PSCAL_TARGET_IOS)
+/* The app's name for a host path under the root (/home for .../Documents/home), in out. With
+ * resolve, another spelling of the root (/private/var against /var) is found through realpath. */
+static bool exshAppPathName(const char *host, char *out, size_t out_size, bool resolve) {
+    if (!host || host[0] != '/') {
+        return false;
+    }
+    if (pathTruncateStrip(host, out, out_size) && strcmp(out, host) != 0) {
+        return true;
+    }
+    if (resolve && out_size >= PATH_MAX) {
+        return pscalPathVirtualized_realpath(host, out) != NULL && strcmp(out, host) != 0;
+    }
+    return false;
+}
+
+/* A colon list with each host path renamed; "~", "." and the app's own names stay as they are. */
+static void exshNameEnvListInAppTerms(const char *name) {
+    const char *value = getenv(name);
+    if (!value || !*value) {
+        return;
+    }
+    size_t cap = strlen(value) * 2 + PATH_MAX + 1;
+    char *out = (char *)malloc(cap);
+    char *copy = strdup(value);
+    if (!out || !copy) {
+        free(out);
+        free(copy);
+        return;
+    }
+    out[0] = '\0';
+    size_t len = 0;
+    bool changed = false;
+    char *cursor = copy;
+    for (;;) {
+        char *colon = strchr(cursor, ':');
+        if (colon) {
+            *colon = '\0';
+        }
+        char named[PATH_MAX];
+        const char *part = cursor;
+        if (exshAppPathName(cursor, named, sizeof(named), false)) {
+            part = named;
+            changed = true;
+        }
+        size_t part_len = strlen(part);
+        if (len + part_len + 2 > cap) {
+            changed = false;
+            break;
+        }
+        if (cursor != copy) {
+            out[len++] = ':';
+        }
+        memcpy(out + len, part, part_len);
+        len += part_len;
+        out[len] = '\0';
+        if (!colon) {
+            break;
+        }
+        cursor = colon + 1;
+    }
+    if (changed) {
+        setenv(name, out, 1);
+    }
+    free(out);
+    free(copy);
+}
+
+/* The app starts a tab with host paths in its environment (.../Documents/home for $HOME), while pwd,
+ * realpath and /proc/self/fd give the app's names. This tab's copy of the environment gets the app's
+ * names (/home, /tmp, /bin); the process's keeps the host's for what reads that one and takes no
+ * app paths (Swift, Go, libgit2). On the iOS-flavoured host the root is $HOME itself, whose name
+ * would be "/": there nothing is renamed. */
+static void exshNameEnvironmentInAppTerms(void) {
+    const char *home = getenv("HOME");
+    char named[PATH_MAX];
+    if (!home || home[0] != '/' || !pathTruncateEnabled()) {
+        return;
+    }
+    if (!exshAppPathName(home, named, sizeof(named), true)) {
+        return;
+    }
+    if (strcmp(named, "/") == 0) {
+        return;
+    }
+    setenv("HOME", named, 1);
+    const char *tmp = getenv("TMPDIR");
+    if (tmp && exshAppPathName(tmp, named, sizeof(named), true) && strcmp(named, "/") != 0) {
+        setenv("TMPDIR", named, 1);
+    }
+    exshNameEnvListInAppTerms("PATH");
+    exshNameEnvListInAppTerms("SESSIONPATH");
+}
+#endif
+
 int exsh_main(int argc, char **argv) {
 #if defined(PSCAL_TARGET_IOS)
     smallclueAppSetCommandRunner(exshRunChildCommand);
@@ -4919,25 +5014,7 @@ int exsh_main(int argc, char **argv) {
     setenv("EXSH_LAST_STATUS", "0", 1);
 #if defined(PSCAL_TARGET_IOS)
     if (!nested) {
-        /* $HOME in the app's names, as pwd, realpath and /proc/self/fd give them: the app
-         * starts a tab with the host's (.../Documents/home), and this tab's copy of the
-         * environment gets /home. The process's keeps the host's for what reads that one
-         * and takes no app paths (Swift, Go, libgit2). On the iOS-flavoured host the root
-         * is $HOME itself, whose name would be "/": that one stays as it is. */
-        const char *home = getenv("HOME");
-        char virtual_home[PATH_MAX];
-        if (home && home[0] == '/' && pathTruncateEnabled()) {
-            bool named = pathTruncateStrip(home, virtual_home, sizeof(virtual_home)) &&
-                         strcmp(virtual_home, home) != 0;
-            if (!named) {
-                /* Another spelling of the root (/private/var against /var). */
-                named = pscalPathVirtualized_realpath(home, virtual_home) != NULL &&
-                        strcmp(virtual_home, home) != 0;
-            }
-            if (named && strcmp(virtual_home, "/") != 0) {
-                setenv("HOME", virtual_home, 1);
-            }
-        }
+        exshNameEnvironmentInAppTerms();
     }
 #endif
     {
