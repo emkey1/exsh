@@ -333,10 +333,6 @@ static void shellTeardownSelfVproc(int status) {
     vprocDestroy(gShellSelfVproc);
     gShellSelfVproc = NULL;
     if (session_stdio) {
-        /* Its reader first: a close of a host terminal waits for a read of it to end. */
-        if (session_stdio->stdin_host_fd >= 0) {
-            vprocSessionInputStop(session_stdio);
-        }
         if (session_stdio->stdin_host_fd >= 0) close(session_stdio->stdin_host_fd);
         if (session_stdio->stdout_host_fd >= 0) close(session_stdio->stdout_host_fd);
         if (session_stdio->stderr_host_fd >= 0) close(session_stdio->stderr_host_fd);
@@ -4577,24 +4573,8 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         /* A command gets the terminal as it is anywhere else: line mode with echo, ISIG on,
          * Ctrl-D as end of file, and raw mode only if it asks. A tab's terminal turns Ctrl-C
          * and Ctrl-Z into signals to the foreground group itself, as Linux's line discipline
-         * does (L20). */
-#if defined(PSCAL_TARGET_IOS)
-        /* A host terminal (the iOS build run on a Mac, for tests) is read by the session's
-         * reader, which makes the Ctrl-C/Z byte a signal for the foreground job. A SIGINT
-         * from the host terminal would meet the process-wide block, and only a tool thread's
-         * catcher waits for it, so an applet such as sleep never heard it: ISIG is off. */
-        struct termios runtime_original_termios;
-        bool runtime_isig_disabled = false;
-        const bool host_terminal = EXSH_HOST_TERMINAL;
-        if (tty && host_terminal && pscalRuntimeStdinHasRealTTY() &&
-            shellTcgetattr(STDIN_FILENO, &runtime_original_termios) == 0) {
-            struct termios runtime_termios = runtime_original_termios;
-            runtime_termios.c_lflag &= ~ISIG;
-            if (shellTcsetattr(STDIN_FILENO, TCSANOW, &runtime_termios) == 0) {
-                runtime_isig_disabled = true;
-            }
-        }
-#endif
+         * does (L20). On a Mac the iOS build's interactive shell runs on such a terminal too,
+         * behind the host terminal bridge. */
         last_status = shellRunSource(expanded_tilde, "<stdin>", &exec_opts, &exit_requested);
         /* What the line's last command was sent runs before the next prompt. */
         shellRuntimeProcessPendingSignals();
@@ -4603,11 +4583,6 @@ static int runInteractiveSession(const ShellRunOptions *options) {
             last_status = shellRuntimeLastStatus();
         }
         shellRuntimeSetPromptStatus(last_status);
-#if defined(PSCAL_TARGET_IOS)
-        if (runtime_isig_disabled) {
-            (void)shellTcsetattr(STDIN_FILENO, TCSANOW, &runtime_original_termios);
-        }
-#endif
         free(expanded_tilde);
         free(line);
         if (exit_requested) {
@@ -5132,7 +5107,16 @@ int exsh_main(int argc, char **argv) {
 #undef EXSH_RETURN
 
 #ifndef PSCAL_NO_CLI_ENTRYPOINTS
+#if defined(PSCAL_TARGET_IOS) && EXSH_HOST_TERMINAL
+static bool hostBridgeWanted(int argc, char **argv);
+static int hostBridgeRun(int argc, char **argv);
+#endif
 int main(int argc, char **argv) {
+#if defined(PSCAL_TARGET_IOS) && EXSH_HOST_TERMINAL
+    if (hostBridgeWanted(argc, argv)) {
+        return hostBridgeRun(argc, argv);
+    }
+#endif
     return exsh_main(argc, argv);
 }
 #elif defined(PSCAL_TARGET_IOS) && defined(SDL)
@@ -5169,7 +5153,25 @@ extern int smallclueMain(int argc, char **argv) __attribute__((weak));
 typedef struct SmallclueApplet SmallclueApplet;
 extern const SmallclueApplet *smallclueFindApplet(const char *name) __attribute__((weak));
 
+#if EXSH_HOST_TERMINAL && !defined(PSCAL_NO_CLI_ENTRYPOINTS)
+/* The session the host terminal bridge runs, and how it ended. */
+#define EXSH_HOST_BRIDGE_SESSION_ID 1
+static pthread_mutex_t gHostBridgeMu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t gHostBridgeCv = PTHREAD_COND_INITIALIZER;
+static bool gHostBridgeDone = false;
+static int gHostBridgeStatus = 0;
+#endif
+
 static void shellSessionNotifyExit(uint64_t session_id, int status) {
+#if EXSH_HOST_TERMINAL && !defined(PSCAL_NO_CLI_ENTRYPOINTS)
+    if (session_id == EXSH_HOST_BRIDGE_SESSION_ID) {
+        pthread_mutex_lock(&gHostBridgeMu);
+        gHostBridgeDone = true;
+        gHostBridgeStatus = status;
+        pthread_cond_broadcast(&gHostBridgeCv);
+        pthread_mutex_unlock(&gHostBridgeMu);
+    }
+#endif
     if (pscalRuntimeShellSessionExited) {
         pscalRuntimeShellSessionExited(session_id, status);
     }
@@ -5514,4 +5516,129 @@ int PSCALRuntimeCreateShellSession(int argc,
     errno = ENOTSUP;
     return -1;
 }
+#endif
+
+#if defined(PSCAL_TARGET_IOS) && EXSH_HOST_TERMINAL && !defined(PSCAL_NO_CLI_ENTRYPOINTS)
+/* The iOS build run on a Mac, at a host terminal. The shell runs on a terminal of the app's kind,
+ * a vproc pty, which does the line discipline, Ctrl-C and job control as in a tab (L20), and this
+ * is the view in front of it, as a tab's is: the host terminal is raw, its keys go in as typed,
+ * the pty's output comes out, and its size follows the host's. The vproc shims are force-included
+ * here, so everything that has to reach the host goes through vproc's host calls. */
+#pragma push_macro("ioctl")
+#pragma push_macro("isatty")
+#undef ioctl
+#undef isatty
+/* The system headers came after the shims, so they declared these under the shims' names. */
+extern int ioctl(int fd, unsigned long request, ...);
+extern int isatty(int fd);
+
+static volatile sig_atomic_t gHostBridgeResized = 0;
+
+static void hostBridgeOnResize(int sig) {
+    (void)sig;
+    gHostBridgeResized = 1;
+}
+
+static void hostBridgeOutput(uint64_t session_id, const unsigned char *data, size_t len, void *context) {
+    (void)session_id;
+    (void)context;
+    while (len > 0) {
+        ssize_t n = vprocHostWrite(STDOUT_FILENO, data, len);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return;
+        }
+        data += n;
+        len -= (size_t)n;
+    }
+}
+
+static void hostBridgeSendSize(void) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
+        (void)vprocSetSessionWinsize(EXSH_HOST_BRIDGE_SESSION_ID, ws.ws_col, ws.ws_row);
+    }
+}
+
+/* An interactive start: no command string, script or operand, only options. */
+static bool hostBridgeWanted(int argc, char **argv) {
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
+        return false;
+    }
+    for (int i = 1; i < argc; ++i) {
+        if (!argv[i] || argv[i][0] != '-' || strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--") == 0 ||
+            strcmp(argv[i], "-s") == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static int hostBridgeRun(int argc, char **argv) {
+    struct termios saved;
+    const bool have_saved = tcgetattr(STDIN_FILENO, &saved) == 0;
+    if (have_saved) {
+        struct termios raw = saved;
+        cfmakeraw(&raw);
+        (void)tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    }
+    struct sigaction resize;
+    memset(&resize, 0, sizeof(resize));
+    resize.sa_handler = hostBridgeOnResize;
+    sigemptyset(&resize.sa_mask);
+    (void)vprocHostSigaction(SIGWINCH, &resize, NULL);
+
+    vprocSessionSetOutputHandler(EXSH_HOST_BRIDGE_SESSION_ID, hostBridgeOutput, NULL);
+    hostBridgeSendSize();
+    int read_fd = -1;
+    int write_fd = -1;
+    if (PSCALRuntimeCreateShellSession(argc, argv, EXSH_HOST_BRIDGE_SESSION_ID, &read_fd, &write_fd) != 0) {
+        if (have_saved) {
+            (void)tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+        }
+        fprintf(stderr, "exsh: cannot start a terminal session: %s\n", strerror(errno));
+        return 127;
+    }
+    hostBridgeSendSize();
+
+    int status = 0;
+    for (;;) {
+        pthread_mutex_lock(&gHostBridgeMu);
+        const bool done = gHostBridgeDone;
+        status = gHostBridgeStatus;
+        pthread_mutex_unlock(&gHostBridgeMu);
+        if (done) {
+            break;
+        }
+        if (gHostBridgeResized) {
+            gHostBridgeResized = 0;
+            hostBridgeSendSize();
+        }
+        struct pollfd pfd = {.fd = STDIN_FILENO, .events = POLLIN, .revents = 0};
+        const int ready = vprocHostPoll(&pfd, 1, 100);
+        if (ready <= 0) {
+            continue;
+        }
+        unsigned char keys[512];
+        const ssize_t n = vprocHostRead(STDIN_FILENO, keys, sizeof(keys));
+        if (n > 0) {
+            (void)vprocSessionWriteToMasterMode(EXSH_HOST_BRIDGE_SESSION_ID, keys, (size_t)n, true);
+        } else if (n == 0 || (errno != EINTR && errno != EAGAIN)) {
+            /* The host terminal went: the shell's terminal hangs up, as on Linux. */
+            (void)vprocTerminateSessionById(EXSH_HOST_BRIDGE_SESSION_ID);
+            status = 128 + SIGHUP;
+            break;
+        }
+    }
+    vprocSessionClearOutputHandler(EXSH_HOST_BRIDGE_SESSION_ID);
+    if (have_saved) {
+        (void)tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+    }
+    return status;
+}
+
+#pragma pop_macro("isatty")
+#pragma pop_macro("ioctl")
 #endif

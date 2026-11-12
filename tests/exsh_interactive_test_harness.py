@@ -2103,12 +2103,21 @@ def scenario_history_file_keeps_its_limit(shell: PtyShell) -> tuple[bool, str]:
         end = time.monotonic() + 2.5
         while _prompt_count(shell) <= count and time.monotonic() < end:
             shell._pump(0.05)
-    try:
-        lines = HISTORY_LIMIT_FILE.read_text().splitlines()
-    except FileNotFoundError:
+    # The prompt can arrive before the shell has rewritten the file: on the iOS build it comes
+    # through the terminal, whose output has a thread of its own.
+    lines = None
+    end = time.monotonic() + 2.0
+    while time.monotonic() < end:
+        try:
+            lines = HISTORY_LIMIT_FILE.read_text().splitlines()
+        except FileNotFoundError:
+            lines = None
+        if lines == [": three", ": four"]:
+            break
+        shell._pump(0.05)
+    _unlink_if_exists(HISTORY_LIMIT_FILE)
+    if lines is None:
         return False, "the history file is gone"
-    finally:
-        _unlink_if_exists(HISTORY_LIMIT_FILE)
     left_over = list(MARKER_DIR.glob(HISTORY_LIMIT_FILE.name + ".tmp*"))
     for path in left_over:
         _unlink_if_exists(path)
