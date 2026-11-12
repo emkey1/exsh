@@ -18,8 +18,8 @@ mkdir -p "$d/sub" && cd "$d" || exit 1
 touch a b Z '[a]' '[x' .h .Y sub/m sub/N sub/_k
 
 # With none set bash sorts in C order on Linux and with macOS's /bin/bash, as exsh does. A bash
-# built against GNU libintl on macOS (Homebrew's) takes the Mac's language setting instead, so
-# that case is left out here.
+# built against GNU libintl on macOS (Homebrew's) takes the Mac's language setting instead (C on
+# a Mac whose setting it can't map, such as en_US@rg=gbzzzz), so this test never globs with none set.
 echo "LC_ALL"
 LC_ALL=$loc
 echo *
@@ -45,7 +45,9 @@ echo *
 unset LC_ALL LC_COLLATE 2>/dev/null
 unset LANG 2>/dev/null
 
+# The shell sets C itself first: with nothing set Homebrew's bash takes the Mac's language setting.
 echo "only what stays in the shell changes the words"
+LC_ALL=C
 LC_ALL=$loc echo *
 LC_ALL=$loc
 
