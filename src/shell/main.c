@@ -4213,6 +4213,11 @@ static char *readInteractiveLine(const char *prompt,
             continue;
         }
 
+        if (ch == 0) {
+            /* A byte 0 is the end-of-file key typed while a command ran and nothing read it:
+             * the raw prompt reads it as that, as on Linux. Nothing to do, and no bell. */
+            continue;
+        }
         if (!isprint(ch)) {
             alt_dot_active = false;
             alt_dot_offset = 0;
