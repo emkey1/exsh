@@ -915,6 +915,43 @@ def scenario_ctrl_c_interrupts_sleep(shell: PtyShell) -> tuple[bool, str]:
     return True, "sleep interrupted by Ctrl-C"
 
 
+def scenario_ctrl_c_script_after_its_job_ended(shell: PtyShell) -> tuple[bool, str]:
+    """Ctrl-C ends a script run with sh, whether or not its background job is still running.
+
+    On iOS a program that ended in a background job gave the terminal to the tab's shell while
+    the script still ran: Ctrl-C then ended only the script's command, and the script went on
+    (`no 130`). bash ends the script either way.
+    """
+    ok, reason = _wait_for_prompt(shell)
+    if not ok:
+        return False, reason
+    for first, wait in (("sleep 1 &", 2.5), ("sleep 20 &", 1.0), ("sleep 1 | cat &", 2.5)):
+        went_on = _new_marker_path("ctrlc-script-went-on")
+        back = _new_marker_path("ctrlc-script-prompt")
+        script = _new_marker_path("ctrlc-script").with_suffix(".sh")
+        _unlink_if_exists(went_on)
+        _unlink_if_exists(back)
+        script.write_text(f'{first} sleep 30; echo "no $?" > {_shell_path(went_on)}\n')
+        shell.send_line(f"sh {_shell_path(script)}")
+        shell._pump(wait)
+        shell.send(b"\x03")
+        shell._pump(0.5)
+        shell.send_line(f"touch {_shell_path(back)}")
+        if not shell.wait_for_path(back, timeout=3.0):
+            _unlink_if_exists(script)
+            return False, f"no prompt after Ctrl-C with `{first}`"
+        shell._pump(0.5)
+        if went_on.exists():
+            text = went_on.read_text().strip()
+            _unlink_if_exists(went_on)
+            _unlink_if_exists(back)
+            _unlink_if_exists(script)
+            return False, f"with `{first}` the script went on and wrote [{text}]"
+        _unlink_if_exists(back)
+        _unlink_if_exists(script)
+    return True, "Ctrl-C ended the script with its background job finished and running"
+
+
 def scenario_ctrl_z_stops_sleep(shell: PtyShell) -> tuple[bool, str]:
     ok, reason = _wait_for_prompt(shell)
     if not ok:
@@ -2321,6 +2358,11 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_ctrl_c_sleep",
         name="Ctrl-C interrupts foreground sleep",
         run=scenario_ctrl_c_interrupts_sleep,
+    ),
+    Scenario(
+        test_id="interactive_ctrl_c_script_after_its_job_ended",
+        name="Ctrl-C ends a script whose background job has finished",
+        run=scenario_ctrl_c_script_after_its_job_ended,
     ),
     Scenario(
         test_id="interactive_ctrl_z_sleep",
