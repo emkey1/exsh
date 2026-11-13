@@ -915,17 +915,13 @@ def scenario_ctrl_c_interrupts_sleep(shell: PtyShell) -> tuple[bool, str]:
     return True, "sleep interrupted by Ctrl-C"
 
 
-def scenario_ctrl_c_script_after_its_job_ended(shell: PtyShell) -> tuple[bool, str]:
-    """Ctrl-C ends a script run with sh, whether or not its background job is still running.
-
-    On iOS a program that ended in a background job gave the terminal to the tab's shell while
-    the script still ran: Ctrl-C then ended only the script's command, and the script went on
-    (`no 130`). bash ends the script either way.
-    """
+def _ctrl_c_ends_scripts(shell: PtyShell, cases) -> tuple[bool, str]:
+    """For each (first, wait): `sh` a script of `first` then `sleep 30`, Ctrl-C after `wait`
+    seconds, and fail if the script went on to its next line or no prompt came back."""
     ok, reason = _wait_for_prompt(shell)
     if not ok:
         return False, reason
-    for first, wait in (("sleep 1 &", 2.5), ("sleep 20 &", 1.0), ("sleep 1 | cat &", 2.5)):
+    for first, wait in cases:
         went_on = _new_marker_path("ctrlc-script-went-on")
         back = _new_marker_path("ctrlc-script-prompt")
         script = _new_marker_path("ctrlc-script").with_suffix(".sh")
@@ -949,7 +945,32 @@ def scenario_ctrl_c_script_after_its_job_ended(shell: PtyShell) -> tuple[bool, s
             return False, f"with `{first}` the script went on and wrote [{text}]"
         _unlink_if_exists(back)
         _unlink_if_exists(script)
-    return True, "Ctrl-C ended the script with its background job finished and running"
+    return True, ""
+
+
+def scenario_ctrl_c_script_after_its_job_ended(shell: PtyShell) -> tuple[bool, str]:
+    """Ctrl-C ends a script run with sh, whether or not its background job is still running.
+
+    On iOS a program that ended in a background job gave the terminal to the tab's shell while
+    the script still ran: Ctrl-C then ended only the script's command, and the script went on
+    (`no 130`). bash ends the script either way.
+    """
+    ok, reason = _ctrl_c_ends_scripts(
+        shell, (("sleep 1 &", 2.5), ("sleep 20 &", 1.0), ("sleep 1 | cat &", 2.5)))
+    return ok, reason or "Ctrl-C ended the script with its background job finished and running"
+
+
+def scenario_ctrl_c_script_with_job_control(shell: PtyShell) -> tuple[bool, str]:
+    """Ctrl-C ends a script run with sh after its first command, with job control started for it.
+
+    A script's shell starts job control with no terminal of its own when RUN_VPROC_TESTS is set,
+    as for this harness on the iOS build, or with `set -m`. On iOS starting it took the terminal
+    for the tab's shell, not the script's: after `sleep 1` the script ran in the background of
+    its own terminal, and Ctrl-C reached the tab's shell while the script went on (`no 130`).
+    bash 5 ends it.
+    """
+    ok, reason = _ctrl_c_ends_scripts(shell, (("sleep 1;", 2.5),))
+    return ok, reason or "Ctrl-C ended the script after its first command"
 
 
 def scenario_ctrl_z_stops_sleep(shell: PtyShell) -> tuple[bool, str]:
@@ -2363,6 +2384,11 @@ SCENARIOS: List[Scenario] = [
         test_id="interactive_ctrl_c_script_after_its_job_ended",
         name="Ctrl-C ends a script whose background job has finished",
         run=scenario_ctrl_c_script_after_its_job_ended,
+    ),
+    Scenario(
+        test_id="interactive_ctrl_c_script_with_job_control",
+        name="Ctrl-C ends a script when job control is started for it",
+        run=scenario_ctrl_c_script_with_job_control,
     ),
     Scenario(
         test_id="interactive_ctrl_z_sleep",
