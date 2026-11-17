@@ -105,6 +105,12 @@ static _Thread_local bool gPromptSignalEnded = false;
 static _Thread_local bool gInteractiveLineDrawn = false;
 /* The line as drawn ended on the last column of a row, so the cursor is already on a new row. */
 static _Thread_local bool gInteractiveLineFilledRow = false;
+/* What the last draw left on the screen: a hash of the prompt and the line, the line's length,
+ * and whether the cursor was after its last glyph. A key typed at the end of that line is drawn
+ * as the one glyph it adds. */
+static _Thread_local uint64_t gInteractiveDrawnHash = 0;
+static _Thread_local size_t gInteractiveDrawnLength = 0;
+static _Thread_local bool gInteractiveDrawnAtEnd = false;
 /* A byte read while finishing a UTF-8 character that turned out not to belong to it: the editor
  * takes it as the next key. */
 static _Thread_local int gInteractivePendingByte = -1;
@@ -1610,6 +1616,40 @@ static void shellWriteStdoutChar(char ch) {
     shellWriteStdout(&ch, 1);
 }
 
+/* FNV-1a, carried on from `hash`. */
+#define INTERACTIVE_HASH_SEED 1469598103934665603ull
+static uint64_t interactiveHashBytes(uint64_t hash, const char *bytes, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= (unsigned char)bytes[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+/* A draw's bytes, gathered for one write. With no memory (`data` NULL) each piece is written
+ * as it comes. */
+typedef struct {
+    char *data;
+    size_t len;
+    size_t cap;
+} InteractiveOut;
+
+static void interactiveOutAppend(InteractiveOut *out, const char *bytes, size_t len) {
+    if (len == 0) {
+        return;
+    }
+    if (!out->data || out->len + len > out->cap) {
+        if (out->data && out->len > 0) {
+            shellWriteStdout(out->data, out->len);
+            out->len = 0;
+        }
+        shellWriteStdout(bytes, len);
+        return;
+    }
+    memcpy(out->data + out->len, bytes, len);
+    out->len += len;
+}
+
 /* Draws the prompt and the line again, from where the last draw left the cursor:
  * *displayed_prompt_lines is how many rows that is below the row the prompt starts on. */
 static void redrawInteractiveLine(const char *prompt,
@@ -1638,46 +1678,73 @@ static void redrawInteractiveLine(const char *prompt,
                                      &end_col,
                                      &filled_row);
 
-    size_t rows_to_prompt = gInteractiveLineDrawn ? previous_prompt_lines : 0;
-    for (size_t i = 0; i < rows_to_prompt; ++i) {
-        shellWriteStdoutStr("\033[A");
-    }
-    shellWriteStdoutStr("\r");
-    shellWriteStdoutStr("\033[J");
+    /* The prompt and all of the line but its last byte, then that byte: the first is what the
+     * last draw hashed if this line is that one with a key added at its end. */
+    uint64_t hash_before_last = INTERACTIVE_HASH_SEED;
     if (prompt) {
-        shellWriteStdoutStr(prompt);
+        hash_before_last = interactiveHashBytes(hash_before_last, prompt, strlen(prompt));
     }
     if (buffer && length > 0) {
-        shellWriteStdout(buffer, length);
+        hash_before_last = interactiveHashBytes(hash_before_last, buffer, length - 1);
+    }
+    const uint64_t hash_now = (buffer && length > 0)
+        ? interactiveHashBytes(hash_before_last, buffer + length - 1, 1)
+        : hash_before_last;
+
+    /* A plain character typed at the end of the line, which stays on its row and short of the
+     * last column: the terminal has everything else already, and the cursor is where the
+     * character goes. Drawing the whole line again for each key cleared the screen below it
+     * and printed the prompt again, in several writes a terminal could show one at a time. */
+    if (gInteractiveLineDrawn && gInteractiveDrawnAtEnd && !gInteractiveLineFilledRow && !filled_row &&
+        buffer && length > 0 && cursor == length && gInteractiveDrawnLength == length - 1 &&
+        (unsigned char)buffer[length - 1] >= 0x20 && (unsigned char)buffer[length - 1] < 0x7f &&
+        cursor_row == previous_prompt_lines && end_row == cursor_row && end_col == cursor_col &&
+        hash_before_last == gInteractiveDrawnHash) {
+        shellWriteStdout(buffer + length - 1, 1);
+        if (displayed_length) {
+            *displayed_length = length;
+        }
+        gInteractiveDrawnHash = hash_now;
+        gInteractiveDrawnLength = length;
+        return;
+    }
+
+    size_t rows_to_prompt = gInteractiveLineDrawn ? previous_prompt_lines : 0;
+    const size_t rows_moved = end_row > cursor_row ? end_row - cursor_row : cursor_row - end_row;
+    const size_t cols_moved = end_col > cursor_col ? end_col - cursor_col : cursor_col - end_col;
+    const size_t prompt_len = prompt ? strlen(prompt) : 0;
+    /* One write for the whole draw. Each move is three bytes; the rest is "\r", "\033[J" and
+     * " \r". Without the memory for it the pieces go out one by one, as they used to. */
+    InteractiveOut out;
+    out.len = 0;
+    out.cap = prompt_len + length + 3 * (rows_to_prompt + rows_moved + cols_moved) + 8;
+    out.data = (char *)malloc(out.cap);
+
+    for (size_t i = 0; i < rows_to_prompt; ++i) {
+        interactiveOutAppend(&out, "\033[A", 3);
+    }
+    interactiveOutAppend(&out, "\r\033[J", 4);
+    if (prompt) {
+        interactiveOutAppend(&out, prompt, prompt_len);
+    }
+    if (buffer && length > 0) {
+        interactiveOutAppend(&out, buffer, length);
     }
     if (filled_row) {
         /* The terminal's cursor is still on the last column, waiting for a glyph. A space takes
          * it to the next row, where the count above says it is, as readline does. */
-        shellWriteStdoutStr(" \r");
+        interactiveOutAppend(&out, " \r", 2);
     }
 
-    if (end_row > cursor_row) {
-        size_t diff = end_row - cursor_row;
-        for (size_t i = 0; i < diff; ++i) {
-            shellWriteStdoutStr("\033[A");
-        }
-    } else if (cursor_row > end_row) {
-        size_t diff = cursor_row - end_row;
-        for (size_t i = 0; i < diff; ++i) {
-            shellWriteStdoutStr("\033[B");
-        }
+    for (size_t i = 0; i < rows_moved; ++i) {
+        interactiveOutAppend(&out, end_row > cursor_row ? "\033[A" : "\033[B", 3);
     }
-
-    if (end_col > cursor_col) {
-        size_t diff = end_col - cursor_col;
-        for (size_t i = 0; i < diff; ++i) {
-            shellWriteStdoutStr("\033[D");
-        }
-    } else if (cursor_col > end_col) {
-        size_t diff = cursor_col - end_col;
-        for (size_t i = 0; i < diff; ++i) {
-            shellWriteStdoutStr("\033[C");
-        }
+    for (size_t i = 0; i < cols_moved; ++i) {
+        interactiveOutAppend(&out, end_col > cursor_col ? "\033[D" : "\033[C", 3);
+    }
+    if (out.data) {
+        shellWriteStdout(out.data, out.len);
+        free(out.data);
     }
 
     if (displayed_length) {
@@ -1688,6 +1755,9 @@ static void redrawInteractiveLine(const char *prompt,
     }
     gInteractiveLineFilledRow = filled_row;
     gInteractiveLineDrawn = true;
+    gInteractiveDrawnHash = hash_now;
+    gInteractiveDrawnLength = length;
+    gInteractiveDrawnAtEnd = cursor == length;
 }
 
 /* Puts the cursor after the last glyph of the line. The line can run on below the cursor, and
