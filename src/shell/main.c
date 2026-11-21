@@ -4640,6 +4640,12 @@ static int runInteractiveSession(const ShellRunOptions *options) {
         }
         shellRuntimeRecordHistory(line);
         bool exit_requested = false;
+        /* An interrupt noted while this shell sat at its prompt was never this line's: the
+         * flags are the whole app's, and another tab's Ctrl-C or close raises them. Left up,
+         * they ended this command before it ran (an `exit` typed after a tab closed did
+         * nothing). A Ctrl-C at this prompt is the editor's, which has dealt with it. */
+        pscalRuntimeConsumeSigint();
+        pscalRuntimeClearInterruptFlag();
         /* A command gets the terminal as it is anywhere else: line mode with echo, ISIG on,
          * Ctrl-D as end of file, and raw mode only if it asks. A tab's terminal turns Ctrl-C
          * and Ctrl-Z into signals to the foreground group itself, as Linux's line discipline
