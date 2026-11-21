@@ -334,6 +334,7 @@ static const char *shellResolveToolName(const char *interpreter) {
     if (strcasecmp(base, "pascal") == 0) return "pascal";
     if (strcasecmp(base, "clike") == 0) return "clike";
     if (strcasecmp(base, "rea") == 0) return "rea";
+    if (strcasecmp(base, "aether") == 0) return "aether";
     if (strcasecmp(base, "pscalvm") == 0) return "pscalvm";
     if (strcasecmp(base, "pscaljson2bc") == 0) return "pscaljson2bc";
     if (strcasecmp(base, "dascal") == 0) return "dascal";
